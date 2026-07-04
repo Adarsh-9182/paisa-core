@@ -1,0 +1,8 @@
+node_modules
+web/node_modules
+web/.next
+web/.paisa-data
+web/.git
+tests
+demo
+.claude

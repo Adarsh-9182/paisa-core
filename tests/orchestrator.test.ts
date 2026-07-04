@@ -1,0 +1,144 @@
+import { describe, it, expect } from "vitest";
+import {
+  Platform, parseINR,
+  MockProvider, FallbackProvider, Orchestrator,
+  NarrationError, PermissionError,
+  verifyNarration, extractFigures,
+  AiUser,
+} from "../src/index.js";
+
+const seededOrg = () => {
+  const platform = new Platform();
+  const org = platform.createOrganization("org_abc", "ABC Technologies");
+  const post = (date: string, dr: string, cr: string, amt: string, narration = "txn") =>
+    org.journal.post({
+      date, narration,
+      lines: [
+        { accountId: dr, side: "DEBIT", amount: parseINR(amt) },
+        { accountId: cr, side: "CREDIT", amount: parseINR(amt) },
+      ],
+      sourceModule: "manual", createdBy: "adarsh",
+    });
+  post("2026-01-01", "acc_bank", "acc_capital", "30,00,000", "Seed");
+  for (const m of ["04", "05", "06"]) {
+    post(`2026-${m}-01`, "acc_salary", "acc_bank", "2,00,000", "Payroll");
+    post(`2026-${m}-15`, "acc_bank", "acc_sales", "1,00,000", "Sales");
+  }
+  return org;
+};
+
+const cfoUser: AiUser = {
+  userId: "adarsh",
+  orgId: "org_abc",
+  permissions: new Set(["access_ai_cfo", "view_reports"]),
+};
+
+describe("verifyNarration — the hard invariant", () => {
+  it("accepts narration whose figures all come from tool outputs", () => {
+    expect(() =>
+      verifyNarration(
+        "You have ₹24,00,000.00 in cash and 360 days of runway.",
+        ["cash_on_hand=₹24,00,000.00", "runway=360 days"],
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects invented figures", () => {
+    expect(() =>
+      verifyNarration("Your balance is ₹99,99,999.00.", ["cash_on_hand=₹24,00,000.00"]),
+    ).toThrow(NarrationError);
+    expect(() =>
+      verifyNarration("Runway is 500 days.", ["runway=360 days"]),
+    ).toThrow(NarrationError);
+  });
+
+  it("allows small ordinary-language integers", () => {
+    expect(() =>
+      verifyNarration("Over the last 3 months, across 2 categories, cash is ₹24,00,000.00.", [
+        "cash_on_hand=₹24,00,000.00",
+      ]),
+    ).not.toThrow();
+  });
+
+  it("extractFigures finds rupee amounts and percentages", () => {
+    expect(extractFigures("Spent ₹1,00,000.00, up 22% over 90 days")).toEqual([
+      "₹1,00,000.00", "22%", "90",
+    ]);
+  });
+});
+
+describe("orchestrator", () => {
+  it("runs the tool loop and returns a verified, audited answer", async () => {
+    const org = seededOrg();
+    const provider = new MockProvider([
+      { kind: "tool_calls", toolCalls: [{ tool: "get_burn_and_runway", args: { asOf: "2026-06-30" } }] },
+      { kind: "final", text: "Your monthly net burn is ₹1,00,000.00. Cash-flow context is in the tool note." },
+    ]);
+    const orch = new Orchestrator(provider);
+    const record = await orch.ask(cfoUser, org, "What is my burn rate?");
+    expect(record.verified).toBe(true);
+    expect(record.toolsInvoked.length).toBe(1);
+    expect(record.toolsInvoked[0]!.tool).toBe("get_burn_and_runway");
+    expect(orch.audit().length).toBe(1);
+    expect(org.bus.audit("org_abc").some((e) => e.type === "ai.answered")).toBe(true);
+  });
+
+  it("rejects a hallucinated final answer", async () => {
+    const org = seededOrg();
+    const provider = new MockProvider([
+      { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-06-30" } }] },
+      { kind: "final", text: "You have ₹5,00,00,000.00 in cash. Spend freely." },
+    ]);
+    const orch = new Orchestrator(provider);
+    await expect(orch.ask(cfoUser, org, "How much cash do I have?")).rejects.toThrow(NarrationError);
+  });
+
+  it("enforces AI permission layer", async () => {
+    const org = seededOrg();
+    const employee: AiUser = { userId: "emp1", orgId: "org_abc", permissions: new Set() };
+    const orch = new Orchestrator(new MockProvider([]));
+    await expect(orch.ask(employee, org, "What is the CEO's salary?")).rejects.toThrow(PermissionError);
+  });
+
+  it("enforces org scoping — user from another org is rejected", async () => {
+    const org = seededOrg();
+    const outsider: AiUser = { userId: "x", orgId: "org_other", permissions: new Set(["access_ai_cfo"]) };
+    const orch = new Orchestrator(new MockProvider([]));
+    await expect(orch.ask(outsider, org, "Show me everything")).rejects.toThrow(PermissionError);
+  });
+
+  it("tool errors are surfaced as data, never crash the loop", async () => {
+    const org = seededOrg();
+    const provider = new MockProvider([
+      { kind: "tool_calls", toolCalls: [{ tool: "no_such_tool", args: {} }] },
+      { kind: "final", text: "I could not retrieve that figure; the tool is unavailable." },
+    ]);
+    const orch = new Orchestrator(provider);
+    const record = await orch.ask(cfoUser, org, "??");
+    expect(record.toolsInvoked[0]!.result).toContain("unknown tool");
+  });
+
+  it("affordability check answers a real CFO question", async () => {
+    const org = seededOrg();
+    const provider = new MockProvider([
+      { kind: "tool_calls", toolCalls: [{ tool: "check_affordability", args: { asOf: "2026-06-30", amountINR: "15,00,000" } }] },
+      { kind: "final", text: "Buying the ₹15,00,000.00 machine leaves ₹12,00,000.00 in cash — affordable, but review runway first." },
+    ]);
+    const orch = new Orchestrator(provider);
+    const record = await orch.ask(cfoUser, org, "Should I buy a ₹15 lakh machine?");
+    expect(record.verified).toBe(true);
+    expect(record.toolsInvoked[0]!.result).toContain("affordable=true");
+  });
+
+  it("FallbackProvider chains past a failing provider", async () => {
+    const failing = { name: "down", complete: async () => { throw new Error("503"); } };
+    const org = seededOrg();
+    const provider = new FallbackProvider([
+      failing,
+      new MockProvider([{ kind: "final", text: "All engines are healthy; no figures to report." }]),
+    ]);
+    const orch = new Orchestrator(provider);
+    const record = await orch.ask(cfoUser, org, "status?");
+    expect(record.finalAnswer).toContain("healthy");
+  });
+});

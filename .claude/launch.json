@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "paisa-core-demo",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["demo/server.ts"],
+      "port": 4000
+    }
+  ]
+}
