@@ -8,7 +8,7 @@
  *  4. Every entry is scoped to exactly one organization.
  */
 
-import { Paise, ZERO, add, sum } from "./money.js";
+import { Paise, sum } from "./money.js";
 import { ChartOfAccounts, Side } from "./accounts.js";
 import { EventBus } from "./events.js";
 
@@ -47,6 +47,7 @@ export interface PostInput {
 
 export class JournalEngine {
   private entries: JournalEntry[] = [];
+  private byId = new Map<string, JournalEntry>();
   private reversalOf = new Map<string, string>(); // originalId -> reversalId
   private counter = 0;
 
@@ -74,6 +75,7 @@ export class JournalEngine {
       reversedBy: null,
     });
     this.entries.push(entry);
+    this.byId.set(entry.id, entry);
     this.bus.emit({
       orgId: this.orgId,
       type: "journal.posted",
@@ -112,6 +114,7 @@ export class JournalEngine {
       reversedBy: null,
     });
     this.entries.push(entry);
+    this.byId.set(entry.id, entry);
     this.reversalOf.set(originalId, entry.id);
     this.bus.emit({
       orgId: this.orgId,
@@ -124,14 +127,17 @@ export class JournalEngine {
   }
 
   get(id: string): JournalEntry {
-    const e = this.entries.find((x) => x.id === id);
+    const e = this.byId.get(id);
     if (!e) throw new JournalError(`Unknown journal entry ${id}`);
     const reversedBy = this.reversalOf.get(id) ?? null;
     return reversedBy ? { ...e, reversedBy } : e;
   }
 
   all(): readonly JournalEntry[] {
-    return this.entries.map((e) => this.get(e.id));
+    return this.entries.map((e) => {
+      const reversedBy = this.reversalOf.get(e.id) ?? null;
+      return reversedBy ? { ...e, reversedBy } : e;
+    });
   }
 
   upTo(dateISO: string): readonly JournalEntry[] {

@@ -85,6 +85,20 @@ describe("portfolio engine", () => {
     expect(org.ledger.trialBalance("2026-03-01").balanced).toBe(true);
   });
 
+  it("rejects a backdated sell that would break a later sell", () => {
+    const org = freshOrg();
+    org.portfolio.record({ symbol: "B", name: "Back", kind: "STOCK", side: "BUY", date: "2026-02-01", qty: parseQty("10"), pricePerUnit: parseINR("100") }, "a");
+    org.portfolio.record({ symbol: "B", name: "Back", kind: "STOCK", side: "SELL", date: "2026-04-01", qty: parseQty("10"), pricePerUnit: parseINR("120") }, "a");
+    // Selling 5 more, backdated to March, was "affordable" on that date —
+    // but it would drive the April sell negative. Must be rejected.
+    expect(() =>
+      org.portfolio.record({ symbol: "B", name: "Back", kind: "STOCK", side: "SELL", date: "2026-03-01", qty: parseQty("5"), pricePerUnit: parseINR("110") }, "a"),
+    ).toThrow(/negative/);
+    // And no journal entry leaked from the rejected trade.
+    expect(org.ledger.trialBalance("2026-04-30").balanced).toBe(true);
+    expect(org.portfolio.allTrades()).toHaveLength(2);
+  });
+
   it("refuses to sell more than is held", () => {
     const org = freshOrg();
     org.portfolio.record({ symbol: "S", name: "Stock", kind: "STOCK", side: "BUY", date: "2026-02-01", qty: parseQty("10"), pricePerUnit: parseINR("100") }, "a");

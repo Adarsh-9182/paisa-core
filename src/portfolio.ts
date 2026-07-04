@@ -142,6 +142,7 @@ export class PortfolioEngine {
       throw new PortfolioError(
         `Symbol ${input.symbol} is already held as ${existing.kind}; cannot trade it as ${input.kind}`,
       );
+    if (input.side === "SELL") this.assertTimelineFeasible(input.symbol, input.date, input.qty);
 
     const gross = mulRatio(input.pricePerUnit, input.qty, 10_000n); // qty is ×10⁴
     let cashAmount: Paise;
@@ -322,6 +323,29 @@ export class PortfolioEngine {
       unmarkedSymbols: holdings.filter((h) => h.marketValue === null).map((h) => h.symbol),
       allocation,
     };
+  }
+
+  /**
+   * A sell must leave the WHOLE timeline feasible, not just its own date:
+   * backdating a sell between an old buy and a later full sell would drive
+   * the position negative when the later sell replays. Walk every trade for
+   * the symbol with the candidate inserted (same date-then-insertion order
+   * as replay()) and reject if the quantity ever dips below zero.
+   */
+  private assertTimelineFeasible(symbol: string, date: string, sellQty: Qty): void {
+    const events = this.trades
+      .filter((t) => t.symbol === symbol)
+      .map((t, i) => ({ date: t.date, delta: t.side === "BUY" ? t.qty : -t.qty, seq: i }));
+    events.push({ date, delta: -sellQty, seq: events.length }); // candidate applies last on its date
+    events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.seq - b.seq));
+    let qty: Qty = 0n;
+    for (const e of events) {
+      qty += e.delta;
+      if (qty < 0n)
+        throw new PortfolioError(
+          `Cannot sell ${formatQty(sellQty)} ${symbol} on ${date}: the position would go negative on ${e.date} once later trades replay`,
+        );
+    }
   }
 
   private latestMark(symbol: string, asOf: string): PriceMark | null {
