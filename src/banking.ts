@@ -39,7 +39,9 @@ export class BankingError extends Error {
 
 export class BankFeedEngine {
   private seen = new Set<string>(); // dedupe keys of every line ever ingested
-  private reviewQueue: BankStatementLine[] = [];
+  // Queued lines remember the bank account they were imported against, so
+  // categorization posts the counter-entry to the right account, not a default.
+  private reviewQueue: { line: BankStatementLine; bankAccountId: string }[] = [];
   private rules: CategorizationRule[];
 
   constructor(
@@ -63,7 +65,7 @@ export class BankFeedEngine {
   }
 
   pendingReview(): readonly BankStatementLine[] {
-    return this.reviewQueue;
+    return this.reviewQueue.map((q) => q.line);
   }
 
   importStatement(lines: readonly BankStatementLine[], actor: string, bankAccountId = "acc_bank"): ImportResult {
@@ -83,7 +85,7 @@ export class BankFeedEngine {
 
       const rule = this.match(line.description);
       if (!rule) {
-        this.reviewQueue.push(line);
+        this.reviewQueue.push({ line, bankAccountId });
         needsReview.push(line);
         this.emit("banking.needs_review", actor, { reference: line.reference, description: line.description });
         continue;
@@ -119,10 +121,10 @@ export class BankFeedEngine {
   }
 
   /** Resolve a queued line by naming the account it belongs to. */
-  categorize(reference: string, accountId: string, actor: string, bankAccountId = "acc_bank"): JournalEntry {
-    const idx = this.reviewQueue.findIndex((l) => l.reference === reference);
+  categorize(reference: string, accountId: string, actor: string): JournalEntry {
+    const idx = this.reviewQueue.findIndex((q) => q.line.reference === reference);
     if (idx === -1) throw new BankingError(`No line with reference ${reference} awaits review`);
-    const line = this.reviewQueue[idx]!;
+    const { line, bankAccountId } = this.reviewQueue[idx]!;
     const account = this.chart.get(accountId);
     const amount = abs(line.amount);
     const entry = this.journal.post({

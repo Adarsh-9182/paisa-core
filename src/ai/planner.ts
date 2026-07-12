@@ -8,7 +8,7 @@
  * the tool layer and verification are identical either way.
  */
 
-import { LanguageModelProvider, ModelContext, ModelTurn, ToolCallRequest } from "./provider.js";
+import { AgentContext, LanguageModelProvider, ToolCallRequest } from "./provider.js";
 
 export interface PlannerConfig {
   readonly asOf: string; // "today" for the engines
@@ -51,7 +51,33 @@ const extractAmount = (query: string): string | null => {
 
 const ROUTES: readonly Route[] = [
   {
-    match: /invoice|unpaid|overdue|receivable|collect|owes?\b|payment.*(late|pending)/i,
+    // Questions about the LAW itself (a rate, a threshold, eligibility) go to
+    // the knowledge base; questions about THIS business's tax position fall
+    // through to the live GST tools below.
+    match:
+      /(what|which)[^.?]{0,40}(rate|slab|hsn|sac\b|section|threshold)|(gst|tax) rate|can (i|we) claim|\bitc\b.{0,20}(claim|block|eligib|allowed)|blocked (itc|credit)|composition scheme|reverse charge|\brcm\b|44ad\b|44ada\b|80c\b|80d\b|194[cij]\b|115bac|presumptive|advance tax|\btds\b|e.?invoic|new regime|old regime|tax slab|register for gst|registration (threshold|limit)|is .{0,40}(exempt|taxable)/i,
+    calls: (_cfg, query) => [{ tool: "lookup_regulation", args: { query } }],
+    intro: "Here's what the law says, from Paisa's regulation knowledge base — each entry carries its source and the date it was verified.",
+  },
+  {
+    // Market-price questions get honesty, not guesses: Paisa has no live
+    // market feed, so the only truthful valuation is the portfolio's own
+    // explicit marks. (Also the regression home of the "bitcoin" → GST
+    // misroute: bare /itc/ used to match b-ITC-oin.)
+    match:
+      /bitcoin|\bbtc\b|ethereum|crypto|sensex|nasdaq|s&p|dow jones|stock market|share market|market (price|level|today|crash|rally)|price (prediction|forecast|target)|price of\b/i,
+    calls: (cfg) => [{ tool: "get_portfolio", args: { asOf: cfg.asOf } }],
+    intro:
+      "Paisa has no live market feed and never guesses or predicts a price — a valuation exists only when an explicit price mark is recorded. Here's your portfolio at its recorded marks.",
+  },
+  {
+    match: /fraud|suspicious|anomal|duplicate|unusual (spend|charge|transaction|activity|payment)|double.?(charged|paid|billed)/i,
+    calls: (cfg) => [{ tool: "screen_transactions", args: { asOf: cfg.asOf } }],
+    intro: "I screened your recent ledger for duplicate payments and out-of-pattern charges.",
+  },
+  {
+    // "owes us/me" is a receivables question; "do we owe" (GST, vendors) is not.
+    match: /invoice|unpaid|overdue|receivable|collect|owes? (us|me)\b|payment.*(late|pending)/i,
     calls: (cfg) => [
       { tool: "list_overdue_invoices", args: { asOf: cfg.asOf } },
       { tool: "get_receivables_aging", args: { asOf: cfg.asOf } },
@@ -59,7 +85,7 @@ const ROUTES: readonly Route[] = [
     intro: "Here's where your receivables stand.",
   },
   {
-    match: /gst|tax|filing|gstr|itc|input.*credit/i,
+    match: /\bgst|\btax|filing|\bitc\b|input.*credit/i,
     calls: (cfg) => [
       { tool: "get_gst_position", args: { from: monthStart(cfg.asOf), to: cfg.asOf } },
       { tool: "get_upcoming_gst_filings", args: { asOf: cfg.asOf } },
@@ -113,6 +139,11 @@ const ROUTES: readonly Route[] = [
     intro: "Here's your burn and runway.",
   },
   {
+    match: /categori[sz]|review queue|needs review|uncategori[sz]ed|unclassified/i,
+    calls: () => [{ tool: "list_review_queue", args: {} }],
+    intro: "Here's what awaits categorisation — pick an account for each on the Money page, or ask me with an API key set and I'll propose one per line.",
+  },
+  {
     match: /recommend|save|saving|optimi[sz]e|reduce cost|cut/i,
     calls: () => [{ tool: "get_recommendations", args: {} }],
     intro: "These are the actions I'd take, in order.",
@@ -147,7 +178,8 @@ const ROUTES: readonly Route[] = [
 const FALLBACK: Route = {
   match: /.*/,
   calls: (cfg) => [{ tool: "get_morning_brief", args: { asOf: cfg.asOf, periodFrom: cfg.periodFrom } }],
-  intro: "Here's the overall picture.",
+  intro:
+    "I couldn't match that question to a specific engine tool, so here's the overall picture from your ledger instead — ask about cash, runway, GST, invoices, tax rules, anomalies, or your portfolio for specifics.",
 };
 
 /** Turn a `key=value key2=value2` tool result into readable lines, keeping values verbatim. */
@@ -171,15 +203,14 @@ export class CfoPlanner implements LanguageModelProvider {
 
   constructor(private cfg: PlannerConfig) {}
 
-  async complete(ctx: ModelContext): Promise<ModelTurn> {
-    if (ctx.toolResults.length === 0) {
-      const route = ROUTES.find((r) => r.match.test(ctx.userQuery)) ?? FALLBACK;
-      return { kind: "tool_calls", toolCalls: route.calls(this.cfg, ctx.userQuery) };
-    }
+  async run(ctx: AgentContext): Promise<string> {
     const route = ROUTES.find((r) => r.match.test(ctx.userQuery)) ?? FALLBACK;
-    const sections = ctx.toolResults.map((t) => prettify(t.tool, t.result)).join("\n\n");
+    const sections = route
+      .calls(this.cfg, ctx.userQuery)
+      .map((call) => prettify(call.tool, ctx.executeTool(call.tool, { ...call.args })))
+      .join("\n\n");
     const outro =
       "\n\n_Every figure above comes straight from your ledger — ask me to drill into any of them._";
-    return { kind: "final", text: `${route.intro}\n\n${sections}${outro}` };
+    return `${route.intro}\n\n${sections}${outro}`;
   }
 }

@@ -185,6 +185,21 @@ describe("banking ingestion", () => {
     expect(org.ledger.balance("acc_services", "2026-06-30")).toBe(parseINR("25,000"));
     expect(org.banking.pendingReview().length).toBe(0);
   });
+
+  it("categorizes back to the bank account the line was imported against", () => {
+    const org = freshOrg();
+    org.chart.add({ id: "acc_bank_2", code: "1011", name: "HDFC Current", type: "ASSET", parentId: null, isCashEquivalent: true, active: true });
+    const bankBefore = org.ledger.balance("acc_bank", "2026-06-30");
+    org.banking.importStatement(
+      [{ date: "2026-06-07", description: "NEFT mystery inflow", amount: parseINR("25,000"), reference: "utr_x" }],
+      "adarsh",
+      "acc_bank_2",
+    );
+    org.banking.categorize("utr_x", "acc_services", "adarsh");
+    // the counter-entry lands on the imported account, not the default acc_bank
+    expect(org.ledger.balance("acc_bank_2", "2026-06-30")).toBe(parseINR("25,000"));
+    expect(org.ledger.balance("acc_bank", "2026-06-30")).toBe(bankBefore);
+  });
 });
 
 describe("recurring detection", () => {

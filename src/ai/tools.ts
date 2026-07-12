@@ -10,6 +10,8 @@
 
 import { formatINR, parseINR, sub, sum } from "../money.js";
 import { formatQty } from "../portfolio.js";
+import { searchKnowledge } from "../knowledge.js";
+import { screenTransactions } from "../anomalies.js";
 import { Organization } from "../organization.js";
 
 export type ToolFn = (org: Organization, args: Record<string, unknown>) => string;
@@ -196,6 +198,61 @@ export const TOOLS: Record<string, ToolFn> = {
     return `holdings_count=${s.holdings.length} invested=${formatINR(s.totalCostBasis)} marked_value=${formatINR(s.markedValue)} unrealized_pnl=${formatINR(s.unrealizedPnl)} realized_pnl=${formatINR(s.realizedPnl)} allocation: ${alloc} holdings: ${rows}${unmarked}`;
   },
 
+  list_review_queue: (org) => {
+    const lines = org.banking.pendingReview();
+    if (lines.length === 0)
+      return `review_count=0 note="Nothing awaits review — every imported line is categorised."`;
+    const rows = lines
+      .map(
+        (l) =>
+          `reference="${l.reference}" date=${l.date} description="${l.description}" amount=${formatINR(l.amount)} direction=${l.amount < 0n ? "out" : "in"}`,
+      )
+      .join("; ");
+    return `review_count=${lines.length} lines: ${rows}`;
+  },
+
+  propose_categorization: (org, args) => {
+    const reference = str(args.reference, "reference");
+    const code = str(args.accountCode, "accountCode");
+    const line = org.banking.pendingReview().find((l) => l.reference === reference);
+    if (!line) throw new Error(`No line with reference ${reference} awaits review`);
+    const acct = org.chart.getByCode(code);
+    const direction = line.amount < 0n ? "out" : "in";
+    if (direction === "out" && acct.type !== "EXPENSE")
+      throw new Error(`"${acct.name}" is ${acct.type}; money going out must be categorised to an EXPENSE account`);
+    if (direction === "in" && acct.type !== "REVENUE")
+      throw new Error(`"${acct.name}" is ${acct.type}; money coming in must be categorised to a REVENUE account`);
+    return `proposal=categorize reference="${reference}" account_code=${code} account="${acct.name}" description="${line.description}" amount=${formatINR(line.amount)} status="draft — posts only after the user approves"`;
+  },
+
+  screen_transactions: (org, args) => {
+    const asOf = str(args.asOf, "asOf");
+    const report = screenTransactions(org, asOf);
+    if (report.findings.length === 0)
+      return `entries_checked=${report.entriesChecked} period=${report.from}..${report.to} findings=0 note="No duplicate payments or amount outliers detected in this window."`;
+    const rows = report.findings
+      .map(
+        (f, i) =>
+          `[${i + 1}] kind=${f.kind} severity=${f.severity} date=${f.date} account="${f.accountName}" amount=${formatINR(f.amount)} narration="${f.narration}" entries="${f.entryIds.join(",")}" detail="${f.detail}"`,
+      )
+      .join("; ");
+    return `entries_checked=${report.entriesChecked} period=${report.from}..${report.to} findings=${report.findings.length} items: ${rows}`;
+  },
+
+  lookup_regulation: (_org, args) => {
+    const query = str(args.query, "query");
+    const matches = searchKnowledge(query);
+    if (matches.length === 0)
+      return `matches=0 note="The regulation knowledge base has no entry covering this. Say so plainly and suggest confirming with a CA — do not answer from memory."`;
+    const rows = matches
+      .map(
+        (m, i) =>
+          `[${i + 1}] "${m.entry.title}" source="${m.entry.source}" verified_as_of=${m.entry.asOf} text="${m.entry.text}"`,
+      )
+      .join("; ");
+    return `matches=${matches.length} entries: ${rows} note="Curated snapshot — cite the source and verified_as_of date with your answer; the law may have changed since."`;
+  },
+
   get_morning_brief: (org, args) => {
     const asOf = str(args.asOf, "asOf");
     const periodFrom = str(args.periodFrom, "periodFrom");
@@ -234,7 +291,11 @@ export const TOOL_SPECS: readonly ToolSpec[] = [
   { name: "simulate_scenario", description: "Simulate a change (hire, new client, big purchase) and see the effect on burn and runway.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), label: { type: "string", description: "Short scenario name" }, monthlyRevenueDeltaINR: { type: "string", description: "Monthly revenue change in INR (optional)" }, monthlyExpenseDeltaINR: { type: "string", description: "Monthly expense change in INR (optional)" }, oneTimeCostINR: { type: "string", description: "One-time cost in INR (optional)" } }, required: ["asOf", "label"], additionalProperties: false } },
   { name: "get_recommendations", description: "Pending AI-CFO recommendations with impact, confidence, and risk.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "get_portfolio", description: "Investment portfolio: holdings with cost basis and marked market value, unrealized/realized P&L, and allocation by instrument kind. Unmarked holdings are declared, never priced by guesswork.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date") }, required: ["asOf"], additionalProperties: false } },
+  { name: "list_review_queue", description: "Bank statement lines awaiting human categorisation (the review queue): reference, date, description, amount, direction. Check this before proposing categorisations.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+  { name: "propose_categorization", description: "Draft a categorisation for ONE review-queue line. This never posts anything — the user gets an Approve button and the journal entry is created only after their explicit approval. Money out needs an EXPENSE account code, money in a REVENUE code (e.g. 5300 Software, 5400 Travel, 4000 Sales).", inputSchema: { type: "object", properties: { reference: { type: "string", description: "The line's bank reference, exactly as list_review_queue printed it" }, accountCode: { type: "string", description: "Chart of accounts code to categorise into" } }, required: ["reference", "accountCode"], additionalProperties: false } },
   { name: "get_morning_brief", description: "The full morning brief: health, cash, month metrics, overdue invoices, filings, recommendations.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), periodFrom: dateArg("Period start") }, required: ["asOf", "periodFrom"], additionalProperties: false } },
+  { name: "screen_transactions", description: "Deterministic fraud/anomaly screening over the last 90 days of the ledger: duplicate payments (same narration + amount within a week) and expense charges far above the account's own median. Every finding names the exact journal entries and the rule that fired. Use for questions about fraud, suspicious activity, duplicates, or unusual spending.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date") }, required: ["asOf"], additionalProperties: false } },
+  { name: "lookup_regulation", description: "Search Paisa's curated Indian tax & GST regulation knowledge base: GST rates and registration, ITC conditions and blocked credits, composition scheme, return due-date rules, e-invoicing, reverse charge, income-tax slabs, 44AD/44ADA presumptive schemes, 80C/80D deductions, TDS sections, advance tax. Returns cited passages with a verified-as-of date. Use for ANY question about what the law says — a rate, threshold, section, or eligibility — and never answer such questions from memory.", inputSchema: { type: "object", properties: { query: { type: "string", description: "The legal question or topic, e.g. 'GST rate on software services' or 'ITC on food'" } }, required: ["query"], additionalProperties: false } },
 ];
 
 export const toolNames = (): readonly string[] => Object.keys(TOOLS);

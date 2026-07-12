@@ -83,14 +83,79 @@ describe("orchestrator", () => {
     expect(org.bus.audit("org_abc").some((e) => e.type === "ai.answered")).toBe(true);
   });
 
-  it("rejects a hallucinated final answer", async () => {
+  it("rejects an answer that still hallucinates after the corrective retry", async () => {
     const org = seededOrg();
     const provider = new MockProvider([
       { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-06-30" } }] },
       { kind: "final", text: "You have ₹5,00,00,000.00 in cash. Spend freely." },
+      // retry run — the model doubles down on the invented figure
+      { kind: "final", text: "As I said, ₹5,00,00,000.00. Trust me." },
     ]);
     const orch = new Orchestrator(provider);
     await expect(orch.ask(cfoUser, org, "How much cash do I have?")).rejects.toThrow(NarrationError);
+  });
+
+  it("a hallucinated draft gets one corrective retry and can recover", async () => {
+    const org = seededOrg();
+    const provider = new MockProvider([
+      { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-06-30" } }] },
+      { kind: "final", text: "You have ₹5,00,00,000.00 in cash." },
+      // retry run — rewritten quoting the tool output verbatim
+      { kind: "final", text: "You have ₹27,00,000.00 in cash." },
+    ]);
+    const orch = new Orchestrator(provider);
+    const record = await orch.ask(cfoUser, org, "How much cash do I have?");
+    expect(record.verified).toBe(true);
+    expect(record.finalAnswer).toContain("₹27,00,000.00");
+  });
+
+  it("review-queue tools: list, then draft a proposal that never posts", async () => {
+    const org = seededOrg();
+    org.banking.importStatement(
+      [{ date: "2026-06-20", description: "IMPS 9911 Mystery Vendor", amount: parseINR("-1,250"), reference: "imps-9911" }],
+      "adarsh",
+    );
+    const provider = new MockProvider([
+      {
+        kind: "tool_calls",
+        toolCalls: [
+          { tool: "list_review_queue", args: {} },
+          { tool: "propose_categorization", args: { reference: "imps-9911", accountCode: "5300" } },
+        ],
+      },
+      { kind: "final", text: "One line of ₹-1,250.00 awaits review — I drafted Software for it; approve to post." },
+    ]);
+    const orch = new Orchestrator(provider);
+    const record = await orch.ask(cfoUser, org, "Categorise my pending bank lines");
+    expect(record.toolsInvoked[0]!.result).toContain('reference="imps-9911"');
+    expect(record.toolsInvoked[1]!.result).toContain("proposal=categorize");
+    expect(record.toolsInvoked[1]!.result).toContain('account="Software"');
+    // The proposal must NOT have touched the ledger — the line still awaits review.
+    expect(org.banking.pendingReview().length).toBe(1);
+  });
+
+  it("propose_categorization rejects unknown lines and wrong-direction accounts as data", async () => {
+    const org = seededOrg();
+    org.banking.importStatement(
+      [{ date: "2026-06-20", description: "IMPS 9911 Mystery Vendor", amount: parseINR("-1,250"), reference: "imps-9911" }],
+      "adarsh",
+    );
+    const provider = new MockProvider([
+      {
+        kind: "tool_calls",
+        toolCalls: [
+          { tool: "propose_categorization", args: { reference: "no-such-ref", accountCode: "5300" } },
+          // Sales (4000) is REVENUE — an outflow must not land there.
+          { tool: "propose_categorization", args: { reference: "imps-9911", accountCode: "4000" } },
+        ],
+      },
+      { kind: "final", text: "I could not draft those categorisations; the details did not check out." },
+    ]);
+    const orch = new Orchestrator(provider);
+    const record = await orch.ask(cfoUser, org, "categorise");
+    expect(record.toolsInvoked[0]!.result).toContain("error=");
+    expect(record.toolsInvoked[1]!.result).toContain("error=");
+    expect(record.toolsInvoked[1]!.result).toContain("EXPENSE");
   });
 
   it("enforces AI permission layer", async () => {
@@ -130,8 +195,35 @@ describe("orchestrator", () => {
     expect(record.toolsInvoked[0]!.result).toContain("affordable=true");
   });
 
+  it("streams tool and retry events to an observer, never narration", async () => {
+    const org = seededOrg();
+    const provider = new MockProvider([
+      { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-06-30" } }] },
+      { kind: "final", text: "You have ₹5,00,00,000.00 in cash." },
+      { kind: "final", text: "You have ₹27,00,000.00 in cash." },
+    ]);
+    const events: string[] = [];
+    const orch = new Orchestrator(provider);
+    const record = await orch.ask(cfoUser, org, "How much cash?", [], (e) => events.push(e.type));
+    expect(record.verified).toBe(true);
+    expect(events).toEqual(["tool", "retry"]);
+  });
+
+  it("a throwing observer cannot break the verified pipeline", async () => {
+    const org = seededOrg();
+    const provider = new MockProvider([
+      { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-06-30" } }] },
+      { kind: "final", text: "You have ₹27,00,000.00 in cash." },
+    ]);
+    const orch = new Orchestrator(provider);
+    const record = await orch.ask(cfoUser, org, "cash?", [], () => {
+      throw new Error("observer exploded");
+    });
+    expect(record.verified).toBe(true);
+  });
+
   it("FallbackProvider chains past a failing provider", async () => {
-    const failing = { name: "down", complete: async () => { throw new Error("503"); } };
+    const failing = { name: "down", run: async () => { throw new Error("503"); } };
     const org = seededOrg();
     const provider = new FallbackProvider([
       failing,
