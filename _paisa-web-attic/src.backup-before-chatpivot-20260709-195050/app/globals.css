@@ -1,0 +1,512 @@
+@import "tailwindcss";
+
+/* Dark responds to next-themes' data-theme attribute on <html>. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* =====================================================================
+   PAISA DESIGN SYSTEM
+   Cool graphite + electric identity. Dark is the hero; light is elegant.
+   Semantic tokens live in :root (light) and [data-theme="dark"] (dark);
+   legacy var names are kept as aliases so every existing surface adopts
+   the new palette instantly.
+   ===================================================================== */
+
+:root {
+  /* ---- neutrals (light / elegant) ---- */
+  --bg: #f5f6f9;
+  --surface: #ffffff;
+  --surface-2: #f0f2f6;
+  --elevated: #ffffff;
+  --line: rgba(12, 15, 22, 0.09);
+  --line-soft: rgba(12, 15, 22, 0.055);
+  --line-strong: rgba(12, 15, 22, 0.13);
+  --track: #e8ebf1;
+  --ink: #0b0e14;
+  --ink-2: #495264;
+  --ink-3: #878fa1;
+
+  /* ---- accents ---- */
+  --blue: #2f6bff; /* electric primary */
+  --blue-deep: #1c4fe0;
+  --blue-bright: #2f6bff;
+  --blue-soft: #e9f0ff;
+  --cyan: #0e97b4;
+  --cyan-soft: #dcf4f8;
+  --emerald: #0e9c72;
+  --emerald-soft: #dff5ec;
+  --purple: #6a49f2;
+  --purple-soft: #ece7ff;
+  --amber: #b3770f;
+  --amber-soft: #faf0d7;
+  --rose: #dd4360;
+  --rose-soft: #fce9ec;
+
+  /* ---- chart series (dataviz-validated categorical set, light) ---- */
+  --chart-1: #2a78d6;
+  --chart-2: #1baf7a;
+  --chart-3: #eda100;
+  --chart-4: #4a3aa7;
+  --chart-5: #e34948;
+  --chart-6: #e87ba4;
+  --chart-grid: var(--line);
+  --chart-axis: var(--ink-3);
+  --chart-pos: var(--emerald);
+  --chart-neg: var(--rose);
+  --chart-forecast: var(--amber);
+
+  /* ---- legacy aliases (map old names → new palette) ---- */
+  --orange: var(--blue);
+  --orange-deep: var(--blue-deep);
+  --orange-soft: var(--blue-soft);
+  --green: var(--emerald);
+  --green-soft: var(--emerald-soft);
+  --red: var(--rose);
+  --red-soft: var(--rose-soft);
+
+  /* ---- glass ---- */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(12, 15, 22, 0.08);
+
+  /* ---- shadows (soft, layered) ---- */
+  --shadow-xs: 0 1px 2px rgba(12, 15, 22, 0.05);
+  --shadow-sm: 0 1px 2px rgba(12, 15, 22, 0.05), 0 4px 12px rgba(12, 15, 22, 0.05);
+  --shadow-md: 0 2px 5px rgba(12, 15, 22, 0.05), 0 12px 30px rgba(12, 15, 22, 0.08);
+  --shadow-lg: 0 6px 14px rgba(12, 15, 22, 0.06), 0 28px 60px rgba(12, 15, 22, 0.13);
+  --shadow-glow-primary: 0 6px 22px rgba(47, 107, 255, 0.26);
+  --shadow-glow-orange: var(--shadow-glow-primary);
+
+  /* ---- hero backdrop glows ---- */
+  --glow-a: rgba(47, 107, 255, 0.12);
+  --glow-b: rgba(106, 73, 242, 0.1);
+
+  --ease: cubic-bezier(0.22, 0.7, 0.16, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+[data-theme="dark"] {
+  /* ---- neutrals (dark / hero) ---- */
+  --bg: #08090d;
+  --surface: #101319;
+  --surface-2: #161a22;
+  --elevated: #1b202b;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-soft: rgba(255, 255, 255, 0.045);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --track: rgba(255, 255, 255, 0.08);
+  --ink: #eef1f7;
+  --ink-2: #9aa3b4;
+  --ink-3: #626b7d;
+
+  /* ---- accents (brighter for dark canvas) ---- */
+  --blue: #5b93ff;
+  --blue-deep: #8fb2ff;
+  --blue-bright: #6ea0ff;
+  --blue-soft: rgba(91, 147, 255, 0.15);
+  --cyan: #40d3e6;
+  --cyan-soft: rgba(64, 211, 230, 0.15);
+  --emerald: #34d8a0;
+  --emerald-soft: rgba(52, 216, 160, 0.14);
+  --purple: #a78bff;
+  --purple-soft: rgba(167, 139, 255, 0.16);
+  --amber: #f5b13c;
+  --amber-soft: rgba(245, 177, 60, 0.15);
+  --rose: #ff6b81;
+  --rose-soft: rgba(255, 107, 129, 0.15);
+
+  /* ---- chart series (dataviz-validated categorical set, dark) ---- */
+  --chart-1: #3987e5;
+  --chart-2: #199e70;
+  --chart-3: #c98500;
+  --chart-4: #9085e9;
+  --chart-5: #e66767;
+  --chart-6: #d55181;
+
+  --glass-bg: rgba(18, 22, 30, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.08);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 6px 16px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.5), 0 16px 40px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.55), 0 40px 80px rgba(0, 0, 0, 0.6);
+  --shadow-glow-primary: 0 4px 22px rgba(91, 147, 255, 0.4);
+  --shadow-glow-orange: var(--shadow-glow-primary);
+
+  --glow-a: rgba(91, 147, 255, 0.16);
+  --glow-b: rgba(167, 139, 255, 0.13);
+}
+
+/* Map runtime CSS vars → Tailwind utilities (respond to theme at runtime). */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-elevated: var(--elevated);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-line-strong: var(--line-strong);
+  --color-track: var(--track);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+
+  --color-blue: var(--blue);
+  --color-blue-deep: var(--blue-deep);
+  --color-cyan: var(--cyan);
+  --color-emerald: var(--emerald);
+  --color-purple: var(--purple);
+  --color-amber: var(--amber);
+  --color-rose: var(--rose);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-pos: var(--chart-pos);
+  --color-chart-neg: var(--chart-neg);
+  --color-chart-forecast: var(--chart-forecast);
+
+  --font-sans: var(--font-ui), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-display), var(--font-ui), sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+
+  --ease-out-quint: cubic-bezier(0.22, 0.7, 0.16, 1);
+}
+
+/* =====================================================================
+   BASE
+   ===================================================================== */
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background 0.4s var(--ease), color 0.4s var(--ease);
+}
+
+::selection {
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+}
+
+/* Quiet macOS-style scrollbars, visible on hover only */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: var(--line-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  background-clip: padding-box;
+}
+
+/* Accessible focus ring on keyboard nav */
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* =====================================================================
+   MOTION
+   ===================================================================== */
+
+@keyframes fadeSlideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes shimmer {
+  0% { background-position: -180% 0; }
+  100% { background-position: 180% 0; }
+}
+@keyframes gradientPan {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+@keyframes thinkingBlink {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
+
+.animate-fade-slide-down { animation: fadeSlideDown 0.28s var(--ease) both; }
+.animate-fade-in { animation: fadeIn 0.4s var(--ease) both; }
+.animate-pop-in { animation: popIn 0.22s var(--ease-spring) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* =====================================================================
+   SURFACES & TEXTURE
+   ===================================================================== */
+
+.font-display {
+  font-family: var(--font-display), var(--font-ui), sans-serif;
+  letter-spacing: -0.02em;
+}
+.tabnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+}
+
+/* Ambient mission-control backdrop for the app shell */
+.app-canvas {
+  position: relative;
+  background: var(--bg);
+}
+.app-canvas::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(60% 50% at 12% 0%, var(--glow-a), transparent 70%),
+    radial-gradient(50% 45% at 100% 8%, var(--glow-b), transparent 72%);
+}
+.grid-texture {
+  background-image:
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 34px 34px;
+  -webkit-mask-image: radial-gradient(80% 60% at 50% 0%, #000 30%, transparent 80%);
+  mask-image: radial-gradient(80% 60% at 50% 0%, #000 30%, transparent 80%);
+}
+
+.shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--surface-2) 20%,
+    color-mix(in oklab, var(--ink-3) 18%, var(--surface-2)) 40%,
+    var(--surface-2) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* =====================================================================
+   LEGACY COMPONENT CLASSES — restyled to the new system.
+   (Existing pages use these; they now render in the new identity.)
+   ===================================================================== */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.25s var(--ease), transform 0.25s var(--ease), border-color 0.25s var(--ease);
+}
+a.card:hover,
+button.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+.card-title {
+  font-family: var(--font-display), var(--font-ui), sans-serif;
+  font-size: 15.5px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.card-sub {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.page-title {
+  font-family: var(--font-display), var(--font-ui), sans-serif;
+  font-size: 30px;
+  letter-spacing: -0.035em;
+  font-weight: 640;
+  color: var(--ink);
+}
+.page-sub {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.btn {
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 18px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease), background 0.15s var(--ease),
+    opacity 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--blue) 88%, white), var(--blue));
+  color: #fff;
+  box-shadow: var(--shadow-glow-primary);
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 26px rgba(47, 107, 255, 0.4);
+}
+.btn-ghost { background: transparent; color: var(--blue-deep); }
+.btn-ghost:hover { background: var(--blue-soft); }
+.btn-quiet {
+  background: var(--surface);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-xs);
+}
+.btn-quiet:hover { border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
+.btn-approve {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--emerald) 88%, white), var(--emerald));
+  color: #fff;
+  padding: 7px 14px;
+  box-shadow: 0 4px 14px rgba(14, 156, 114, 0.3);
+}
+.btn-approve:hover { transform: translateY(-1px); }
+.btn-dismiss {
+  background: var(--surface);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  padding: 7px 14px;
+}
+.btn-dismiss:hover { border-color: var(--line-strong); }
+
+.chip {
+  font-size: 10.5px;
+  font-weight: 650;
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+  display: inline-block;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+}
+.chip-green { background: var(--emerald-soft); color: var(--emerald); }
+.chip-amber { background: var(--amber-soft); color: var(--amber); }
+.chip-red { background: var(--rose-soft); color: var(--rose); }
+.chip-orange { background: var(--blue-soft); color: var(--blue-deep); }
+.chip-blue { background: var(--purple-soft); color: var(--purple); }
+.chip-muted { background: var(--surface-2); color: var(--ink-3); }
+
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 17px 18px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.25s var(--ease), transform 0.25s var(--ease), border-color 0.25s var(--ease);
+}
+.tile:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); border-color: var(--line-strong); }
+.tile-label { font-size: 12px; color: var(--ink-2); font-weight: 550; }
+.tile-value {
+  font-family: var(--font-display), var(--font-ui), sans-serif;
+  font-size: 25px;
+  font-weight: 640;
+  letter-spacing: -0.025em;
+  margin: 6px 0 3px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.tile-sub { font-size: 11.5px; color: var(--ink-3); }
+
+table.dtable { width: 100%; border-collapse: collapse; }
+table.dtable th {
+  text-align: left;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 650;
+  padding: 9px 6px;
+  border-bottom: 1px solid var(--line-soft);
+}
+table.dtable td {
+  padding: 11px 6px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+  vertical-align: middle;
+  color: var(--ink);
+}
+table.dtable tr { transition: background 0.15s var(--ease); }
+table.dtable tbody tr:hover { background: color-mix(in oklab, var(--ink) 3%, transparent); }
+table.dtable tr:last-child td { border-bottom: 0; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  color: var(--ink-2);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 13.5px;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+.nav-link:hover { background: color-mix(in oklab, var(--ink) 5%, transparent); color: var(--ink); }
+.nav-link.active { background: var(--blue-soft); color: var(--blue-deep); font-weight: 600; }
+.nav-link .nav-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  transition: background 0.15s var(--ease);
+}
+.nav-link.active .nav-icon { background: color-mix(in oklab, var(--blue) 18%, transparent); }
