@@ -46,7 +46,9 @@ export class OpenAIProvider implements LanguageModelProvider {
   constructor(opts: { model?: string; apiKey?: string; baseUrl?: string; fetchFn?: FetchFn } = {}) {
     this.model = opts.model ?? process.env.PAISA_OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL;
     this.apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY;
-    this.baseUrl = opts.baseUrl ?? "https://api.openai.com/v1";
+    // OPENAI_BASE_URL lets any OpenAI-compatible server stand in — including
+    // a locally served fine-tuned Paisa narrator (lab/, mlx_lm.server).
+    this.baseUrl = opts.baseUrl ?? process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
     this.fetchFn = opts.fetchFn ?? (fetch as unknown as FetchFn);
   }
 
