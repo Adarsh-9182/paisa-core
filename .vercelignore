@@ -1,8 +1,10 @@
 node_modules
-web/node_modules
-web/.next
-web/.paisa-data
-web/.git
 tests
-demo
+lab
+mobile
+docs
+_paisa-web-attic
+.paisa-data
 .claude
+demo/persistence.js
+demo/erp-close.js

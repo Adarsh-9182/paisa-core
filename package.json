@@ -22,12 +22,15 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/node": "^26.1.0",
+    "@types/pg": "^8.23.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },
   "type": "module",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.110.0"
+    "@anthropic-ai/sdk": "^0.110.0",
+    "pg": "^8.23.0"
   }
 }

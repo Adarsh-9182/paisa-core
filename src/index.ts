@@ -26,3 +26,5 @@ export * from "./ai/anthropic.js";
 export * from "./ai/openai.js";
 export * from "./ai/dataset.js";
 export * from "./anomalies.js";
+export * from "./erp/index.js";
+export * from "./persistence/index.js";

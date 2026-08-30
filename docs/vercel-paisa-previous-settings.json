@@ -1,0 +1,25 @@
+{
+  "savedAt": "2026-08-30T08:52:56.298949+00:00",
+  "note": "Settings the paisa Vercel project had BEFORE the ERP app was deployed into it. PATCH these back to build the askpaisaai.com web app again.",
+  "restoreWith": "curl -X PATCH -H \"Authorization: Bearer $TOKEN\" -H \"Content-Type: application/json\" -d @settings.json https://api.vercel.com/v9/projects/<projectId>?teamId=<teamId>",
+  "project": "paisa",
+  "projectId": "prj_8RzeXrtswWnVGO4Xbdvmv9VtNE4J",
+  "previous": {
+    "framework": "nextjs",
+    "buildCommand": null,
+    "outputDirectory": null,
+    "installCommand": "npm install && npm install --prefix .. --omit=dev",
+    "devCommand": null,
+    "rootDirectory": "web",
+    "nodeVersion": "24.x"
+  },
+  "currentlyApplied": {
+    "framework": null,
+    "buildCommand": "npm run build",
+    "outputDirectory": "public",
+    "installCommand": null,
+    "devCommand": null,
+    "rootDirectory": null,
+    "nodeVersion": "24.x"
+  }
+}
