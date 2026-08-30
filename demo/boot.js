@@ -58,13 +58,22 @@ export const boot = (seed) => {
       approvalPolicy: { limits: new Map([["junior", 5000000n]]), segregationOfDuties: true },
     });
 
-    const alreadySeeded = runtime.appliedThrough() > 0;
-    if (!alreadySeeded) {
+    // Several instances can cold start at once and all see an empty log, so
+    // the right to seed is claimed atomically rather than inferred from it.
+    const shouldSeed = runtime.appliedThrough() === 0 && (await store.claimSeed(ORG_ID));
+    if (shouldSeed) {
       const exec = async (type, payload, actor = "adarsh") => {
         const { result } = await runtime.execute(type, payload, actor);
         return result;
       };
       await seed(exec, runtime);
+    } else if (runtime.appliedThrough() === 0) {
+      // Another instance won the claim and is seeding right now. Wait for its
+      // work to land rather than serving empty books.
+      for (let attempt = 0; attempt < 40 && runtime.appliedThrough() === 0; attempt++) {
+        await new Promise((r) => setTimeout(r, 250));
+        await runtime.sync();
+      }
     }
 
     const skipped = runtime.skippedActions();
@@ -77,7 +86,7 @@ export const boot = (seed) => {
       runtime,
       org: runtime.org,
       erp: runtime.erp,
-      persistence: { mode, detail, seeded: !alreadySeeded, appliedThrough: runtime.appliedThrough() },
+      persistence: { mode, detail, seeded: shouldSeed, appliedThrough: runtime.appliedThrough() },
     };
   })();
   return booted;

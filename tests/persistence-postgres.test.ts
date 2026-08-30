@@ -129,3 +129,58 @@ describe("a runtime backed by postgres", () => {
     expect(b.org.ledger.balance("acc_bank", "2026-12-31")).toBe(parseINR("3,00,000"));
   });
 });
+
+describe("concurrent cold starts", () => {
+  // Several serverless instances can boot at the same moment, all see an
+  // empty log, and all decide to seed it — silently doubling the books.
+  // The claim is atomic so exactly one wins, however many ask.
+  it("lets exactly one instance claim the seed", async () => {
+    const db = await pgliteDb();
+    const stores = [
+      new PostgresActionStore(db),
+      new PostgresActionStore(db),
+      new PostgresActionStore(db),
+      new PostgresActionStore(db),
+      new PostgresActionStore(db),
+    ];
+    const claims = await Promise.all(stores.map((s) => s.claimSeed("org_pg")));
+    expect(claims.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("never re-grants the claim afterwards", async () => {
+    const db = await pgliteDb();
+    const store = new PostgresActionStore(db);
+    expect(await store.claimSeed("org_pg")).toBe(true);
+    expect(await store.claimSeed("org_pg")).toBe(false);
+    expect(await new PostgresActionStore(db).claimSeed("org_pg")).toBe(false);
+  });
+
+  it("claims are per organization", async () => {
+    const db = await pgliteDb();
+    const store = new PostgresActionStore(db);
+    expect(await store.claimSeed("org_a")).toBe(true);
+    expect(await store.claimSeed("org_b")).toBe(true);
+  });
+
+  it("a second instance sees the winner's books rather than seeding its own", async () => {
+    const db = await pgliteDb();
+    const winner = await PaisaRuntime.open({ ...OPTS, store: new PostgresActionStore(db) });
+    const loserStore = new PostgresActionStore(db);
+    expect(await winner.store.claimSeed(OPTS.orgId)).toBe(true);
+    expect(await loserStore.claimSeed(OPTS.orgId)).toBe(false);
+
+    await winner.execute("journal.post", {
+      date: "2026-01-01",
+      narration: "Founder capital",
+      lines: [
+        { accountId: "acc_bank", side: "DEBIT", amount: parseINR("10,00,000") },
+        { accountId: "acc_capital", side: "CREDIT", amount: parseINR("10,00,000") },
+      ],
+      sourceModule: "manual",
+    }, ACTOR);
+
+    const loser = await PaisaRuntime.open({ ...OPTS, store: loserStore });
+    expect(loser.org.ledger.balance("acc_bank", "2026-12-31")).toBe(parseINR("10,00,000"));
+    expect(loser.org.journal.all()).toHaveLength(1); // not two
+  });
+});

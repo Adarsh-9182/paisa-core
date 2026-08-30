@@ -27,12 +27,22 @@ export interface ActionStore {
   after(orgId: string, seq: number): Promise<readonly LoggedAction[]>;
   latestSeq(orgId: string): Promise<number>;
   ready(): Promise<void>;
+  /**
+   * Win the exclusive right to seed this organization, once, ever.
+   *
+   * Checking "is the log empty?" is not enough: several instances can cold
+   * start at the same moment, all see an empty log, and all seed it — which
+   * silently doubles the books. This is an atomic claim, so exactly one
+   * caller is told to proceed no matter how many ask.
+   */
+  claimSeed(orgId: string): Promise<boolean>;
 }
 
 export class MemoryActionStore implements ActionStore {
   readonly mode = "memory" as const;
   private log: LoggedAction[] = [];
   private seq = 0;
+  private claimed = new Set<string>();
 
   async append(orgId: string, action: Action): Promise<LoggedAction> {
     const logged: LoggedAction = {
@@ -54,6 +64,13 @@ export class MemoryActionStore implements ActionStore {
   }
 
   async ready(): Promise<void> {}
+
+  /** One process, one store — the first asker wins and there is no race. */
+  async claimSeed(orgId: string): Promise<boolean> {
+    if (this.claimed.has(orgId)) return false;
+    this.claimed.add(orgId);
+    return true;
+  }
 
   /** Test/debug helper — the whole log, in order. */
   all(): readonly LoggedAction[] {
@@ -80,6 +97,10 @@ CREATE TABLE IF NOT EXISTS action_log (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS action_log_org_seq ON action_log (org_id, seq);
+CREATE TABLE IF NOT EXISTS seed_claim (
+  org_id      TEXT PRIMARY KEY,
+  claimed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `;
 
 export const migrate = async (db: SqlDb): Promise<void> => {
@@ -144,6 +165,21 @@ export class PostgresActionStore implements ActionStore {
       [orgId],
     );
     return Number(rows[0]?.seq ?? 0);
+  }
+
+  /**
+   * The primary key does the arbitration: concurrent inserts mean exactly
+   * one row is created and only that caller gets a row back.
+   */
+  async claimSeed(orgId: string): Promise<boolean> {
+    await this.ready();
+    const { rows } = await this.db.query(
+      `INSERT INTO seed_claim (org_id) VALUES ($1)
+       ON CONFLICT (org_id) DO NOTHING
+       RETURNING org_id`,
+      [orgId],
+    );
+    return rows.length > 0;
   }
 }
 

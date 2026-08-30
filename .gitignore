@@ -6,3 +6,5 @@ web/
 .DS_Store
 .paisa-data/
 .vercel
+.env.neon
+.env*.local
