@@ -8,3 +8,4 @@ web/
 .vercel
 .env.neon
 .env*.local
+.gstack/

@@ -21,6 +21,7 @@ import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
          aboutPage, customersPage, contactPage, continuousClosePage, docsPage } from "./site/pages.js";
 import { boot, sync } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
+import { loginPage } from "./login-page.js";
 import {
   parseINR,
   formatINR,
@@ -28,9 +29,33 @@ import {
   CfoPlanner,
   AnthropicProvider,
   FallbackProvider,
+  hashPassword,
+  verifyPassword,
+  issueSession,
+  readSession,
+  sessionCookie,
+  clearCookie,
+  parseCookies,
+  resolveSessionSecret,
+  SESSION_COOKIE,
 } from "../dist/src/index.js";
 
 const ACTOR = "adarsh";
+
+/* ------------------------------------------------------------------ */
+/* Auth: one demo user, env-configured, cookie-based sessions          */
+/* ------------------------------------------------------------------ */
+
+const AUTH_USER = process.env.PAISA_USER ?? "adarsh";
+const SESSION_SECRET = resolveSessionSecret();
+let passwordHash;
+const authReady = hashPassword(process.env.PAISA_PASSWORD ?? "paisa123456").then((h) => {
+  passwordHash = h;
+});
+
+const isSecure = (req) => req.headers["x-forwarded-proto"] === "https" || !!process.env.VERCEL;
+
+const currentSession = (req) => readSession(parseCookies(req.headers.cookie)[SESSION_COOKIE], SESSION_SECRET);
 
 /* ------------------------------------------------------------------ */
 /* Boot: one runtime, durable when a database is configured            */
@@ -404,7 +429,7 @@ const page = () => `<!doctype html>
 <div class="app">
 
   <aside class="side">
-    <div class="logo"><span class="logo-mark">P</span>paisa</div>
+    <div class="logo"><span class="logo-mark">₹</span>paisa</div>
     <nav class="nav" id="nav"></nav>
     <div class="spacer"></div>
     <div class="health-card">
@@ -700,6 +725,7 @@ const readBody = (req) =>
 
 export const handle = async (req, res) => {
   await ready;
+  await authReady;
   const path = (req.url ?? "/").split("?")[0];
   const send = (code, body, type = "application/json") => {
     res.statusCode = code;
@@ -708,7 +734,33 @@ export const handle = async (req, res) => {
   };
 
   try {
-    if (path === "/") return send(200, page(), "text/html");
+    if (path === "/login") {
+      const query = new URLSearchParams((req.url ?? "").split("?")[1] ?? "");
+      if (currentSession(req)) {
+        res.statusCode = 302;
+        res.setHeader("Location", "/");
+        return res.end();
+      }
+      return send(200, loginPage(query.get("error")), "text/html");
+    }
+
+    if (path === "/api/login" && req.method === "POST") {
+      const { username, password } = JSON.parse((await readBody(req)) || "{}");
+      const ok = typeof username === "string" && typeof password === "string"
+        && username === AUTH_USER && (await verifyPassword(password, passwordHash));
+      if (!ok) return send(401, { error: "Invalid username or password" });
+      const token = issueSession(AUTH_USER, "org_nimbus", SESSION_SECRET);
+      res.setHeader("Set-Cookie", sessionCookie(token, isSecure(req)));
+      return send(200, { ok: true });
+    }
+
+    if (path === "/api/logout" && req.method === "POST") {
+      res.setHeader("Set-Cookie", clearCookie(isSecure(req)));
+      return send(200, { ok: true });
+    }
+
+    if (path === "/") return send(200, sitePage(), "text/html");
+    if (path === "/app") return send(200, page(), "text/html");
 
     if (path === "/api/chat" && req.method === "POST") {
       const { message } = JSON.parse((await readBody(req)) || "{}");

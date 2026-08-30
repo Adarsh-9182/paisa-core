@@ -22,7 +22,7 @@ export const sitePage = () => `<!doctype html>
 <meta property="og:description" content="Close the month in a day. Trust every number in it.">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F26B1D'/%3E%3Ctext x='16' y='23' font-family='-apple-system,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'%3EP%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F26B1D'/%3E%3Ctext x='16' y='23' font-family='-apple-system,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --bg:#FAF7F2; --surface:#FFFFFF; --line:#EDE7DD; --line-2:#E2DACD;
@@ -65,11 +65,34 @@ export const sitePage = () => `<!doctype html>
   .logo { display:flex; align-items:center; gap:9px; font-weight:700; font-size:17.5px;
           letter-spacing:-.02em; color:var(--night-ink); }
   .logo-mark { width:27px; height:27px; border-radius:8px; background:var(--orange); color:#fff;
-               display:grid; place-items:center; font-size:15px; font-weight:700; }
-  .navlinks { display:flex; gap:20px; margin-left:6px; font-size:14px; color:var(--night-ink-2); font-weight:500; }
+               display:grid; place-items:center; font-size:16px; font-weight:700; }
+  .navlinks { display:flex; gap:3px; margin-left:6px; font-size:14px; font-weight:500; }
   .navlinks a:hover { color:var(--night-ink); }
+  .navitem { position:relative; }
+  .navitem > a, .navitem > button { display:flex; align-items:center; gap:5px; padding:8px 11px;
+    border-radius:9px; color:var(--night-ink-2); background:none; border:0; font:inherit;
+    font-weight:500; cursor:pointer; }
+  .navitem > a:hover, .navitem > button:hover, .navitem.open > button { color:var(--night-ink); background:var(--night-2); }
+  .navitem .chev { width:8px; height:8px; border-right:1.4px solid currentColor;
+    border-bottom:1.4px solid currentColor; transform:rotate(45deg) translate(-2px,-2px);
+    transition:transform .2s ease; }
+  .navitem.open .chev { transform:rotate(-135deg) translate(-3px,-3px); }
+  .mega { position:absolute; top:calc(100% + 9px); left:-8px; background:var(--night-2);
+    border:1px solid var(--night-line); border-radius:15px; padding:16px; min-width:320px;
+    opacity:0; visibility:hidden; transform:translateY(-6px);
+    transition:opacity .18s ease, transform .18s ease, visibility .18s;
+    box-shadow:0 22px 50px -22px rgba(0,0,0,.75); }
+  .navitem.open .mega { opacity:1; visibility:visible; transform:none; }
+  .mega.wide { min-width:640px; display:grid; grid-template-columns:1fr 1fr; gap:4px 20px; }
+  .mega-group { font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--night-ink-2); opacity:.7; padding:9px 10px 5px; grid-column:1/-1; }
+  .mega-group.half { grid-column:auto; }
+  .mega a { display:block; padding:8px 10px; border-radius:9px; color:var(--night-ink); }
+  .mega a:hover { background:rgba(242,107,29,.12); }
+  .mega a b { display:block; font-weight:600; font-size:13.5px; }
+  .mega a span { display:block; font-size:12px; color:var(--night-ink-2); margin-top:1px; }
   .navcta { margin-left:auto; display:flex; gap:9px; align-items:center; }
-  @media (max-width:860px){ .navlinks{display:none;} }
+  @media (max-width:1040px){ .navlinks{display:none;} }
 
   /* ---------- hero ---------- */
   .hero { background:var(--night); color:var(--night-ink); padding:82px 0 96px; position:relative; overflow:hidden; }
@@ -296,7 +319,7 @@ export const sitePage = () => `<!doctype html>
   .drawer a { padding:10px 2px; color:var(--night-ink-2); font-weight:550; }
   .drawer a:hover { color:var(--night-ink); }
   .drawer.open { display:flex; }
-  @media (max-width:860px){ .menu-btn { display:block; } .navcta .btn-dark { display:none; } }
+  @media (max-width:1040px){ .menu-btn { display:block; } .navcta .btn-dark { display:none; } }
 
   /* buttons lift, and the primary one sweeps */
   .btn { position:relative; overflow:hidden; }
@@ -691,7 +714,7 @@ ${SHELL_JS}
       const s = String(r);
       if (s.length <= 3) return s;
       const head = s.slice(0, -3), tail = s.slice(-3);
-      return head.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + tail;
+      return head.replace(/\\B(?=(\\d{2})+(?!\\d))/g, ",") + "," + tail;
     };
 
     let raf = 0, running = true;
@@ -804,7 +827,7 @@ ${SHELL_JS}
       for (const child of [...node.childNodes]) {
         if (child.nodeType === 3) {
           const frag = document.createDocumentFragment();
-          for (const word of child.textContent.split(/(\s+)/)) {
+          for (const word of child.textContent.split(/(\\s+)/)) {
             if (!word.trim()) { frag.appendChild(document.createTextNode(word)); continue; }
             const span = document.createElement("span");
             span.textContent = word;

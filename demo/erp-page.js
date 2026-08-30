@@ -91,10 +91,10 @@ export const erpPage = () => `<!doctype html>
 <body>
 <div class="wrap">
   <header>
-    <div class="logo"><span class="logo-mark">P</span>paisa <span style="color:var(--ink-3);font-weight:500">ERP</span></div>
+    <div class="logo"><span class="logo-mark">₹</span>paisa <span style="color:var(--ink-3);font-weight:500">ERP</span></div>
     <div class="muted">Nimbus Labs Pvt Ltd · period <b id="period">–</b></div>
   </header>
-  <div class="sub">Close management, ASC 606 revenue, subledgers and continuous agents. <a href="/">← AI CFO dashboard</a></div>
+  <div class="sub">Close management, ASC 606 revenue, subledgers and continuous agents. <a href="/app">← AI CFO dashboard</a></div>
 
   <div class="card">
     <div class="card-head">

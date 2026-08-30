@@ -28,3 +28,5 @@ export * from "./ai/dataset.js";
 export * from "./anomalies.js";
 export * from "./erp/index.js";
 export * from "./persistence/index.js";
+export * from "./auth/password.js";
+export * from "./auth/session.js";
