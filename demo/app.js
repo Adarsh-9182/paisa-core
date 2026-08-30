@@ -17,7 +17,8 @@
 import { erpApi, erpActions } from "./erp-console.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
-import { productPage, solutionPage, comparePage, partnersPage, resourcesPage } from "./site/pages.js";
+import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
+         aboutPage, customersPage, contactPage, continuousClosePage, docsPage } from "./site/pages.js";
 import { boot, sync } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
 import {
@@ -748,8 +749,16 @@ export const handle = async (req, res) => {
       if (html) return send(200, html, "text/html");
       return send(404, { error: `Unknown ${kind} "${slug}"` });
     }
-    if (path === "/site/partners") return send(200, partnersPage(), "text/html");
-    if (path === "/site/resources") return send(200, resourcesPage(), "text/html");
+    const staticSite = {
+      "/site/partners": partnersPage,
+      "/site/resources": resourcesPage,
+      "/site/about": aboutPage,
+      "/site/customers": customersPage,
+      "/site/contact": contactPage,
+      "/site/continuous-close": continuousClosePage,
+      "/site/docs": docsPage,
+    };
+    if (staticSite[path]) return send(200, staticSite[path](), "text/html");
     if (path === "/erp") return send(200, erpPage(), "text/html");
 
     const erpName = path.replace("/api/erp/", "");

@@ -205,8 +205,23 @@ export const nav = () => `
         <button type="button" aria-expanded="false">Compare <i class="chev"></i></button>
         ${compareMega()}
       </div>
-      <div class="navitem"><a href="/site/partners">Partners</a></div>
-      <div class="navitem"><a href="/site/resources">Resources</a></div>
+      <div class="navitem" data-menu>
+        <button type="button" aria-expanded="false">Company <i class="chev"></i></button>
+        <div class="mega">
+          ${megaLink("/site/about", "About", "why it exists, and its three rules")}
+          ${megaLink("/site/customers", "Customers", "what early access actually means")}
+          ${megaLink("/site/partners", "Partners", "firms and technology partners")}
+          ${megaLink("/site/contact", "Contact", "small team, direct line")}
+        </div>
+      </div>
+      <div class="navitem" data-menu>
+        <button type="button" aria-expanded="false">Resources <i class="chev"></i></button>
+        <div class="mega">
+          ${megaLink("/site/resources", "Specifications", "every decision, with its reasoning")}
+          ${megaLink("/site/docs", "Documentation", "the engine API and how to run it")}
+          ${megaLink("/site/continuous-close", "Continuous close", "why the close moves earlier")}
+        </div>
+      </div>
     </div>
     <div class="navcta">
       <a class="btn btn-dark" href="/">Live app</a>
@@ -224,8 +239,14 @@ export const nav = () => `
     <h6>Compare</h6>
     ${COMPARISONS.map((c) => `<a href="/site/compare/${c.slug}">Paisa vs ${c.name}</a>`).join("")}
     <h6>Company</h6>
+    <a href="/site/about">About</a>
+    <a href="/site/customers">Customers</a>
     <a href="/site/partners">Partners</a>
-    <a href="/site/resources">Resources</a>
+    <a href="/site/contact">Contact</a>
+    <h6>Resources</h6>
+    <a href="/site/resources">Specifications</a>
+    <a href="/site/docs">Documentation</a>
+    <a href="/site/continuous-close">Continuous close</a>
     <a href="/">Live app</a>
     <a href="/erp">ERP console</a>
   </div>
@@ -251,8 +272,13 @@ export const footer = () => `
       </ul></div>
       <div><h5>Company</h5><ul>
         ${COMPARISONS.map((c) => `<li><a href="/site/compare/${c.slug}">vs ${c.name}</a></li>`).join("")}
+        <li><a href="/site/about">About</a></li>
+        <li><a href="/site/customers">Customers</a></li>
         <li><a href="/site/partners">Partners</a></li>
-        <li><a href="/site/resources">Resources</a></li>
+        <li><a href="/site/contact">Contact</a></li>
+        <li><a href="/site/resources">Specifications</a></li>
+        <li><a href="/site/docs">Documentation</a></li>
+        <li><a href="/site/continuous-close">Continuous close</a></li>
         <li><a href="/">Live app</a></li>
         <li><a href="/erp">ERP console</a></li>
       </ul></div>
