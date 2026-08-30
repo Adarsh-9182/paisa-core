@@ -347,6 +347,12 @@ export const SHELL_JS = `
       menuBtn.classList.toggle("open", isOpen);
       menuBtn.setAttribute("aria-expanded", String(isOpen));
     });
+    drawer.addEventListener("click", (e) => {
+      if (e.target.tagName !== "A") return;
+      drawer.classList.remove("open");
+      menuBtn.classList.remove("open");
+      menuBtn.setAttribute("aria-expanded", "false");
+    });
   }
 })();
 </script>`;

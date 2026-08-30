@@ -784,23 +784,6 @@ ${SHELL_JS}
   window.addEventListener("scroll", onScroll, { passive: true });
   onScroll();
 
-  /* ---------------- mobile drawer ---------------- */
-  const menuBtn = document.getElementById("menu-btn");
-  const drawer = document.getElementById("drawer");
-  if (menuBtn && drawer) {
-    menuBtn.addEventListener("click", () => {
-      const open = drawer.classList.toggle("open");
-      menuBtn.classList.toggle("open", open);
-      menuBtn.setAttribute("aria-expanded", String(open));
-    });
-    drawer.addEventListener("click", (e) => {
-      if (e.target.tagName !== "A") return;
-      drawer.classList.remove("open");
-      menuBtn.classList.remove("open");
-      menuBtn.setAttribute("aria-expanded", "false");
-    });
-  }
-
   /* ---------------- section headings reveal ---------------- */
   const headIo = new IntersectionObserver((entries) => {
     entries.forEach((e) => {
