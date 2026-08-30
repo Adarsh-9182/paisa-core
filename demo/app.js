@@ -17,6 +17,7 @@
 import { seedErp, erpApi, erpActions } from "./erp-console.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
+import { productPage, solutionPage, comparePage, partnersPage, resourcesPage } from "./site/pages.js";
 import {
   Platform,
   parseINR,
@@ -794,6 +795,17 @@ export const handle = async (req, res) => {
     }
 
     if (path === "/site") return send(200, sitePage(), "text/html");
+
+    const siteRoute = /^\/site\/(product|solution|compare)\/([a-z0-9-]+)$/.exec(path);
+    if (siteRoute) {
+      const [, kind, slug] = siteRoute;
+      const render = kind === "product" ? productPage : kind === "solution" ? solutionPage : comparePage;
+      const html = render(slug);
+      if (html) return send(200, html, "text/html");
+      return send(404, { error: `Unknown ${kind} "${slug}"` });
+    }
+    if (path === "/site/partners") return send(200, partnersPage(), "text/html");
+    if (path === "/site/resources") return send(200, resourcesPage(), "text/html");
     if (path === "/erp") return send(200, erpPage(), "text/html");
 
     const erpName = path.replace("/api/erp/", "");

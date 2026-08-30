@@ -1,0 +1,15 @@
+{
+  "savedAt": "2026-08-30T08:42:16.459468+00:00",
+  "note": "Settings the paisa project had before the ERP app was deployed into it. Restore these to build the askpaisaai.com web app again.",
+  "project": "paisa",
+  "projectId": "prj_8RzeXrtswWnVGO4Xbdvmv9VtNE4J",
+  "settings": {
+    "framework": "nextjs",
+    "buildCommand": null,
+    "outputDirectory": null,
+    "installCommand": "npm install && npm install --prefix .. --omit=dev",
+    "devCommand": null,
+    "rootDirectory": "web",
+    "nodeVersion": "24.x"
+  }
+}

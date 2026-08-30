@@ -8,6 +8,8 @@
  * product can never come back from.
  */
 
+import { nav, footer, SHELL_JS } from "./site/shell.js";
+
 export const sitePage = () => `<!doctype html>
 <html lang="en">
 <head>
@@ -339,33 +341,7 @@ export const sitePage = () => `<!doctype html>
 
 <div class="progress" id="progress"></div>
 
-<nav class="top" id="nav">
-  <div class="wrap inner">
-    <a class="logo" href="/site"><span class="logo-mark">P</span>paisa</a>
-    <div class="navlinks">
-      <a href="#platform">Platform</a>
-      <a href="#ai">Paisa AI</a>
-      <a href="#global">Global &amp; local</a>
-      <a href="#close">Close</a>
-      <a href="#compare">Compare</a>
-    </div>
-    <div class="navcta">
-      <a class="btn btn-dark" href="/">Live app</a>
-      <a class="btn btn-primary" href="/erp">See the close</a>
-      <button class="menu-btn" id="menu-btn" aria-label="Menu" aria-expanded="false">
-        <span></span><span></span><span></span>
-      </button>
-    </div>
-  </div>
-  <div class="drawer" id="drawer">
-    <a href="#platform">Platform</a>
-    <a href="#ai">Paisa AI</a>
-    <a href="#global">Global &amp; local</a>
-    <a href="#close">Close</a>
-    <a href="#compare">Compare</a>
-    <a href="/">Live app</a>
-  </div>
-</nav>
+${nav()}
 
 <!-- ---------------- HERO ---------------- -->
 <header class="hero">
@@ -664,48 +640,9 @@ export const sitePage = () => `<!doctype html>
   </div>
 </section>
 
-<footer>
-  <div class="wrap">
-    <div class="fgrid">
-      <div>
-        <div class="logo" style="margin-bottom:12px"><span class="logo-mark">P</span>paisa</div>
-        <p style="max-width:290px;line-height:1.55">The AI-native ERP for finance teams.
-          A perpetual ledger, a close that proves itself, and an AI that cannot invent a number.</p>
-      </div>
-      <div><h5>Platform</h5><ul>
-        <li><a href="#platform">General ledger</a></li>
-        <li><a href="#platform">Revenue recognition</a></li>
-        <li><a href="#close">Close management</a></li>
-        <li><a href="#platform">Multi-entity</a></li>
-      </ul></div>
-      <div><h5>Product</h5><ul>
-        <li><a href="/">AI CFO dashboard</a></li>
-        <li><a href="/erp">ERP console</a></li>
-        <li><a href="/trial-balance">Trial balance</a></li>
-        <li><a href="/audit">Audit trail</a></li>
-      </ul></div>
-      <div><h5>Engine</h5><ul>
-        <li><a href="/journal">Journal</a></li>
-        <li><a href="/balance-sheet">Balance sheet</a></li>
-        <li><a href="/profit-and-loss">Profit &amp; loss</a></li>
-      </ul></div>
-    </div>
+${footer()}
 
-    <div class="honest">
-      <b style="color:var(--night-ink)">What this page does not claim.</b>
-      Paisa has no customers, testimonials, G2 rating or SOC certification yet, so none are shown here.
-      Data is in-memory and resets on restart; persistence is the next milestone. Named integrations
-      are roadmap — the idempotent ingestion layer they plug into is built and tested.
-    </div>
-
-    <div class="fbottom">
-      <span>© 2026 Paisa</span>
-      <span>Every figure on this site comes from the demo company's own ledger.</span>
-    </div>
-  </div>
-</footer>
-
-
+${SHELL_JS}
 <script>
 (() => {
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
