@@ -13,8 +13,8 @@ export const sitePage = () => `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Paisa — The AI-native ERP for Indian finance teams</title>
-<meta name="description" content="Perpetual general ledger, ASC 606 revenue recognition, GST-native compliance and a close that runs itself. With an AI CFO that cannot invent a number.">
+<title>Paisa — The AI-native ERP for finance teams</title>
+<meta name="description" content="Perpetual general ledger, ASC 606 revenue recognition, multi-entity consolidation and a close that runs itself. With an AI CFO that cannot invent a number.">
 <style>
   :root {
     --bg:#FAF7F2; --surface:#FFFFFF; --line:#EDE7DD; --line-2:#E2DACD;
@@ -177,7 +177,7 @@ export const sitePage = () => `<!doctype html>
     <div class="navlinks">
       <a href="#platform">Platform</a>
       <a href="#ai">Paisa AI</a>
-      <a href="#india">India-native</a>
+      <a href="#global">Global &amp; local</a>
       <a href="#close">Close</a>
       <a href="#compare">Compare</a>
     </div>
@@ -192,10 +192,10 @@ export const sitePage = () => `<!doctype html>
 <header class="hero">
   <div class="wrap">
     <div class="inner">
-      <div class="eyebrow on-dark">AI-native ERP · Built for India</div>
+      <div class="eyebrow on-dark">AI-native ERP · Multi-entity · Multi-currency</div>
       <h1>Close the month in a day.<br>Trust <em>every number</em> in it.</h1>
-      <p class="lede">Paisa is a perpetual general ledger with ASC 606 revenue recognition, GST-native
-        compliance, and a close that runs itself. Its AI CFO answers in plain language — and is
+      <p class="lede">Paisa is a perpetual general ledger with ASC 606 revenue recognition, multi-entity
+        consolidation, and a close that runs itself. Its AI CFO answers in plain language — and is
         structurally incapable of inventing a figure.</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="/erp">Open the ERP console</a>
@@ -238,7 +238,7 @@ export const sitePage = () => `<!doctype html>
     <div><div class="n">Zero</div><div class="l">figures the AI can state that no engine produced</div></div>
     <div><div class="n">To the paisa</div><div class="l">every ASC 606 allocation and schedule sums exactly</div></div>
     <div><div class="n">Append-only</div><div class="l">no entry is ever edited or deleted — corrections are reversals</div></div>
-    <div><div class="n">GST-native</div><div class="l">ITC eligibility, GSTR-1/3B calendar, INR lakh–crore grouping</div></div>
+    <div><div class="n">Any currency</div><div class="l">exact rational FX rates, per-entity ledgers, consolidation on demand</div></div>
   </div>
 </div>
 
@@ -331,29 +331,41 @@ export const sitePage = () => `<!doctype html>
 </section>
 
 <!-- ---------------- INDIA ---------------- -->
-<section id="india">
+<section id="global">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">03 · India-native</div>
-      <h2>Built for Indian books, not translated into them.</h2>
-      <p class="lede">Global ERPs bolt GST on as a tax module. Paisa treats it as part of the ledger,
-        because in India it is.</p>
+      <div class="eyebrow">03 · Global &amp; local</div>
+      <h2>Global by architecture. Local where it counts.</h2>
+      <p class="lede">Multi-entity and multi-currency are in the core, not an upgrade tier. And where a
+        jurisdiction's tax sits inside the accounting rather than beside it, Paisa puts it there —
+        starting with Indian GST, because that is the market we know best.</p>
     </div>
-    <div class="grid g2">
-      <div class="card"><h3>GST in the journal, not beside it</h3>
-        <p>Output tax posts with the invoice, input tax credit with the bill. ITC eligibility is a
-          property of the bill line — where credit is blocked, the GST is capitalised into the expense
-          rather than parked as a receivable you can never claim.</p></div>
-      <div class="card"><h3>Filing calendar as arithmetic</h3>
-        <p>GSTR-1 and GSTR-3B due dates are computed, not reminded. The morning brief tells you what is
-          due, in how many days, with the figures already prepared.</p></div>
-      <div class="card"><h3>Rupees, correctly</h3>
-        <p>Every amount is an integer count of paise held as a bigint. Lakh–crore digit grouping
-          throughout. Floating point never touches a financial figure, so ₹0.01 never goes missing.</p></div>
+    <div class="grid g3">
+      <div class="card"><h3>Entities are structural</h3>
+        <p>Each entity keeps its own chart, journal and functional currency. Consolidation is a
+          read-only projection with intercompany elimination — there is no cross-entity posting to
+          go wrong, and an unmatched intercompany balance is surfaced, never netted away.</p></div>
+      <div class="card"><h3>Currency without drift</h3>
+        <p>Rates are exact rationals, never floats, so a conversion is reproducible to the minor unit
+          years later. A rate that was never loaded throws rather than silently carrying a stale one
+          forward. Monetary balances revalue at period end; non-monetary ones never do.</p></div>
+      <div class="card"><h3>One revenue standard, five steps</h3>
+        <p>ASC 606 and IFRS 15 share the same five steps, and the engine implements the steps rather
+          than one regulator's wording — performance obligations, relative-SSP allocation, and
+          recognition patterns from ratable to usage to milestone.</p></div>
+      <div class="card"><h3>Tax inside the accounting</h3>
+        <p>Where a jurisdiction's tax belongs in the entry rather than a report, it goes there. Indian
+          GST posts with the invoice and the bill, and ITC eligibility is a property of the bill line —
+          where credit is blocked, the tax is capitalised into the expense instead of parked as a
+          receivable you can never claim.</p></div>
+      <div class="card"><h3>Filing calendars as arithmetic</h3>
+        <p>GSTR-1 and GSTR-3B due dates are computed, not reminded. The brief says what is due, in how
+          many days, with the figures already prepared. The same shape takes another jurisdiction's
+          calendar when we add one.</p></div>
       <div class="card"><h3>Compliance answers with citations</h3>
         <p>Ask about a rate, threshold or section and Paisa answers only from a curated regulation
           corpus, citing the source and the date it was verified — or says the corpus does not cover
-          it and suggests a CA. It never answers tax law from memory.</p></div>
+          it and suggests an accountant. It never answers tax law from memory.</p></div>
     </div>
   </div>
 </section>
@@ -403,10 +415,10 @@ export const sitePage = () => `<!doctype html>
     </div>
     <div class="chips">
       <span class="chip"><b>CRM</b> · Salesforce, HubSpot</span>
-      <span class="chip"><b>Billing</b> · Stripe, Razorpay, Chargebee</span>
-      <span class="chip"><b>Banking</b> · HDFC, ICICI, Axis, Kotak</span>
-      <span class="chip"><b>Payroll</b> · RazorpayX, Keka, Zoho Payroll</span>
-      <span class="chip"><b>Expense</b> · Happay, Zaggle</span>
+      <span class="chip"><b>Billing</b> · Stripe, Chargebee, Razorpay</span>
+      <span class="chip"><b>Banking</b> · J.P. Morgan, Brex, Mercury, HDFC, ICICI</span>
+      <span class="chip"><b>Payroll</b> · Gusto, Deel, Rippling, RazorpayX</span>
+      <span class="chip"><b>Expense</b> · Ramp, Bill, Happay</span>
       <span class="chip"><b>Warehouse</b> · Snowflake, BigQuery</span>
     </div>
     <p style="margin-top:16px;font-size:13px;color:var(--ink-3)">
@@ -422,23 +434,24 @@ export const sitePage = () => `<!doctype html>
     <div class="head">
       <div class="eyebrow">06 · Compare</div>
       <h2>Where Paisa is different.</h2>
-      <p class="lede">An honest table. The incumbents are mature products with things Paisa does not
-        have yet — the last row says so.</p>
+      <p class="lede">An honest table. The incumbents are mature products with decades of deployment
+        behind them; the last row says so. A dash means the category is not offered as such, not that
+        the product is worse.</p>
     </div>
     <div class="tablewrap">
       <table>
         <thead><tr>
-          <th></th><th class="col-paisa">Paisa</th><th>Tally</th><th>Zoho Books</th><th>NetSuite</th>
+          <th></th><th class="col-paisa">Paisa</th><th>NetSuite</th><th>Sage Intacct</th><th>Tally</th>
         </tr></thead>
         <tbody>
-          <tr><th>GST &amp; ITC in the ledger</th><td class="col-paisa y">Yes</td><td class="y">Yes</td><td class="y">Yes</td><td class="n">Add-on</td></tr>
-          <tr><th>ASC 606 revenue subledger</th><td class="col-paisa y">Yes</td><td class="n">No</td><td class="n">Limited</td><td class="y">Yes</td></tr>
-          <tr><th>Close checklist that runs checks</th><td class="col-paisa y">Yes</td><td class="n">No</td><td class="n">No</td><td class="n">Manual tasks</td></tr>
-          <tr><th>Closed period is unpostable</th><td class="col-paisa y">Enforced</td><td class="n">Convention</td><td class="n">Convention</td><td class="y">Yes</td></tr>
-          <tr><th>Multi-entity consolidation</th><td class="col-paisa y">Yes</td><td class="n">Limited</td><td class="n">Limited</td><td class="y">Yes</td></tr>
-          <tr><th>AI answers with verified figures</th><td class="col-paisa y">Enforced by a verifier</td><td class="n">No</td><td class="n">No</td><td class="n">No</td></tr>
-          <tr><th>Continuous exception agents</th><td class="col-paisa y">Yes</td><td class="n">No</td><td class="n">No</td><td class="n">No</td></tr>
-          <tr><th>Production deployments</th><td class="col-paisa n">Not yet</td><td class="y">Millions</td><td class="y">Yes</td><td class="y">Yes</td></tr>
+          <tr><th>ASC 606 / IFRS 15 revenue subledger</th><td class="col-paisa y">Yes</td><td class="y">Yes</td><td class="y">Yes</td><td class="n">No</td></tr>
+          <tr><th>Multi-entity consolidation</th><td class="col-paisa y">Yes</td><td class="y">Yes</td><td class="y">Yes</td><td class="n">Limited</td></tr>
+          <tr><th>Local tax inside the entry</th><td class="col-paisa y">India today</td><td class="n">Tax module</td><td class="n">Tax module</td><td class="y">India</td></tr>
+          <tr><th>Close tasks that run checks</th><td class="col-paisa y">Executable</td><td class="n">Task lists</td><td class="n">Task lists</td><td class="n">No</td></tr>
+          <tr><th>Closed period is unpostable</th><td class="col-paisa y">Enforced</td><td class="y">Yes</td><td class="y">Yes</td><td class="n">Convention</td></tr>
+          <tr><th>AI answers gated by a verifier</th><td class="col-paisa y">Yes</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><th>Continuous exception agents</th><td class="col-paisa y">Yes</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+          <tr><th>Production deployments</th><td class="col-paisa n">Not yet</td><td class="y">Decades</td><td class="y">Decades</td><td class="y">Millions</td></tr>
         </tbody>
       </table>
     </div>
@@ -463,7 +476,7 @@ export const sitePage = () => `<!doctype html>
     <div class="fgrid">
       <div>
         <div class="logo" style="margin-bottom:12px"><span class="logo-mark">P</span>paisa</div>
-        <p style="max-width:290px;line-height:1.55">The AI-native ERP for Indian finance teams.
+        <p style="max-width:290px;line-height:1.55">The AI-native ERP for finance teams.
           A perpetual ledger, a close that proves itself, and an AI that cannot invent a number.</p>
       </div>
       <div><h5>Platform</h5><ul>
