@@ -14,6 +14,7 @@
 import { createServer } from "node:http";
 import { seedErp, erpApi, erpActions } from "./erp-console.js";
 import { erpPage } from "./erp-page.js";
+import { sitePage } from "./site.js";
 import {
   Platform,
   parseINR,
@@ -791,6 +792,7 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    if (path === "/site") return send(200, sitePage(), "text/html");
     if (path === "/erp") return send(200, erpPage(), "text/html");
 
     const erpName = path.replace("/api/erp/", "");
@@ -848,6 +850,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Paisa AI CFO demo → http://localhost:${PORT}`);
+  console.log(`Paisa site        → http://localhost:${PORT}/site`);
   console.log(`Paisa ERP console → http://localhost:${PORT}/erp`);
   console.log(`Chat provider: ${process.env.ANTHROPIC_API_KEY ? "Anthropic (claude-opus-4-8) with offline fallback" : "offline CfoPlanner"}`);
 });
