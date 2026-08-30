@@ -14,12 +14,13 @@
  * through Claude (with the planner as fallback).
  */
 
-import { seedErp, erpApi, erpActions } from "./erp-console.js";
+import { erpApi, erpActions } from "./erp-console.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
 import { productPage, solutionPage, comparePage, partnersPage, resourcesPage } from "./site/pages.js";
+import { boot, sync } from "./boot.js";
+import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
 import {
-  Platform,
   parseINR,
   formatINR,
   Orchestrator,
@@ -28,90 +29,20 @@ import {
   FallbackProvider,
 } from "../dist/src/index.js";
 
-const AS_OF = "2026-07-02";
-const PERIOD_FROM = "2026-01-01";
 const ACTOR = "adarsh";
 
 /* ------------------------------------------------------------------ */
-/* Seed: Nimbus Labs Pvt Ltd — six months of realistic activity        */
+/* Boot: one runtime, durable when a database is configured            */
 /* ------------------------------------------------------------------ */
 
-const platform = new Platform();
-const org = platform.createOrganization("org_nimbus", "Nimbus Labs Pvt Ltd");
+let org, erp, erpRoutes, erpDo, persistence;
 
-const post = (date, narration, drId, crId, amt, sourceModule = "manual") =>
-  org.journal.post({
-    date,
-    narration,
-    lines: [
-      { accountId: drId, side: "DEBIT", amount: parseINR(amt) },
-      { accountId: crId, side: "CREDIT", amount: parseINR(amt) },
-    ],
-    sourceModule,
-    createdBy: ACTOR,
-  });
-
-post("2026-01-01", "Founder capital infusion", "acc_bank", "acc_capital", "45,00,000");
-
-const invoice = (number, customer, issueDate, dueDate, amountINR, payDate) => {
-  const inv = org.invoices.create(
-    {
-      number,
-      customer,
-      issueDate,
-      dueDate,
-      lines: [{ description: "Product subscription & services", amount: parseINR(amountINR), gstRatePct: 18 }],
-    },
-    ACTOR,
-  );
-  org.invoices.send(inv.id, ACTOR);
-  if (payDate) org.invoices.recordPayment(inv.id, payDate, inv.total, ACTOR);
-  return inv;
-};
-
-for (let m = 1; m <= 6; m++) {
-  const mm = String(m).padStart(2, "0");
-  post(`2026-${mm}-01`, "Payroll", "acc_salary", "acc_bank", "3,20,000");
-  post(`2026-${mm}-05`, "Office rent", "acc_rent", "acc_bank", "80,000");
-  post(`2026-${mm}-12`, "GST input credit on vendor bills", "acc_gst_itc", "acc_bank", "35,000", "banking");
-  if (m >= 2) post(`2026-${mm}-20`, "GST payment (GSTR-3B)", "acc_gst_payable", "acc_bank", "1,03,600", "banking");
-
-  // Bank feed: subscriptions & operating spend, auto-categorized on import
-  org.banking.importStatement(
-    [
-      { date: `2026-${mm}-03`, description: "AWS subscription", amount: parseINR("-42,000"), reference: `aws-${mm}` },
-      { date: `2026-${mm}-04`, description: "Slack subscription", amount: parseINR("-8,500"), reference: `slack-${mm}` },
-      { date: `2026-${mm}-04`, description: "Figma annual plan (monthly)", amount: parseINR("-6,200"), reference: `figma-${mm}` },
-      { date: `2026-${mm}-06`, description: "Notion workspace", amount: parseINR("-4,100"), reference: `notion-${mm}` },
-      { date: `2026-${mm}-06`, description: "GitHub team plan", amount: parseINR("-9,300"), reference: `github-${mm}` },
-      { date: `2026-${mm}-10`, description: "LinkedIn ads campaign", amount: parseINR("-45,000"), reference: `li-${mm}` },
-      { date: `2026-${mm}-15`, description: "Airtel business broadband", amount: parseINR("-5,500"), reference: `airtel-${mm}` },
-    ],
-    ACTOR,
-  );
-
-  // Client invoicing: Meridian's May invoice is still unpaid (overdue).
-  const meridianPaid = m === 5 ? null : `2026-${mm}-22`;
-  invoice(`INV-2026-${mm}A`, "Meridian Retail", `2026-${mm}-03`, addDays(`2026-${mm}-03`, 38), "4,50,000", meridianPaid);
-  invoice(`INV-2026-${mm}B`, "Kite Analytics", `2026-${mm}-08`, addDays(`2026-${mm}-08`, 30), "3,20,000", `2026-${mm}-26`);
-}
-
-// June extras + July activity up to "today" (2026-07-02)
-invoice("INV-2026-06C", "BlueOrbit Systems", "2026-06-24", "2026-07-24", "2,80,000", null); // outstanding, not overdue
-post("2026-07-01", "Payroll", "acc_salary", "acc_bank", "3,20,000");
-invoice("INV-2026-07A", "Kite Analytics", "2026-07-01", "2026-07-31", "3,20,000", null);
-invoice("INV-2026-07B", "BlueOrbit Systems", "2026-07-01", "2026-07-31", "2,80,000", null);
-
-// Two bank-feed lines the categorizer can't place — they wait in the review queue
-org.banking.importStatement(
-  [
-    { date: "2026-06-28", description: "IMPS 4032 Chai Point", amount: parseINR("-1,250"), reference: "imps-4032" },
-    { date: "2026-06-30", description: "UPI transfer to Rahul", amount: parseINR("-3,400"), reference: "upi-rahul" },
-  ],
-  ACTOR,
-);
-
-org.recommendations.generate(AS_OF, PERIOD_FROM);
+const ready = boot(seedAll).then((b) => {
+  ({ org, erp, persistence } = b);
+  erpRoutes = erpApi(org, erp);
+  erpDo = erpActions(erp);
+  return b;
+});
 
 /* ------------------------------------------------------------------ */
 /* AI CFO chat                                                          */
@@ -124,7 +55,7 @@ const provider = process.env.ANTHROPIC_API_KEY
 const orchestrator = new Orchestrator(provider, 6);
 const aiUser = {
   userId: ACTOR,
-  orgId: org.orgId,
+  orgId: "org_nimbus",
   permissions: new Set(["access_ai_cfo", "view_reports"]),
 };
 
@@ -166,9 +97,8 @@ const pct = (cur, prev) => (prev !== 0n ? Number(((cur - prev) * 1000n) / prev) 
 /* ERP suite — attached to the same org, its own routes and page       */
 /* ------------------------------------------------------------------ */
 
-const erp = seedErp(org);
-const erpRoutes = erpApi(org, erp);
-const erpDo = erpActions(erp);
+// erpApi/erpActions are bound per request from the booted runtime, since
+// the runtime is only available after the action log has been replayed.
 
 const api = {
   brief() {
@@ -768,6 +698,7 @@ const readBody = (req) =>
   });
 
 export const handle = async (req, res) => {
+  await ready;
   const path = (req.url ?? "/").split("?")[0];
   const send = (code, body, type = "application/json") => {
     res.statusCode = code;
@@ -792,6 +723,19 @@ export const handle = async (req, res) => {
           detail: err.message,
         });
       }
+    }
+
+    if (path === "/api/status") {
+      const s = await sync(); // pick up anything another instance wrote
+      return send(200, {
+        persistence: persistence.mode,
+        detail: persistence.detail,
+        seededThisInstance: persistence.seeded,
+        actionsApplied: persistence.appliedThrough,
+        syncedNow: s.applied,
+        journalEntries: org.journal.all().length,
+        trialBalanceBalanced: org.ledger.trialBalance(AS_OF).balanced,
+      });
     }
 
     if (path === "/site") return send(200, sitePage(), "text/html");

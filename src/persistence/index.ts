@@ -6,4 +6,5 @@
 export * from "./serialize.js";
 export * from "./commands.js";
 export * from "./store.js";
+export * from "./db.js";
 export * from "./runtime.js";

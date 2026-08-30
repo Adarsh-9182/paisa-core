@@ -173,6 +173,18 @@ export const COMMANDS: Record<string, CommandHandler> = {
   "agents.dismiss": (ctx, pl, actor) =>
     ctx.erp.agents.dismiss(p(pl, "proposalId"), actor, p(pl, "reason")),
 
+  /* ---------------- bank feed ---------------- */
+
+  "banking.importStatement": (ctx, pl, actor) =>
+    ctx.org.banking.importStatement(p(pl, "lines"), actor, opt(pl, "bankAccountId", "acc_bank")),
+
+  /* ---------------- recommendations ---------------- */
+
+  "recommendations.generate": (ctx, pl) =>
+    ctx.org.recommendations.generate(p(pl, "asOf"), p(pl, "periodFrom")),
+  "recommendations.approve": (ctx, pl, actor) => ctx.org.recommendations.approve(p(pl, "id"), actor),
+  "recommendations.dismiss": (ctx, pl, actor) => ctx.org.recommendations.dismiss(p(pl, "id"), actor),
+
   /* ---------------- connectors ---------------- */
 
   "connector.register": (ctx, pl) => ctx.erp.connectors.register(p(pl, "source"), p(pl, "kind")),
