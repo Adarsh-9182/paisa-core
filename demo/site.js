@@ -157,8 +157,10 @@ export const sitePage = () => `<!doctype html>
   .step .s { font-size:11px; font-weight:700; color:var(--orange); letter-spacing:.08em; }
   .step h4 { font-size:14.5px; margin:8px 0 6px; font-weight:650; color:var(--night-ink); }
   .step p { font-size:13px; color:var(--night-ink-2); line-height:1.5; }
-  .quote { margin-top:38px; padding:22px 24px; border-left:2px solid var(--orange);
-           background:var(--night-2); border-radius:0 14px 14px 0; }
+  .quote { position:relative; margin-top:38px; padding:26px 28px 24px 60px;
+           background:var(--night-2); border:1px solid var(--night-line); border-radius:14px; }
+  .quote::before { content:"“"; position:absolute; left:20px; top:8px; font-size:52px; line-height:1;
+           font-family:Georgia,"Times New Roman",serif; color:var(--orange); opacity:.55; }
   .quote p { font-size:16.5px; line-height:1.55; color:var(--night-ink); letter-spacing:-.01em; }
   .quote span { display:block; margin-top:10px; font-size:13px; color:var(--night-ink-2); }
 
@@ -489,7 +491,7 @@ ${nav()}
     </div>
 
     <div class="quote">
-      <p>“The LLM is never the source of financial truth.”</p>
+      <p>The LLM is never the source of financial truth.</p>
       <span>The rule the orchestrator enforces in code — not a guideline in a prompt.</span>
     </div>
 
