@@ -15,6 +15,12 @@ export const sitePage = () => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paisa — The AI-native ERP for finance teams</title>
 <meta name="description" content="Perpetual general ledger, ASC 606 revenue recognition, multi-entity consolidation and a close that runs itself. With an AI CFO that cannot invent a number.">
+<meta name="theme-color" content="#16130F">
+<meta property="og:title" content="Paisa — The AI-native ERP for finance teams">
+<meta property="og:description" content="Close the month in a day. Trust every number in it.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F26B1D'/%3E%3Ctext x='16' y='23' font-family='-apple-system,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'%3EP%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --bg:#FAF7F2; --surface:#FFFFFF; --line:#EDE7DD; --line-2:#E2DACD;
@@ -262,11 +268,78 @@ export const sitePage = () => `<!doctype html>
   /* logo mark spins its coin edge on hover */
   .logo-mark { transition:transform .5s cubic-bezier(.19,1,.22,1); }
   .logo:hover .logo-mark { transform:rotateY(180deg); }
+
+  /* scroll progress */
+  .progress { position:fixed; top:0; left:0; height:2px; width:0%; background:var(--orange);
+              z-index:60; transition:width .1s linear; }
+
+  /* nav condenses once you leave the hero */
+  nav.top { transition:height .25s ease, background .25s ease, border-color .25s ease; }
+  nav.top .inner { transition:height .25s ease; }
+  nav.top.stuck .inner { height:54px; }
+  nav.top.stuck { background:rgba(22,19,15,.95); box-shadow:0 1px 0 var(--night-line); }
+
+  /* mobile menu */
+  .menu-btn { display:none; background:none; border:1px solid var(--night-line); border-radius:9px;
+              width:36px; height:32px; cursor:pointer; padding:0; position:relative; }
+  .menu-btn span { position:absolute; left:9px; right:9px; height:1.5px; background:var(--night-ink);
+                   transition:transform .25s ease, opacity .2s ease; }
+  .menu-btn span:nth-child(1){ top:11px; } .menu-btn span:nth-child(2){ top:16px; }
+  .menu-btn span:nth-child(3){ top:21px; }
+  .menu-btn.open span:nth-child(1){ transform:translateY(5px) rotate(45deg); }
+  .menu-btn.open span:nth-child(2){ opacity:0; }
+  .menu-btn.open span:nth-child(3){ transform:translateY(-5px) rotate(-45deg); }
+  .drawer { display:none; flex-direction:column; gap:2px; padding:10px 24px 18px;
+            border-top:1px solid var(--night-line); background:var(--night); }
+  .drawer a { padding:10px 2px; color:var(--night-ink-2); font-weight:550; }
+  .drawer a:hover { color:var(--night-ink); }
+  .drawer.open { display:flex; }
+  @media (max-width:860px){ .menu-btn { display:block; } .navcta .btn-dark { display:none; } }
+
+  /* buttons lift, and the primary one sweeps */
+  .btn { position:relative; overflow:hidden; }
+  .btn-primary::before { content:""; position:absolute; inset:0; transform:translateX(-101%);
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent); }
+  .btn-primary:hover::before { animation:sweep .7s ease; }
+  @keyframes sweep { to { transform:translateX(101%); } }
+  .btn:active { transform:translateY(1px); }
+
+  /* section headings reveal too */
+  .head { opacity:0; transform:translateY(16px);
+          transition:opacity .7s cubic-bezier(.19,1,.22,1), transform .7s cubic-bezier(.19,1,.22,1); }
+  .head.shown { opacity:1; transform:none; }
+  .hero .head, header .head { opacity:1; transform:none; }
+
+  /* the eyebrow gets a rule that draws itself */
+  .eyebrow { display:flex; align-items:center; gap:11px; }
+  .eyebrow::after { content:""; height:1px; background:currentColor; opacity:.32; width:0;
+                    transition:width .9s cubic-bezier(.19,1,.22,1) .15s; }
+  .head.shown .eyebrow::after { width:62px; }
+  .hero .eyebrow::after { width:62px; }
+
+  /* comparison rows respond */
+  tbody tr { transition:background .18s ease; }
+  tbody tr:hover { background:#FBF7F1; }
+  tbody tr:hover .col-paisa { background:#FBE2CE; }
+
+  /* scroll hint under the hero cta */
+  .hint { display:inline-flex; align-items:center; gap:7px; margin-top:26px; font-size:12.5px;
+          color:var(--night-ink-2); }
+  .hint i { display:block; width:1px; height:22px; background:linear-gradient(var(--orange),transparent);
+            animation:drop 1.8s ease-in-out infinite; }
+  @keyframes drop { 0%,100%{ transform:scaleY(.4); opacity:.4; transform-origin:top; }
+                    50%{ transform:scaleY(1); opacity:1; transform-origin:top; } }
+
+  /* strip values count too */
+  .strip .n { transition:color .3s ease; }
+  .strip .inner > div:hover .n { color:var(--night-ink); }
 </style>
 </head>
 <body>
 
-<nav class="top">
+<div class="progress" id="progress"></div>
+
+<nav class="top" id="nav">
   <div class="wrap inner">
     <a class="logo" href="/site"><span class="logo-mark">P</span>paisa</a>
     <div class="navlinks">
@@ -279,7 +352,18 @@ export const sitePage = () => `<!doctype html>
     <div class="navcta">
       <a class="btn btn-dark" href="/">Live app</a>
       <a class="btn btn-primary" href="/erp">See the close</a>
+      <button class="menu-btn" id="menu-btn" aria-label="Menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
     </div>
+  </div>
+  <div class="drawer" id="drawer">
+    <a href="#platform">Platform</a>
+    <a href="#ai">Paisa AI</a>
+    <a href="#global">Global &amp; local</a>
+    <a href="#close">Close</a>
+    <a href="#compare">Compare</a>
+    <a href="/">Live app</a>
   </div>
 </nav>
 
@@ -299,6 +383,7 @@ export const sitePage = () => `<!doctype html>
         <a class="btn btn-dark" href="#ai">How the AI is grounded</a>
       </div>
       <div class="hero-note fade-up" style="animation-delay:1s">No sign-up — the demo runs on a seeded company with a live close waiting.</div>
+      <div class="hint fade-up" style="animation-delay:1.15s"><i></i> watch the close resolve itself</div>
     </div>
 
     <div class="console fade-up" style="animation-delay:1.05s">
@@ -724,6 +809,45 @@ export const sitePage = () => `<!doctype html>
     }, { threshold: 0 }).observe(canvas);
     raf = requestAnimationFrame(draw);
   }
+
+
+  /* ---------------- scroll progress + sticky nav ---------------- */
+  const progress = document.getElementById("progress");
+  const navEl = document.getElementById("nav");
+  const onScroll = () => {
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    if (progress) progress.style.width = (max > 0 ? (window.scrollY / max) * 100 : 0) + "%";
+    if (navEl) navEl.classList.toggle("stuck", window.scrollY > 80);
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  /* ---------------- mobile drawer ---------------- */
+  const menuBtn = document.getElementById("menu-btn");
+  const drawer = document.getElementById("drawer");
+  if (menuBtn && drawer) {
+    menuBtn.addEventListener("click", () => {
+      const open = drawer.classList.toggle("open");
+      menuBtn.classList.toggle("open", open);
+      menuBtn.setAttribute("aria-expanded", String(open));
+    });
+    drawer.addEventListener("click", (e) => {
+      if (e.target.tagName !== "A") return;
+      drawer.classList.remove("open");
+      menuBtn.classList.remove("open");
+      menuBtn.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  /* ---------------- section headings reveal ---------------- */
+  const headIo = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (!e.isIntersecting) return;
+      e.target.classList.add("shown");
+      headIo.unobserve(e.target);
+    });
+  }, { threshold: 0.25 });
+  document.querySelectorAll("section .head").forEach((el) => headIo.observe(el));
 
   /* ---------------- cursor glow ---------------- */
   const hero = document.querySelector(".hero");
