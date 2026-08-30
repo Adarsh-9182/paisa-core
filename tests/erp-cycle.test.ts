@@ -370,3 +370,79 @@ describe("deferred revenue roll-forward", () => {
     expect(rf.tiesToLedger).toBe(true);
   });
 });
+
+describe("subledger tie-out is as-at, not as-of-today", () => {
+  // Regression: aging() reports on currently open documents, so an invoice
+  // raised after the period end leaked into that period's subledger total
+  // while its journal entry (correctly) did not. Tying a past period needs
+  // the balance as it stood then.
+  it("excludes a document raised after the period end", () => {
+    const { org, erp } = company();
+
+    const june = org.invoices.create(
+      {
+        number: "INV-JUN",
+        customer: "Late Co",
+        issueDate: "2026-06-10",
+        dueDate: "2026-07-10",
+        lines: [{ description: "Services", amount: parseINR("1,00,000"), gstRatePct: 18 }],
+      },
+      ACTOR,
+    );
+    org.invoices.send(june.id, ACTOR);
+
+    // As at 31 May the June invoice does not exist in either place.
+    const mayRun = erp.close.run("2026-05", ACTOR);
+    expect(mayRun.tasks.find((t) => t.id === "ar_tie_out")!.status).toBe("PASSED");
+
+    // As at 30 June it exists in both.
+    const juneRun = erp.close.run("2026-06", ACTOR);
+    expect(juneRun.tasks.find((t) => t.id === "ar_tie_out")!.status).toBe("PASSED");
+    expect(org.ledger.balance("acc_ar", "2026-06-30")).toBe(parseINR("1,18,000"));
+  });
+
+  it("still counts an invoice that was settled after the period end", () => {
+    const { org, erp } = company();
+    const inv = org.invoices.create(
+      {
+        number: "INV-APR",
+        customer: "Slow Payer",
+        issueDate: "2026-04-05",
+        dueDate: "2026-05-05",
+        lines: [{ description: "Services", amount: parseINR("2,00,000"), gstRatePct: 18 }],
+      },
+      ACTOR,
+    );
+    org.invoices.send(inv.id, ACTOR);
+    // Paid in June — so at 30 April it was still outstanding.
+    org.invoices.recordPayment(inv.id, "2026-06-20", parseINR("2,36,000"), ACTOR);
+
+    const aprilRun = erp.close.run("2026-04", ACTOR);
+    expect(aprilRun.tasks.find((t) => t.id === "ar_tie_out")!.status).toBe("PASSED");
+    expect(org.ledger.balance("acc_ar", "2026-04-30")).toBe(parseINR("2,36,000"));
+    expect(org.ledger.balance("acc_ar", "2026-06-30")).toBe(ZERO);
+  });
+
+  it("ties accounts payable the same way", () => {
+    const { org, erp } = company();
+    const b = erp.bills.create(
+      {
+        number: "V-1",
+        vendor: "Vendor Co",
+        billDate: "2026-03-10",
+        dueDate: "2026-04-10",
+        lines: [{ description: "Consulting", amount: parseINR("50,000"), expenseAccountId: "acc_professional", gstRatePct: 18, itcEligible: true }],
+      },
+      ACTOR,
+    );
+    erp.bills.submit(b.id, ACTOR);
+    erp.bills.approve(b.id, "priya");
+    erp.bills.recordPayment(b.id, "2026-05-15", parseINR("59,000"), ACTOR);
+
+    // Outstanding at 31 March, settled by 31 May.
+    expect(erp.close.run("2026-03", ACTOR).tasks.find((t) => t.id === "ap_tie_out")!.status).toBe("PASSED");
+    expect(org.ledger.balance("acc_ap", "2026-03-31")).toBe(parseINR("59,000"));
+    expect(erp.close.run("2026-05", ACTOR).tasks.find((t) => t.id === "ap_tie_out")!.status).toBe("PASSED");
+    expect(org.ledger.balance("acc_ap", "2026-05-31")).toBe(ZERO);
+  });
+});

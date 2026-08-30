@@ -12,6 +12,8 @@
  */
 
 import { createServer } from "node:http";
+import { seedErp, erpApi, erpActions } from "./erp-console.js";
+import { erpPage } from "./erp-page.js";
 import {
   Platform,
   parseINR,
@@ -156,6 +158,14 @@ const monthWindow = (offset) => {
 };
 
 const pct = (cur, prev) => (prev !== 0n ? Number(((cur - prev) * 1000n) / prev) / 10 : null);
+
+/* ------------------------------------------------------------------ */
+/* ERP suite — attached to the same org, its own routes and page       */
+/* ------------------------------------------------------------------ */
+
+const erp = seedErp(org);
+const erpRoutes = erpApi(org, erp);
+const erpDo = erpActions(erp);
 
 const api = {
   brief() {
@@ -781,6 +791,34 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    if (path === "/erp") return send(200, erpPage(), "text/html");
+
+    const erpName = path.replace("/api/erp/", "");
+    if (path.startsWith("/api/erp/") && erpRoutes[erpName]) return send(200, erpRoutes[erpName]());
+
+    const propAction = /^\/api\/erp\/proposals\/(prop_[\w]+)\/(approve|dismiss)$/.exec(path);
+    if (propAction && req.method === "POST") {
+      const [, id, action] = propAction;
+      try {
+        const p = action === "approve" ? erpDo.approveProposal(id) : erpDo.dismissProposal(id, "reviewed");
+        return send(200, { ok: true, id: p.id, status: p.status, entryId: p.resultingEntryId });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+    if (path === "/api/erp/close/run" && req.method === "POST") {
+      const run = erpDo.runClose();
+      return send(200, { ok: true, passed: run.passed, blocked: run.blocked, readyToClose: run.readyToClose });
+    }
+    if (path === "/api/erp/close/lock" && req.method === "POST") {
+      try {
+        const run = erpDo.lockPeriod();
+        return send(200, { ok: true, locked: run.locked, completedAt: run.completedAt });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
     const recAction = /^\/api\/recommendations\/(rec_[\w]+)\/(approve|dismiss)$/.exec(path);
     if (recAction && req.method === "POST") {
       const [, id, action] = recAction;
@@ -810,5 +848,6 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Paisa AI CFO demo → http://localhost:${PORT}`);
+  console.log(`Paisa ERP console → http://localhost:${PORT}/erp`);
   console.log(`Chat provider: ${process.env.ANTHROPIC_API_KEY ? "Anthropic (claude-opus-4-8) with offline fallback" : "offline CfoPlanner"}`);
 });

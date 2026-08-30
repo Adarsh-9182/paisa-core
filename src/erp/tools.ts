@@ -12,7 +12,7 @@
  * but it cannot close the month for you.
  */
 
-import { formatINR, ZERO, sum } from "../money.js";
+import { formatINR, sum } from "../money.js";
 import { Organization } from "../organization.js";
 import { ToolSpec } from "../ai/tools.js";
 import { ErpSuite } from "./suite.js";
@@ -143,15 +143,14 @@ export const ERP_TOOLS: Record<string, ErpToolFn> = {
     return `period=${period} movements=${flux.length} lines: ${rows}`;
   },
 
-  get_subledger_tie_out: (org, erp, args) => {
+  get_subledger_tie_out: (_org, erp, args) => {
     const asOf = str(args.asOf, "asOf");
-    const arSub = (org.invoices.aging(asOf).totalOutstanding + erp.revrec.arOutstanding(asOf)) as typeof ZERO;
-    const arGl = org.ledger.balance("acc_ar", asOf);
-    const apSub = erp.bills.aging(asOf).totalOutstanding;
-    const apGl = org.ledger.balance("acc_ap", asOf);
+    const t = erp.tieOut(asOf);
     return (
-      `as_of=${asOf} ar_subledger=${formatINR(arSub)} ar_ledger=${formatINR(arGl)} ar_ties=${arSub === arGl} ` +
-      `ap_subledger=${formatINR(apSub)} ap_ledger=${formatINR(apGl)} ap_ties=${apSub === apGl}`
+      `as_of=${asOf} ar_subledger=${formatINR(t.ar.subledger)} ar_ledger=${formatINR(t.ar.ledger)} ` +
+      `ar_difference=${formatINR(t.ar.difference)} ar_ties=${t.ar.ties} ` +
+      `ap_subledger=${formatINR(t.ap.subledger)} ap_ledger=${formatINR(t.ap.ledger)} ` +
+      `ap_difference=${formatINR(t.ap.difference)} ap_ties=${t.ap.ties}`
     );
   },
 };

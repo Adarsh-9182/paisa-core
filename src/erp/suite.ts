@@ -10,7 +10,7 @@
  * or with it (a company that needs ASC 606, multi-entity and a real close).
  */
 
-import { Paise, ZERO, sum, formatINR } from "../money.js";
+import { Paise, ZERO, add, sub, sum, formatINR } from "../money.js";
 import { Organization } from "../organization.js";
 import { erpAccounts } from "./accounts.js";
 import { PeriodEngine, PeriodKey, periodEnd, periodStart } from "./periods.js";
@@ -25,6 +25,14 @@ import { CloseEngine, CloseContext } from "./close.js";
 import { AgentEngine } from "./agents.js";
 import { ConnectorHub } from "./connectors.js";
 
+export interface SubledgerTieOut {
+  readonly asOf: string;
+  readonly subledger: Paise;
+  readonly ledger: Paise;
+  readonly difference: Paise;
+  readonly ties: boolean;
+}
+
 export interface ErpSuite {
   readonly periods: PeriodEngine;
   readonly contracts: ContractEngine;
@@ -37,6 +45,12 @@ export interface ErpSuite {
   readonly close: CloseEngine;
   readonly agents: AgentEngine;
   readonly connectors: ConnectorHub;
+  /**
+   * AR and AP as they stood on a date, against their GL control accounts.
+   * The close checklist and any reporting surface must share this one
+   * implementation — two copies of a tie-out is how they come to disagree.
+   */
+  readonly tieOut: (asOf: string) => { readonly ar: SubledgerTieOut; readonly ap: SubledgerTieOut };
 }
 
 export interface ErpOptions {
@@ -70,6 +84,41 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
 
   const cashAccounts = opts.cashAccounts ?? [{ accountId: "acc_bank", name: "Bank" }];
 
+  // Rebuilt as-at the date rather than read off aging(), which reports on
+  // *currently* open documents: a document raised after `asOf` has not hit
+  // the ledger yet, and one settled after `asOf` was still outstanding then.
+  // Tying a past period needs the balance as it stood, not as it stands today.
+  const arSubledgerTotal = (asOf: string): Paise => {
+    const invoiceAr = sum(
+      org.invoices
+        .all()
+        .filter((i) => i.status !== "DRAFT" && i.status !== "CANCELLED" && i.issueDate <= asOf)
+        .map((i) => sub(i.total, sum(i.payments.filter((p) => p.date <= asOf).map((p) => p.amount)))),
+    );
+    return add(invoiceAr, revrec.arOutstanding(asOf));
+  };
+
+  const apSubledgerTotal = (asOf: string): Paise =>
+    sum(
+      bills
+        .all()
+        .filter(
+          (b) =>
+            (b.status === "APPROVED" || b.status === "PARTIALLY_PAID" || b.status === "PAID") &&
+            b.billDate <= asOf,
+        )
+        .map((b) => sub(b.total, sum(b.payments.filter((p) => p.date <= asOf).map((p) => p.amount)))),
+    );
+
+  const tieOut = (asOf: string) => {
+    const build = (subledger: Paise, accountId: string): SubledgerTieOut => {
+      const ledger = org.ledger.balance(accountId, asOf);
+      const difference = sub(subledger, ledger);
+      return { asOf, subledger, ledger, difference, ties: difference === ZERO };
+    };
+    return { ar: build(arSubledgerTotal(asOf), "acc_ar"), ap: build(apSubledgerTotal(asOf), "acc_ap") };
+  };
+
   const closeContext: CloseContext = {
     periods,
     trialBalanceBalanced: (asOf) => org.ledger.trialBalance(asOf).balanced,
@@ -77,9 +126,14 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
 
     // AR control account is fed by both the invoice engine and contract
     // billings, so the subledger total is the sum of both.
-    arSubledgerTotal: (asOf) =>
-      (org.invoices.aging(asOf).totalOutstanding + revrec.arOutstanding(asOf)) as Paise,
-    apSubledgerTotal: (asOf) => bills.aging(asOf).totalOutstanding,
+    //
+    // Both are rebuilt as-at the date rather than read off aging(), which
+    // reports on *currently* open documents: a document raised after `asOf`
+    // has not hit the ledger yet, and one settled after `asOf` was still
+    // outstanding then. Tying a past period needs the balance as it stood,
+    // not as it stands today.
+    arSubledgerTotal,
+    apSubledgerTotal,
 
     deferredTiesToLedger: (period) => {
       const rf = revrec.rollforward(period, (d) => org.ledger.balance("acc_deferred_revenue", d));
@@ -161,5 +215,5 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
 
   const connectors = new ConnectorHub(org.orgId, contracts, org.bus);
 
-  return { periods, contracts, revrec, bills, schedules, fx, reconciliation, metrics, close, agents, connectors };
+  return { periods, contracts, revrec, bills, schedules, fx, reconciliation, metrics, close, agents, connectors, tieOut };
 };
