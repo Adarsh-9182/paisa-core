@@ -167,6 +167,101 @@ export const sitePage = () => `<!doctype html>
              display:flex; justify-content:space-between; gap:14px; flex-wrap:wrap; font-size:12.5px; }
   .honest { border:1px solid var(--night-line); border-radius:12px; padding:14px 16px;
             margin-top:20px; font-size:12.5px; line-height:1.55; }
+
+  /* ---------- motion ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:.001ms !important; animation-iteration-count:1 !important;
+                             transition-duration:.001ms !important; }
+    #fx { display:none; }
+  }
+
+  /* the ledger canvas sits behind the hero content */
+  #fx { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:0; opacity:.85; }
+  .hero .wrap { position:relative; z-index:2; }
+  .hero::after { z-index:1; }
+
+  /* a glow that follows the cursor */
+  .glow { position:absolute; width:520px; height:520px; border-radius:50%; pointer-events:none;
+          z-index:1; opacity:0; transition:opacity .6s ease;
+          background:radial-gradient(closest-side, rgba(242,107,29,.13), transparent 70%);
+          transform:translate(-50%,-50%); }
+  .hero:hover .glow { opacity:1; }
+
+  /* headline words rise in */
+  .rise > span { display:inline-block; opacity:0; transform:translateY(1.05em) rotate(2deg);
+                 animation:rise .78s cubic-bezier(.19,1,.22,1) forwards; }
+  @keyframes rise { to { opacity:1; transform:none; } }
+
+  .fade-up { opacity:0; transform:translateY(14px); animation:fadeUp .7s cubic-bezier(.19,1,.22,1) forwards; }
+  @keyframes fadeUp { to { opacity:1; transform:none; } }
+
+  /* the close checklist types itself in */
+  .crow { opacity:0; transform:translateX(-8px); }
+  .crow.in { animation:slideIn .5s cubic-bezier(.19,1,.22,1) forwards; }
+  @keyframes slideIn { to { opacity:1; transform:none; } }
+  .cmark { position:relative; overflow:hidden; }
+  .cmark::after { content:""; position:absolute; inset:0; border-radius:50%;
+                  box-shadow:0 0 0 0 currentColor; opacity:.5; }
+  .crow.in .cmark::after { animation:ping .8s ease-out .1s; }
+  @keyframes ping { to { box-shadow:0 0 0 9px currentColor; opacity:0; } }
+  .cmark.pending { background:rgba(167,156,141,.18); color:var(--night-ink-2); }
+  .spin { display:inline-block; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* the number ticker */
+  .ticker { border-top:1px solid var(--night-line); border-bottom:1px solid var(--night-line);
+            background:var(--night); overflow:hidden; padding:11px 0; }
+  .ticker-track { display:flex; gap:34px; width:max-content; animation:slide 46s linear infinite; }
+  .ticker:hover .ticker-track { animation-play-state:paused; }
+  @keyframes slide { to { transform:translateX(-50%); } }
+  .tick { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--night-ink-2);
+          white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .tick b { color:var(--night-ink); font-weight:600; }
+  .tick .up { color:#4ADE9E; } .tick .down { color:#F87171; }
+  .tick .dot-sep { width:3px; height:3px; border-radius:50%; background:var(--night-line); }
+
+  /* strip counters */
+  .strip .n { font-variant-numeric:tabular-nums; }
+
+  /* cards reveal on scroll */
+  .reveal { opacity:0; transform:translateY(18px); transition:opacity .65s cubic-bezier(.19,1,.22,1),
+            transform .65s cubic-bezier(.19,1,.22,1); }
+  .reveal.shown { opacity:1; transform:none; }
+  .card { transition:transform .3s cubic-bezier(.19,1,.22,1), box-shadow .3s ease, border-color .3s ease; }
+  .card:hover { transform:translateY(-3px); border-color:var(--line-2);
+                box-shadow:0 10px 30px -14px rgba(31,27,22,.22); }
+  .ai .card:hover, .cta .card:hover { box-shadow:0 10px 34px -14px rgba(0,0,0,.6); }
+
+  /* flow steps draw a connecting line */
+  .flow { position:relative; }
+  .step { position:relative; }
+  .step::after { content:""; position:absolute; top:50%; right:-12px; width:12px; height:1px;
+                 background:var(--night-line); }
+  .step:last-child::after { display:none; }
+  @media (max-width:820px){ .step::after { display:none; } }
+  .step .s { position:relative; }
+
+  /* the verifier demo */
+  .verify { margin-top:38px; background:var(--night-2); border:1px solid var(--night-line);
+            border-radius:16px; overflow:hidden; }
+  .verify-head { padding:11px 16px; border-bottom:1px solid var(--night-line); font-size:12.5px;
+                 color:var(--night-ink-2); display:flex; align-items:center; gap:9px; }
+  .verify-body { padding:18px 20px; font-size:14px; line-height:1.75; min-height:132px; }
+  .vfig { padding:1px 5px; border-radius:5px; font-variant-numeric:tabular-nums;
+          transition:background .4s ease, color .4s ease, box-shadow .4s ease; }
+  .vfig.checking { background:rgba(242,107,29,.16); color:var(--orange); }
+  .vfig.pass { background:rgba(11,122,86,.2); color:#4ADE9E; }
+  .vfig.fail { background:rgba(192,57,43,.22); color:#F87171;
+               box-shadow:0 0 0 1px rgba(192,57,43,.5); }
+  .vstatus { padding:11px 20px; border-top:1px solid var(--night-line); font-size:12.5px;
+             display:flex; align-items:center; gap:8px; min-height:42px; }
+  .cursor { display:inline-block; width:7px; height:1.05em; background:var(--orange);
+            vertical-align:-2px; animation:blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+
+  /* logo mark spins its coin edge on hover */
+  .logo-mark { transition:transform .5s cubic-bezier(.19,1,.22,1); }
+  .logo:hover .logo-mark { transform:rotateY(180deg); }
 </style>
 </head>
 <body>
@@ -190,52 +285,56 @@ export const sitePage = () => `<!doctype html>
 
 <!-- ---------------- HERO ---------------- -->
 <header class="hero">
+  <canvas id="fx" aria-hidden="true"></canvas>
+  <div class="glow" id="glow" aria-hidden="true"></div>
   <div class="wrap">
     <div class="inner">
       <div class="eyebrow on-dark">AI-native ERP · Multi-entity · Multi-currency</div>
-      <h1>Close the month in a day.<br>Trust <em>every number</em> in it.</h1>
-      <p class="lede">Paisa is a perpetual general ledger with ASC 606 revenue recognition, multi-entity
+      <h1 class="rise" id="headline">Close the month in a day.<br>Trust <em>every number</em> in it.</h1>
+      <p class="lede fade-up" style="animation-delay:.75s">Paisa is a perpetual general ledger with ASC 606 revenue recognition, multi-entity
         consolidation, and a close that runs itself. Its AI CFO answers in plain language — and is
         structurally incapable of inventing a figure.</p>
-      <div class="hero-cta">
+      <div class="hero-cta fade-up" style="animation-delay:.88s">
         <a class="btn btn-primary" href="/erp">Open the ERP console</a>
         <a class="btn btn-dark" href="#ai">How the AI is grounded</a>
       </div>
-      <div class="hero-note">No sign-up — the demo runs on a seeded company with a live close waiting.</div>
+      <div class="hero-note fade-up" style="animation-delay:1s">No sign-up — the demo runs on a seeded company with a live close waiting.</div>
     </div>
 
-    <div class="console">
+    <div class="console fade-up" style="animation-delay:1.05s">
       <div class="console-bar">
         <span class="dot"></span><span class="dot"></span><span class="dot"></span>
         <span class="console-title">Month-end close · June 2026 · Nimbus Labs Pvt Ltd</span>
       </div>
-      <div class="console-body">
-        <div class="crow"><div class="cmark ok">✓</div><div>
+      <div class="console-body" id="checklist">
+        <div class="crow" data-final="ok"><div class="cmark pending">·</div><div>
           <div class="cname">Subledgers frozen for the period</div>
           <div class="cdetail">Period 2026-06 is SOFT_CLOSED</div></div></div>
-        <div class="crow"><div class="cmark no">✕</div><div>
+        <div class="crow" data-final="no"><div class="cmark pending">·</div><div>
           <div class="cname">Bank reconciliations completed</div>
-          <div class="cblock">↳ Bank has no completed reconciliation as of 2026-06-30</div></div></div>
-        <div class="crow"><div class="cmark ok">✓</div><div>
+          <div class="cdetail cblockslot"></div></div></div>
+        <div class="crow" data-final="ok"><div class="cmark pending">·</div><div>
           <div class="cname">Revenue recognition posted</div>
-          <div class="cdetail">Recognised ₹4,17,945.21 across 3 performance obligations</div></div></div>
-        <div class="crow"><div class="cmark ok">✓</div><div>
+          <div class="cdetail">Recognised <span class="count" data-to="417945.21">₹0.00</span> across 3 performance obligations</div></div></div>
+        <div class="crow" data-final="ok"><div class="cmark pending">·</div><div>
           <div class="cname">AR subledger ties to the control account</div>
-          <div class="cdetail">Accounts Receivable ₹36,93,400.00 agrees with the general ledger</div></div></div>
-        <div class="crow"><div class="cmark ok">✓</div><div>
+          <div class="cdetail">Accounts Receivable <span class="count" data-to="3693400">₹0.00</span> agrees with the general ledger</div></div></div>
+        <div class="crow" data-final="ok"><div class="cmark pending">·</div><div>
           <div class="cname">Deferred revenue roll-forward ties to the ledger</div>
           <div class="cdetail">opening + billed − recognised = closing, checked against the GL</div></div></div>
-        <div class="crow"><div class="cmark no">✕</div><div>
+        <div class="crow" data-final="no"><div class="cmark pending">·</div><div>
           <div class="cname">Material P&amp;L movements explained</div>
-          <div class="cblock">↳ Services moved ₹2,80,000.00 vs prior period and has no explanation</div></div></div>
+          <div class="cdetail cblockslot"></div></div></div>
       </div>
     </div>
   </div>
 </header>
 
+<div class="ticker" aria-hidden="true"><div class="ticker-track" id="ticker"></div></div>
+
 <div class="strip">
   <div class="wrap inner">
-    <div><div class="n">Zero</div><div class="l">figures the AI can state that no engine produced</div></div>
+    <div><div class="n" data-count="0" data-suffix="">Zero</div><div class="l">figures the AI can state that no engine produced</div></div>
     <div><div class="n">To the paisa</div><div class="l">every ASC 606 allocation and schedule sums exactly</div></div>
     <div><div class="n">Append-only</div><div class="l">no entry is ever edited or deleted — corrections are reversals</div></div>
     <div><div class="n">Any currency</div><div class="l">exact rational FX rates, per-entity ledgers, consolidation on demand</div></div>
@@ -310,6 +409,15 @@ export const sitePage = () => `<!doctype html>
       <span>The rule the orchestrator enforces in code — not a guideline in a prompt.</span>
     </div>
 
+
+    <div class="verify" id="verify">
+      <div class="verify-head">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span style="margin-left:6px">Asked: “How much revenue did we recognise in June, and what is left on the contract?”</span>
+      </div>
+      <div class="verify-body" id="verify-body"></div>
+      <div class="vstatus" id="verify-status"></div>
+    </div>
     <div class="grid g3" style="margin-top:38px">
       <div class="card" style="background:var(--night-2);border-color:var(--night-line)">
         <h3 style="color:var(--night-ink)">Agents propose, humans dispose</h3>
@@ -511,6 +619,318 @@ export const sitePage = () => `<!doctype html>
     </div>
   </div>
 </footer>
+
+
+<script>
+(() => {
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ================================================================
+     The ledger field.
+
+     Not floating coins — a double-entry ledger. Debits fall on the left,
+     credits on the right, and each pair drifts toward the centre line
+     where it settles and balances. It is the product's one idea, moving.
+     ================================================================ */
+  const canvas = document.getElementById("fx");
+  if (canvas && !reduced) {
+    const ctx = canvas.getContext("2d");
+    let w = 0, h = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const GLYPHS = ["₹", "$", "€", "£", "¥"];
+
+    const resize = () => {
+      const r = canvas.getBoundingClientRect();
+      w = r.width; h = r.height;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    // A pair is one journal entry: a debit and its matching credit.
+    const pairs = [];
+    const makePair = (seed) => {
+      const y = seed === undefined ? -40 - Math.random() * h : Math.random() * h;
+      const depth = 0.35 + Math.random() * 0.65;      // parallax layer
+      return {
+        y,
+        depth,
+        speed: (0.16 + Math.random() * 0.34) * depth,
+        spread: (0.16 + Math.random() * 0.3),          // how far apart the sides start
+        settle: 0,                                     // 0 = apart, 1 = met in the middle
+        settleAt: 0.42 + Math.random() * 0.3,          // where down the page they meet
+        amount: (Math.random() * 900000 + 1000),
+        glyph: GLYPHS[(Math.random() * GLYPHS.length) | 0],
+        hue: Math.random() < 0.18,                     // a few carry the accent colour
+      };
+    };
+    for (let i = 0; i < 26; i++) pairs.push(makePair(i));
+
+    const fmt = (n) => {
+      const r = Math.round(n);
+      const s = String(r);
+      if (s.length <= 3) return s;
+      const head = s.slice(0, -3), tail = s.slice(-3);
+      return head.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + tail;
+    };
+
+    let raf = 0, running = true;
+    const draw = () => {
+      ctx.clearRect(0, 0, w, h);
+      const mid = w * 0.5;
+
+      for (const p of pairs) {
+        p.y += p.speed * 1.5;
+        const progress = p.y / h;
+        // ease the two sides together as the entry falls past its settle point
+        const t = Math.max(0, Math.min(1, (progress - p.settleAt) / 0.26));
+        p.settle = t * t * (3 - 2 * t);                // smoothstep
+
+        if (p.y > h + 60) { Object.assign(p, makePair()); p.y = -40; continue; }
+
+        const gap = w * p.spread * (1 - p.settle);
+        const alpha = (0.05 + p.depth * 0.16) * (1 - Math.max(0, progress - 0.86) / 0.14);
+        const size = 9 + p.depth * 7;
+
+        ctx.font = size + "px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.textBaseline = "middle";
+
+        const accent = p.hue ? "242,107,29" : "245,240,232";
+        // debit (left) and credit (right)
+        ctx.textAlign = "right";
+        ctx.fillStyle = "rgba(" + accent + "," + alpha + ")";
+        ctx.fillText(p.glyph + fmt(p.amount), mid - gap - 10, p.y);
+        ctx.textAlign = "left";
+        ctx.fillText(p.glyph + fmt(p.amount), mid + gap + 10, p.y);
+
+        // when they meet, a hairline joins them — the entry balances
+        if (p.settle > 0.55) {
+          const a = (p.settle - 0.55) / 0.45 * alpha * 1.6;
+          ctx.strokeStyle = "rgba(242,107,29," + a + ")";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(mid - gap - 6, p.y);
+          ctx.lineTo(mid + gap + 6, p.y);
+          ctx.stroke();
+        }
+      }
+      if (running) raf = requestAnimationFrame(draw);
+    };
+
+    resize();
+    window.addEventListener("resize", resize);
+    // stop painting when the hero is off screen — no work nobody can see
+    new IntersectionObserver(([e]) => {
+      running = e.isIntersecting;
+      if (running) raf = requestAnimationFrame(draw); else cancelAnimationFrame(raf);
+    }, { threshold: 0 }).observe(canvas);
+    raf = requestAnimationFrame(draw);
+  }
+
+  /* ---------------- cursor glow ---------------- */
+  const hero = document.querySelector(".hero");
+  const glow = document.getElementById("glow");
+  if (hero && glow && !reduced) {
+    hero.addEventListener("pointermove", (e) => {
+      const r = hero.getBoundingClientRect();
+      glow.style.left = (e.clientX - r.left) + "px";
+      glow.style.top = (e.clientY - r.top) + "px";
+    });
+  }
+
+  /* ---------------- headline, word by word ---------------- */
+  const headline = document.getElementById("headline");
+  if (headline) {
+    const walk = (node) => {
+      for (const child of [...node.childNodes]) {
+        if (child.nodeType === 3) {
+          const frag = document.createDocumentFragment();
+          for (const word of child.textContent.split(/(\s+)/)) {
+            if (!word.trim()) { frag.appendChild(document.createTextNode(word)); continue; }
+            const span = document.createElement("span");
+            span.textContent = word;
+            frag.appendChild(span);
+          }
+          child.replaceWith(frag);
+        } else if (child.nodeType === 1 && child.tagName !== "BR") {
+          walk(child);
+        }
+      }
+    };
+    walk(headline);
+    headline.querySelectorAll("span").forEach((el, i) => {
+      el.style.animationDelay = (0.06 * i) + "s";
+    });
+  }
+
+  /* ---------------- number counters ---------------- */
+  const inr = (n) => {
+    const neg = n < 0; n = Math.abs(n);
+    const r = n.toFixed(2), [i, f] = r.split(".");
+    let g = i;
+    if (i.length > 3) {
+      const head = i.slice(0, -3), tail = i.slice(-3);
+      g = head.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + tail;
+    }
+    return (neg ? "-" : "") + "₹" + g + "." + f;
+  };
+  const countUp = (el) => {
+    const to = parseFloat(el.dataset.to);
+    if (reduced) { el.textContent = inr(to); return; }
+    const dur = 1100, start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - t, 3);
+      el.textContent = inr(to * eased);
+      if (t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  };
+
+  /* ---------------- the close checklist resolves itself ---------------- */
+  const checklist = document.getElementById("checklist");
+  if (checklist) {
+    const rows = [...checklist.querySelectorAll(".crow")];
+    const blockers = {
+      1: "↳ Bank has no completed reconciliation as of 2026-06-30",
+      5: "↳ Services moved ₹2,80,000.00 vs prior period and has no explanation",
+    };
+    rows.forEach((row, i) => {
+      const delay = reduced ? 0 : 1250 + i * 260;
+      setTimeout(() => {
+        row.classList.add("in");
+        const mark = row.querySelector(".cmark");
+        mark.innerHTML = '<span class="spin">◠</span>';
+        setTimeout(() => {
+          const ok = row.dataset.final === "ok";
+          mark.classList.remove("pending");
+          mark.classList.add(ok ? "ok" : "no");
+          mark.textContent = ok ? "✓" : "✕";
+          if (!ok) {
+            const slot = row.querySelector(".cblockslot");
+            if (slot) { slot.className = "cblock"; slot.textContent = blockers[i] || ""; }
+          }
+          row.querySelectorAll(".count").forEach(countUp);
+        }, reduced ? 0 : 420);
+      }, delay);
+    });
+  }
+
+  /* ---------------- the ticker ---------------- */
+  const ticker = document.getElementById("ticker");
+  if (ticker) {
+    const items = [
+      ["MRR", "₹4,20,000.00", "up", "+12.4%"],
+      ["ARR", "₹50,40,000.00", "up", "+12.4%"],
+      ["Backlog / RPO", "₹28,18,356.16", "", ""],
+      ["Deferred revenue", "₹0.00", "", "ties to GL"],
+      ["Unbilled receivable", "₹1,81,643.84", "", ""],
+      ["AR", "₹36,93,400.00", "", "ties to GL"],
+      ["AP", "₹1,41,600.00", "", ""],
+      ["NRR", "100.0%", "", "since Mar"],
+      ["Close tasks passed", "9 / 11", "down", "2 blocked"],
+      ["Trial balance", "balanced", "up", ""],
+      ["Journal entries", "129", "", "append-only"],
+      ["Audit events", "47", "", ""],
+    ];
+    const row = items.map(([label, value, dir, note]) =>
+      '<span class="tick">' + label + ' <b>' + value + '</b>' +
+      (note ? ' <span class="' + (dir || "") + '">' + note + '</span>' : '') +
+      '</span><span class="tick dot-sep"></span>'
+    ).join("");
+    ticker.innerHTML = row + row; // duplicated so the loop is seamless
+  }
+
+
+  /* ---------------- the verifier, demonstrated ----------------
+     The draft answer types out. Each figure is then checked against the
+     tool results one at a time. Two came from tools; one did not, and the
+     whole answer is rejected — which is what actually happens in the
+     orchestrator, not a dramatisation of it. */
+  const vbody = document.getElementById("verify-body");
+  const vstatus = document.getElementById("verify-status");
+  if (vbody && vstatus) {
+    const parts = [
+      { t: "You recognised " },
+      { t: "₹4,17,945.21", fig: true, ok: true },
+      { t: " of subscription revenue in June, leaving " },
+      { t: "₹28,18,356.16", fig: true, ok: true },
+      { t: " of contracted revenue still to be earned — about " },
+      { t: "6.7 months", fig: true, ok: false },
+      { t: " at the current run rate." },
+    ];
+    let started = false;
+    const run = () => {
+      if (started) return;
+      started = true;
+      vbody.innerHTML = "";
+      vstatus.innerHTML = '<span style="color:var(--night-ink-2)">Drafting…</span>';
+      const nodes = [];
+      let i = 0;
+
+      const typeNext = () => {
+        if (i >= parts.length) return void setTimeout(check, 420);
+        const part = parts[i++];
+        const el = document.createElement("span");
+        if (part.fig) { el.className = "vfig"; nodes.push({ el, ok: part.ok }); }
+        vbody.appendChild(el);
+        if (reduced) { el.textContent = part.t; typeNext(); return; }
+        let c = 0;
+        const cur = document.createElement("span");
+        cur.className = "cursor";
+        vbody.appendChild(cur);
+        const step = () => {
+          el.textContent = part.t.slice(0, ++c);
+          if (c < part.t.length) setTimeout(step, 14);
+          else { cur.remove(); typeNext(); }
+        };
+        step();
+      };
+
+      const check = () => {
+        let n = 0;
+        const one = () => {
+          if (n >= nodes.length) return void verdict();
+          const { el, ok } = nodes[n++];
+          el.className = "vfig checking";
+          vstatus.innerHTML = '<span style="color:var(--orange)">Checking ' + el.textContent +
+            ' against tool results…</span>';
+          setTimeout(() => {
+            el.className = "vfig " + (ok ? "pass" : "fail");
+            setTimeout(one, ok ? 260 : 520);
+          }, reduced ? 0 : 620);
+        };
+        one();
+      };
+
+      const verdict = () => {
+        vstatus.innerHTML =
+          '<span style="color:#F87171;font-weight:600">✕ Rejected</span>' +
+          '<span style="color:var(--night-ink-2)">“6.7 months” came from no tool — the model divided it ' +
+          'itself. The answer never reaches the screen; it is sent back to be rewritten.</span>';
+        setTimeout(() => { started = false; run(); }, 7000);
+      };
+
+      typeNext();
+    };
+    new IntersectionObserver(([e]) => { if (e.isIntersecting) run(); }, { threshold: 0.3 })
+      .observe(vbody);
+  }
+
+  /* ---------------- scroll reveals ---------------- */
+  const targets = document.querySelectorAll("section .card, .tablewrap, .chips, .flow, .quote, .verify");
+  targets.forEach((el) => el.classList.add("reveal"));
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (!e.isIntersecting) return;
+      const siblings = [...(e.target.parentElement?.children || [])];
+      const i = Math.max(0, siblings.indexOf(e.target));
+      e.target.style.transitionDelay = Math.min(i * 55, 330) + "ms";
+      e.target.classList.add("shown");
+      io.unobserve(e.target);
+    });
+  }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
+  targets.forEach((el) => io.observe(el));
+})();
+</script>
 
 </body>
 </html>`;
