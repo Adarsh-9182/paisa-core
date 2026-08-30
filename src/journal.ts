@@ -36,6 +36,20 @@ export class JournalError extends Error {
   override name = "JournalError";
 }
 
+/**
+ * A posting guard vetoes an entry before it is written. Period close uses
+ * this to make a closed period genuinely unpostable rather than merely
+ * discouraged — the ledger cannot drift after a period is signed off.
+ * A guard rejects by throwing; returning means "allowed".
+ */
+export interface PostingCandidate {
+  readonly date: string;
+  readonly sourceModule: string;
+  readonly narration: string;
+}
+
+export type PostingGuard = (candidate: PostingCandidate) => void;
+
 export interface PostInput {
   date: string;
   narration: string;
@@ -50,6 +64,7 @@ export class JournalEngine {
   private byId = new Map<string, JournalEntry>();
   private reversalOf = new Map<string, string>(); // originalId -> reversalId
   private counter = 0;
+  private guards: PostingGuard[] = [];
 
   constructor(
     public readonly orgId: string,
@@ -59,7 +74,17 @@ export class JournalEngine {
     if (chart.orgId !== orgId) throw new JournalError("Chart of accounts belongs to a different organization");
   }
 
+  /** Register a veto (period close, entity lock). Guards run on post and reverse. */
+  addGuard(guard: PostingGuard): void {
+    this.guards.push(guard);
+  }
+
+  private assertAllowed(candidate: PostingCandidate): void {
+    for (const g of this.guards) g(candidate);
+  }
+
   post(input: PostInput): JournalEntry {
+    this.assertAllowed({ date: input.date, sourceModule: input.sourceModule, narration: input.narration });
     this.validate(input.lines);
     const entry: JournalEntry = Object.freeze({
       id: `je_${this.orgId}_${++this.counter}`,
@@ -94,6 +119,9 @@ export class JournalEngine {
     if (original.reverses !== null)
       throw new JournalError(`Cannot reverse a reversal entry (${originalId}); post a fresh correct entry instead`);
 
+    const narration = `REVERSAL of ${originalId}: ${reason}`;
+    this.assertAllowed({ date: date ?? original.date, sourceModule: original.sourceModule, narration });
+
     const flipped = original.lines.map((l) => ({
       accountId: l.accountId,
       side: (l.side === "DEBIT" ? "CREDIT" : "DEBIT") as Side,
@@ -104,7 +132,7 @@ export class JournalEngine {
       id: `je_${this.orgId}_${++this.counter}`,
       orgId: this.orgId,
       date: date ?? original.date,
-      narration: `REVERSAL of ${originalId}: ${reason}`,
+      narration,
       lines: Object.freeze(flipped.map((l) => Object.freeze(l))),
       sourceModule: original.sourceModule,
       referenceId: original.referenceId,
