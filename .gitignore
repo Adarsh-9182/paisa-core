@@ -4,3 +4,4 @@ dist/
 .env*
 web/
 .DS_Store
+.paisa-data/
