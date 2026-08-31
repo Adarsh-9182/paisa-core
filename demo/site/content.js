@@ -14,7 +14,7 @@ export const PRODUCTS = [
   {
     slug: "paisa-ai",
     name: "Paisa AI",
-    group: "Intelligence",
+    group: "Explain",
     module: "src/ai/, src/erp/agents.ts, src/erp/tools.ts",
     navBlurb: "An assistant that cannot invent a number",
     eyebrow: "Product · Paisa AI",
@@ -39,7 +39,7 @@ export const PRODUCTS = [
   {
     slug: "perpetual-general-ledger",
     name: "Perpetual general ledger",
-    group: "Core accounting",
+    group: "Record",
     module: "src/journal.ts, src/ledger.ts, src/accounts.ts",
     navBlurb: "Append-only, always current",
     eyebrow: "Product · General ledger",
@@ -64,7 +64,7 @@ export const PRODUCTS = [
   {
     slug: "advanced-revenue-recognition",
     name: "Advanced revenue recognition",
-    group: "Core accounting",
+    group: "Record",
     module: "src/erp/contracts.ts, src/erp/revrec.ts",
     navBlurb: "ASC 606 / IFRS 15, in the ledger",
     eyebrow: "Product · Revenue recognition",
@@ -90,7 +90,7 @@ export const PRODUCTS = [
   {
     slug: "accounts-receivable",
     name: "Accounts receivable",
-    group: "Core accounting",
+    group: "Record",
     module: "src/invoices.ts, src/erp/revrec.ts",
     navBlurb: "Invoicing, aging, collections",
     eyebrow: "Product · Accounts receivable",
@@ -115,7 +115,7 @@ export const PRODUCTS = [
   {
     slug: "accounts-payable",
     name: "Accounts payable",
-    group: "Core accounting",
+    group: "Record",
     module: "src/erp/bills.ts",
     navBlurb: "Approvals, controls, aging",
     eyebrow: "Product · Accounts payable",
@@ -140,7 +140,7 @@ export const PRODUCTS = [
   {
     slug: "bank-reconciliation",
     name: "Bank reconciliation",
-    group: "Core accounting",
+    group: "Prove",
     module: "src/erp/reconciliation.ts, src/banking.ts",
     navBlurb: "Tiered matching, zero-difference gate",
     eyebrow: "Product · Bank reconciliation",
@@ -165,7 +165,7 @@ export const PRODUCTS = [
   {
     slug: "close-management",
     name: "Close management",
-    group: "Core accounting",
+    group: "Prove",
     module: "src/erp/close.ts, src/erp/periods.ts, src/erp/schedules.ts",
     navBlurb: "Executable checks, not tickable boxes",
     eyebrow: "Product · Close management",
@@ -216,7 +216,7 @@ export const PRODUCTS = [
   {
     slug: "real-time-reporting",
     name: "Real-time reporting",
-    group: "Reporting",
+    group: "Explain",
     module: "src/statements.ts, src/erp/metrics.ts, src/health.ts",
     navBlurb: "GAAP and operator metrics, one source",
     eyebrow: "Product · Reporting",
@@ -241,7 +241,7 @@ export const PRODUCTS = [
   {
     slug: "flexible-gaap-reporting",
     name: "Flexible GAAP reporting",
-    group: "Reporting",
+    group: "Explain",
     module: "src/statements.ts, src/erp/close.ts",
     navBlurb: "Statements, drill-down, audit support",
     eyebrow: "Product · GAAP reporting",
@@ -266,7 +266,7 @@ export const PRODUCTS = [
   {
     slug: "native-integrations",
     name: "Native integrations",
-    group: "Platform",
+    group: "Scale",
     module: "src/erp/connectors.ts",
     navBlurb: "Idempotent ingestion, judgement retained",
     eyebrow: "Product · Integrations",
@@ -291,7 +291,7 @@ export const PRODUCTS = [
   {
     slug: "security-and-permissions",
     name: "Security & permissions",
-    group: "Platform",
+    group: "Prove",
     module: "src/organization.ts, src/events.ts, src/ai/orchestrator.ts",
     navBlurb: "Tenancy, audit trail, AI boundaries",
     eyebrow: "Product · Security",
@@ -323,7 +323,7 @@ export const SOLUTIONS = [
   {
     slug: "cfo",
     name: "CFO",
-    group: "By role",
+    group: "Who runs it",
     eyebrow: "Solutions · CFO",
     headline: "Spend the month on judgement, not assembly.",
     sub: "The numbers are current because they are projections, not reports. What is left for you is the part that needs a person.",
@@ -342,7 +342,7 @@ export const SOLUTIONS = [
   {
     slug: "controller",
     name: "Controller & accountant",
-    group: "By role",
+    group: "Who runs it",
     eyebrow: "Solutions · Controller",
     headline: "The controls you would have built yourself.",
     sub: "Segregation of duties, approval ceilings, duplicate rejection, period locks and reversal-only corrections — enforced in the code path rather than described in a policy.",
@@ -361,7 +361,7 @@ export const SOLUTIONS = [
   {
     slug: "private-equity",
     name: "Private equity & VC",
-    group: "By role",
+    group: "Who runs it",
     eyebrow: "Solutions · Private equity",
     headline: "Portfolio reporting without a portfolio of spreadsheets.",
     sub: "Per-entity ledgers with consolidation on demand, intercompany elimination and translation — so a rollup is a query rather than a project.",
@@ -380,7 +380,7 @@ export const SOLUTIONS = [
   {
     slug: "saas",
     name: "SaaS",
-    group: "By industry",
+    group: "What the books look like",
     eyebrow: "Solutions · SaaS",
     headline: "Subscription revenue, done to the standard.",
     sub: "Ratable, usage and milestone patterns; contract modifications treated prospectively; deferred revenue that ties to the ledger; and the operator metrics computed from the same contracts.",
@@ -399,7 +399,7 @@ export const SOLUTIONS = [
   {
     slug: "startup",
     name: "Startup",
-    group: "By stage",
+    group: "What the books look like",
     eyebrow: "Solutions · Startup",
     headline: "Books that will still make sense at Series B.",
     sub: "Start with a ledger, invoices and a morning brief. Turn on contracts, close management and multi-entity when you need them — without migrating.",
@@ -418,7 +418,7 @@ export const SOLUTIONS = [
   {
     slug: "mid-size",
     name: "Mid-size",
-    group: "By stage",
+    group: "What the books look like",
     eyebrow: "Solutions · Mid-size",
     headline: "The ERP step without the ERP project.",
     sub: "Revenue recognition, close management, multi-entity and approval controls, in a system where the subledgers are the ledger rather than modules synced to it.",
@@ -437,7 +437,7 @@ export const SOLUTIONS = [
   {
     slug: "enterprise",
     name: "Enterprise",
-    group: "By stage",
+    group: "What the books look like",
     eyebrow: "Solutions · Enterprise",
     headline: "Many entities, many currencies, one truth.",
     sub: "Per-entity ledgers, exact-rational FX, intercompany elimination and a consolidation that reports its plug instead of hiding it.",
@@ -456,7 +456,7 @@ export const SOLUTIONS = [
   {
     slug: "accounting-firms",
     name: "Accounting firms",
-    group: "By role",
+    group: "Who runs it",
     eyebrow: "Solutions · Accounting firms",
     headline: "One close process across every client.",
     sub: "The same checklist, the same controls and the same audit trail on each engagement — so a reviewer moving between clients is not learning a new system each time.",
@@ -557,7 +557,7 @@ export const COMPARISONS = [
   },
 ];
 
-export const PRODUCT_GROUPS = ["Intelligence", "Core accounting", "Scale", "Reporting", "Platform"];
-export const SOLUTION_GROUPS = ["By role", "By stage", "By industry"];
+export const PRODUCT_GROUPS = ["Record", "Prove", "Explain", "Scale"];
+export const SOLUTION_GROUPS = ["Who runs it", "What the books look like"];
 
 export const bySlug = (list, slug) => list.find((x) => x.slug === slug) ?? null;

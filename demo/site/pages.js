@@ -122,7 +122,7 @@ export const productPage = (slug) => {
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Product</div>
+    <div class="crumb"><a href="/">Paisa</a> · What it does</div>
     <div class="eyebrow on-dark">${p.eyebrow}</div>
     <h1>${p.headline}</h1>
     <p class="lede on-dark">${p.sub}</p>
@@ -189,7 +189,7 @@ export const solutionPage = (slug) => {
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Solutions</div>
+    <div class="crumb"><a href="/">Paisa</a> · Who runs it</div>
     <div class="eyebrow on-dark">${s.eyebrow}</div>
     <h1>${s.headline}</h1>
     <p class="lede on-dark">${s.sub}</p>
@@ -255,7 +255,7 @@ export const comparePage = (slug) => {
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Compare</div>
+    <div class="crumb"><a href="/">Paisa</a> · Instead of</div>
     <div class="eyebrow on-dark">${c.eyebrow}</div>
     <h1>${c.headline}</h1>
     <p class="lede on-dark">${c.sub}</p>
