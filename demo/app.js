@@ -430,7 +430,10 @@ const page = () => `<!doctype html>
   .msg { max-width: 80%; font-size: 14px; }
   .main .tiles { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .main .row2 { grid-template-columns: 1fr; }
-  .main-head h1 { font-size: 20px; }
+  /* the greeting + morning brief head the chat, so they stretch full width
+     inside the flex column rather than sitting in a message bubble */
+  .chat-log > .main-head, .chat-log > .brief, .chat-log > .recs { flex-shrink: 0; align-self: stretch; }
+  .chat-log > .brief { margin-bottom: 4px; }
 
   @media (max-width: 1180px) { .app { grid-template-columns: 200px 1fr; } .main { display: none; } .chat { grid-area: 1 / 2; } }
   @media (max-width: 860px) { .app { grid-template-columns: 1fr; } .side { display: none; } .chat { grid-area: 1 / 1; } }
@@ -455,25 +458,6 @@ const page = () => `<!doctype html>
   </aside>
 
   <main class="main">
-    <div class="main-head">
-      <div>
-        <div class="date-line" id="dateline"></div>
-        <h1>Good morning, Adarsh</h1>
-      </div>
-      <button class="btn btn-quiet">Generate report</button>
-    </div>
-
-    <section class="brief">
-      <div class="brief-top"><span class="tag">YOUR AI CFO</span><span class="when">Updated 6:00 AM</span></div>
-      <p id="brief-text">Loading your morning brief…</p>
-      <div class="brief-actions">
-        <button class="btn btn-primary" id="toggle-recs">Review AI recommendations</button>
-        <button class="btn btn-ghost" id="ask-brief">Ask about this</button>
-      </div>
-    </section>
-
-    <section class="recs" id="recs"></section>
-
     <section class="tiles" id="tiles"></section>
 
     <section class="row2">
@@ -502,12 +486,25 @@ const page = () => `<!doctype html>
   </main>
 
   <aside class="chat">
-    <div class="chat-head">
-      <div class="ai-dot">✦</div>
-      <div><b>Paisa AI</b><span class="status">Watching your finances</span></div>
-    </div>
     <div class="chat-log" id="log">
-      <div class="msg ai">Good morning! I've already been through today's numbers. Ask me anything — every figure I give you is pulled straight from your ledger and verified.</div>
+      <div class="main-head">
+        <div>
+          <div class="date-line" id="dateline"></div>
+          <h1>Good morning, Adarsh</h1>
+        </div>
+        <button class="btn btn-quiet">Generate report</button>
+      </div>
+
+      <section class="brief">
+        <div class="brief-top"><span class="tag">YOUR AI CFO</span><span class="when">Updated 6:00 AM</span></div>
+        <p id="brief-text">Loading your morning brief…</p>
+        <div class="brief-actions">
+          <button class="btn btn-primary" id="toggle-recs">Review AI recommendations</button>
+          <button class="btn btn-ghost" id="ask-brief">Ask about this</button>
+        </div>
+      </section>
+
+      <section class="recs" id="recs"></section>
     </div>
     <div class="suggest" id="suggest"></div>
     <form class="chat-input" id="chatform">
