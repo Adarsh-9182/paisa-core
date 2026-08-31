@@ -321,7 +321,8 @@ export const sitePage = () => `<!doctype html>
   .drawer a { padding:10px 2px; color:var(--night-ink-2); font-weight:550; }
   .drawer a:hover { color:var(--night-ink); }
   .drawer.open { display:flex; }
-  @media (max-width:1040px){ .menu-btn { display:block; } .navcta .btn-dark { display:none; } }
+  /* the AI CFO is the only nav CTA, so it stays on every width */
+  @media (max-width:1040px){ .menu-btn { display:block; } }
 
   /* buttons lift, and the primary one sweeps */
   .btn { position:relative; overflow:hidden; }

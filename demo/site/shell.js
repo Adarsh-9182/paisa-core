@@ -224,8 +224,7 @@ export const nav = () => `
       </div>
     </div>
     <div class="navcta">
-      <a class="btn btn-dark" href="/app">Live app</a>
-      <a class="btn btn-primary" href="/erp">See the close</a>
+      <a class="btn btn-dark" href="/app">AI CFO</a>
       <button class="menu-btn" id="menu-btn" aria-label="Menu" aria-expanded="false">
         <span></span><span></span><span></span>
       </button>
@@ -247,7 +246,7 @@ export const nav = () => `
     <a href="/site/resources">Specifications</a>
     <a href="/site/docs">Documentation</a>
     <a href="/site/continuous-close">Continuous close</a>
-    <a href="/app">Live app</a>
+    <a href="/app">AI CFO</a>
     <a href="/erp">ERP console</a>
   </div>
 </nav>`;
@@ -279,7 +278,7 @@ export const footer = () => `
         <li><a href="/site/resources">Specifications</a></li>
         <li><a href="/site/docs">Documentation</a></li>
         <li><a href="/site/continuous-close">Continuous close</a></li>
-        <li><a href="/app">Live app</a></li>
+        <li><a href="/app">AI CFO</a></li>
         <li><a href="/erp">ERP console</a></li>
       </ul></div>
     </div>
