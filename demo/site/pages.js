@@ -104,8 +104,10 @@ const ctaBlock = (headline, sub) => `
   </div>
 </section>`;
 
-const page = (title, description, body) =>
-  head({ title, description, extraCss: PAGE_CSS }) + nav() + body + footer() + SHELL_JS + REVEAL_JS + "\n</body>\n</html>";
+const lowerFirst = (t) => t.charAt(0).toLowerCase() + t.slice(1);
+
+const page = (title, description, path, body) =>
+  head({ title, description, path, extraCss: PAGE_CSS }) + nav() + body + footer() + SHELL_JS + REVEAL_JS + "\n</body>\n</html>";
 
 /* ------------------------------------------------------------------ */
 
@@ -114,18 +116,19 @@ export const productPage = (slug) => {
   if (!p) return null;
   const related = p.related.map((s) => bySlug(PRODUCTS, s)).filter(Boolean);
   return page(
-    `${p.name} — Paisa`,
+    `${p.name} — ${lowerFirst(p.navBlurb)} | Paisa`,
     p.sub,
+    `/site/product/${slug}`,
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/site">Paisa</a> · Product</div>
+    <div class="crumb"><a href="/">Paisa</a> · Product</div>
     <div class="eyebrow on-dark">${p.eyebrow}</div>
     <h1>${p.headline}</h1>
     <p class="lede on-dark">${p.sub}</p>
     <div class="phero-cta">
       <a class="btn btn-primary" href="/erp">See it running</a>
-      <a class="btn btn-dark" href="/site">Back to overview</a>
+      <a class="btn btn-dark" href="/">Back to overview</a>
     </div>
     <div class="module">Implemented in <b>${p.module}</b></div>
   </div>
@@ -180,12 +183,13 @@ export const solutionPage = (slug) => {
   const s = bySlug(SOLUTIONS, slug);
   if (!s) return null;
   return page(
-    `Paisa for ${s.name}`,
+    `Paisa for ${s.name} — the AI-native ERP for finance teams`,
     s.sub,
+    `/site/solution/${slug}`,
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/site">Paisa</a> · Solutions</div>
+    <div class="crumb"><a href="/">Paisa</a> · Solutions</div>
     <div class="eyebrow on-dark">${s.eyebrow}</div>
     <h1>${s.headline}</h1>
     <p class="lede on-dark">${s.sub}</p>
@@ -245,12 +249,13 @@ export const comparePage = (slug) => {
   const c = bySlug(COMPARISONS, slug);
   if (!c) return null;
   return page(
-    `${c.headline}`,
+    `Paisa vs ${c.name} — an honest comparison for finance teams`,
     c.sub,
+    `/site/compare/${slug}`,
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/site">Paisa</a> · Compare</div>
+    <div class="crumb"><a href="/">Paisa</a> · Compare</div>
     <div class="eyebrow on-dark">${c.eyebrow}</div>
     <h1>${c.headline}</h1>
     <p class="lede on-dark">${c.sub}</p>
@@ -301,12 +306,13 @@ ${ctaBlock("Judge it against your own close.", "Open the console and see whether
 
 export const partnersPage = () =>
   page(
-    "Partners — Paisa",
+    "Partners — implementation and technology partners | Paisa",
     "Implementation partners, advisory firms and technology partners building on Paisa.",
+    "/site/partners",
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/site">Paisa</a> · Partners</div>
+    <div class="crumb"><a href="/">Paisa</a> · Partners</div>
     <div class="eyebrow on-dark">Partners</div>
     <h1>Build the practice around it.</h1>
     <p class="lede on-dark">Paisa is early. That is the honest pitch: partners who come in now shape
@@ -367,12 +373,13 @@ ${ctaBlock("See what you would be implementing.", "The console shows a real clos
 
 export const resourcesPage = () =>
   page(
-    "Resources — Paisa",
+    "Resources — specifications and architecture notes | Paisa",
     "Specifications, architecture notes and the live demo surfaces.",
+    "/site/resources",
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/site">Paisa</a> · Resources</div>
+    <div class="crumb"><a href="/">Paisa</a> · Resources</div>
     <div class="eyebrow on-dark">Resources</div>
     <h1>How it works, written down.</h1>
     <p class="lede on-dark">Not a blog. The actual specifications the system was built from, including
@@ -431,12 +438,13 @@ ${ctaBlock("Read it, then run it.", "Both are available right now, with no sign-
 
 export const aboutPage = () =>
   page(
-    "About — Paisa",
+    "About Paisa — why it exists, and its three rules",
     "Why Paisa exists, and the three rules it is built on.",
+    "/site/about",
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/site">Paisa</a> · Company</div>
+    <div class="crumb"><a href="/">Paisa</a> · Company</div>
     <div class="eyebrow on-dark">About</div>
     <h1>Finance software should be checkable.</h1>
     <p class="lede on-dark">Most of it asks to be trusted. Paisa is built so that trust is not the
@@ -497,12 +505,13 @@ ${ctaBlock("Check it yourself.", "The console and the ledger are open — no sig
 
 export const customersPage = () =>
   page(
-    "Customers — Paisa",
+    "Customers — what early access to Paisa involves",
     "Paisa has no customers yet. Here is what early access involves instead.",
+    "/site/customers",
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/site">Paisa</a> · Company</div>
+    <div class="crumb"><a href="/">Paisa</a> · Company</div>
     <div class="eyebrow on-dark">Customers</div>
     <h1>No customers yet.</h1>
     <p class="lede on-dark">This page would normally be a wall of logos. Paisa does not have one, and
@@ -551,12 +560,13 @@ ${ctaBlock("Start by breaking it.", "Open the console and see whether the checks
 
 export const contactPage = () =>
   page(
-    "Contact — Paisa",
+    "Contact — reach the team building Paisa",
     "How to reach the team building Paisa.",
+    "/site/contact",
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/site">Paisa</a> · Company</div>
+    <div class="crumb"><a href="/">Paisa</a> · Company</div>
     <div class="eyebrow on-dark">Contact</div>
     <h1>Small team. Direct line.</h1>
     <p class="lede on-dark">There is no sales org, no SDR queue and no demo booking funnel. The demo
@@ -587,12 +597,13 @@ ${ctaBlock("The product is the pitch.", "Everything is open. Look at it, then te
 
 export const continuousClosePage = () =>
   page(
-    "Continuous close — Paisa",
+    "Continuous close — closing the books as the month happens | Paisa",
     "Why the close should happen as the month happens, not after it.",
+    "/site/continuous-close",
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/site">Paisa</a> · Concept</div>
+    <div class="crumb"><a href="/">Paisa</a> · Concept</div>
     <div class="eyebrow on-dark">Continuous close</div>
     <h1>The month closes as it happens.</h1>
     <p class="lede on-dark">A two-week close is not a staffing problem. It is what happens when every
@@ -649,12 +660,13 @@ ${ctaBlock("See a close mid-flight.", "June is open in the console right now, wi
 
 export const docsPage = () =>
   page(
-    "Documentation — Paisa",
+    "Documentation — the Paisa engine API and how to run it",
     "The engine API, the command registry and how to run Paisa yourself.",
+    "/site/docs",
     `
 <header class="phero">
   <div class="wrap">
-    <div class="crumb"><a href="/site">Paisa</a> · Developers</div>
+    <div class="crumb"><a href="/">Paisa</a> · Developers</div>
     <div class="eyebrow on-dark">Documentation</div>
     <h1>It is a library before it is an app.</h1>
     <p class="lede on-dark">The engines are pure TypeScript with no runtime dependencies. You can

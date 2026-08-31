@@ -8,22 +8,16 @@
  * product can never come back from.
  */
 
-import { nav, footer, SHELL_JS } from "./site/shell.js";
+import { nav, footer, SHELL_JS, head } from "./site/shell.js";
+import { homeJsonLd } from "./site/seo.js";
 
-export const sitePage = () => `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Paisa — The AI-native ERP for finance teams</title>
-<meta name="description" content="Perpetual general ledger, ASC 606 revenue recognition, multi-entity consolidation and a close that runs itself. With an AI CFO that cannot invent a number.">
-<meta name="theme-color" content="#16130F">
-<meta property="og:title" content="Paisa — The AI-native ERP for finance teams">
-<meta property="og:description" content="Close the month in a day. Trust every number in it.">
-<meta property="og:type" content="website">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F26B1D'/%3E%3Ctext x='16' y='23' font-family='-apple-system,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
-<style>
+export const sitePage = () => head({
+  title: "Paisa — The AI-native ERP for finance teams",
+  description:
+    "Perpetual general ledger, ASC 606 revenue recognition, multi-entity consolidation and a close that runs itself. With an AI CFO that cannot invent a number.",
+  path: "/",
+  jsonLd: homeJsonLd(),
+  extraCss: `
   :root {
     --bg:#FAF7F2; --surface:#FFFFFF; --line:#EDE7DD; --line-2:#E2DACD;
     --ink:#1F1B16; --ink-2:#6B6459; --ink-3:#9C948A;
@@ -361,12 +355,8 @@ export const sitePage = () => `<!doctype html>
   /* strip values count too */
   .strip .n { transition:color .3s ease; }
   .strip .inner > div:hover .n { color:var(--night-ink); }
-</style>
-</head>
-<body>
-
-<div class="progress" id="progress"></div>
-
+`,
+}) + `
 ${nav()}
 
 <!-- ---------------- HERO ---------------- -->

@@ -10,6 +10,7 @@ export const erpPage = () => `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paisa ERP — Close & Revenue</title>
+<meta name="robots" content="noindex, nofollow">
 <style>
   :root {
     --bg:#FAF7F2; --surface:#FFFFFF; --line:#EDE7DD;
