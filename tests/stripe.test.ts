@@ -13,6 +13,7 @@ import {
   mapCharges,
   fetchCharges,
   fetchBillingRecords,
+  toBankLines,
   StripeError,
   type StripeCharge,
 } from "../src/erp/stripe.js";
@@ -87,6 +88,41 @@ describe("mapCharge", () => {
     ]);
     expect(records.map((r) => r.externalId)).toEqual(["ch_ok"]);
     expect(rejected.map((r) => r.externalId)).toEqual(["ch_eur"]);
+  });
+});
+
+describe("toBankLines", () => {
+  const rec = (over: Partial<ReturnType<typeof asRecord>> = {}) => ({ ...asRecord(charge()), ...over });
+
+  it("turns a settled charge into money arriving, namespaced so it cannot collide with a bank UTR", () => {
+    const { lines } = toBankLines([rec()]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.reference).toBe("stripe:ch_1");
+    expect(lines[0]!.description).toBe("Meridian Retail — Platform subscription");
+    expect(formatINR(lines[0]!.amount)).toBe("₹12,500.00");
+    expect(lines[0]!.amount > 0n).toBe(true);
+  });
+
+  it("reverses the sign on a refund, because that is cash leaving", () => {
+    const { lines } = toBankLines([rec({ status: "refunded" })]);
+    expect(lines[0]!.amount < 0n).toBe(true);
+    expect(formatINR(lines[0]!.amount)).toBe("-₹12,500.00");
+  });
+
+  it("keeps an unsettled charge out of the bank feed — it is a receivable, not cash", () => {
+    const { lines, withheld } = toBankLines([rec({ status: "open" })]);
+    expect(lines).toHaveLength(0);
+    expect(withheld[0]!.reason).toContain("receivable");
+  });
+
+  it("withholds rather than drops, so nothing vanishes without a reason", () => {
+    const { lines, withheld } = toBankLines([
+      rec({ externalId: "ch_paid" }),
+      rec({ externalId: "ch_open", status: "open" }),
+      rec({ externalId: "ch_void", status: "void" }),
+    ]);
+    expect(lines.map((l) => l.reference)).toEqual(["stripe:ch_paid"]);
+    expect(withheld.map((w) => w.externalId)).toEqual(["ch_open", "ch_void"]);
   });
 });
 

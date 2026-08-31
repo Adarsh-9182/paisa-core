@@ -42,6 +42,7 @@ import {
   resolveSessionSecret,
   SESSION_COOKIE,
   fetchBillingRecords,
+  toBankLines,
 } from "../dist/src/index.js";
 
 const ACTOR = "adarsh";
@@ -965,13 +966,25 @@ export const handle = async (req, res) => {
           ...(since ? { since } : {}),
         });
         const outcome = erp.connectors.syncBilling("stripe", records, ACTOR);
+
+        // syncBilling only dedupes and hands the records back — it stores
+        // nothing. Settled charges become bank lines so they land where the
+        // AI CFO can actually see them: auto-posted when a categorisation
+        // rule matches, otherwise queued for review.
+        const { lines, withheld } = toBankLines(outcome.created);
+        const imported = org.banking.importStatement(lines, ACTOR);
+
         return send(200, {
           ok: true,
           fetched: records.length + unmapped.length,
           ingested: outcome.created.length,
           duplicates: outcome.duplicates.length,
+          posted: imported.posted.length,
+          needsReview: imported.needsReview.length,
           // Charges Stripe returned that could not be booked, with the reason.
           unmapped,
+          // Ingested, but deliberately kept out of the bank feed.
+          withheld,
           status: erp.connectors.status("stripe"),
         });
       } catch (err) {

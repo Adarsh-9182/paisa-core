@@ -211,3 +211,54 @@ export const fetchCharges = async (opts: FetchChargesOptions): Promise<readonly 
 /** Fetch and map in one call — what a sync route wants. */
 export const fetchBillingRecords = async (opts: FetchChargesOptions): Promise<MappedCharges> =>
   mapCharges(await fetchCharges(opts));
+
+/* ------------------------------------------------------------------ */
+/* Billing records → the bank feed the AI CFO actually reads           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A bank feed is a record of cash that has moved, so only settled charges
+ * belong in one: `paid` is money in, `refunded` is money back out. An `open`
+ * charge has not settled — it is a receivable, and putting it here would
+ * overstate the bank balance, which is the same class of error as inventing
+ * a figure. Those are returned separately rather than silently dropped.
+ */
+export interface BankFeedLines {
+  readonly lines: readonly {
+    readonly date: string;
+    readonly description: string;
+    readonly amount: Paise;
+    readonly reference: string;
+  }[];
+  /** Records deliberately kept out of the bank feed, with the reason. */
+  readonly withheld: readonly MappingRejection[];
+}
+
+export const toBankLines = (records: readonly BillingRecordIn[]): BankFeedLines => {
+  const lines: BankFeedLines["lines"] = [];
+  const withheld: MappingRejection[] = [];
+
+  for (const r of records) {
+    if (r.status === "open") {
+      withheld.push({
+        externalId: r.externalId,
+        reason: "charge has not settled — a receivable, not cash in the bank",
+      });
+      continue;
+    }
+    if (r.status === "void") {
+      withheld.push({ externalId: r.externalId, reason: "voided at source" });
+      continue;
+    }
+    (lines as { date: string; description: string; amount: Paise; reference: string }[]).push({
+      date: r.date,
+      description: `${r.customer} — ${r.description}`,
+      // Refunds are cash leaving, so they carry the opposite sign.
+      amount: r.status === "refunded" ? paise(-r.amount) : r.amount,
+      // Namespaced so a Stripe id can never collide with a bank's own UTR.
+      reference: `stripe:${r.externalId}`,
+    });
+  }
+
+  return { lines, withheld };
+};
