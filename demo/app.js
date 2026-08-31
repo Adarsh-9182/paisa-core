@@ -15,11 +15,13 @@
  * through Claude (with the planner as fallback).
  */
 
+import { readFile } from "node:fs/promises";
 import { erpApi, erpActions } from "./erp-console.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
 import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
          aboutPage, customersPage, contactPage, continuousClosePage, docsPage } from "./site/pages.js";
+import { robotsTxt, sitemapXml } from "./site/seo.js";
 import { boot, sync } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
 import { loginPage } from "./login-page.js";
@@ -283,6 +285,7 @@ const page = () => `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paisa — Your AI CFO</title>
+<meta name="robots" content="noindex, nofollow">
 <style>
   :root {
     /* Mission Control — cool graphite ground, electric blue + violet identity */
@@ -857,6 +860,19 @@ export const handle = async (req, res) => {
     if (path === "/") return send(200, sitePage(), "text/html");
     if (path === "/app") return send(200, page(), "text/html");
 
+    if (path === "/robots.txt") return send(200, robotsTxt(), "text/plain");
+    if (path === "/sitemap.xml") return send(200, sitemapXml(), "application/xml");
+
+    // vercel.json rewrites every path into this function, so the social card
+    // is served from here rather than trusted to static hosting.
+    if (path === "/og.png") {
+      const png = await readFile(new URL("../public/og.png", import.meta.url));
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      return res.end(png);
+    }
+
     if (path === "/api/chat" && req.method === "POST") {
       const { message } = JSON.parse((await readBody(req)) || "{}");
       if (!message) return send(400, { error: "message required" });
@@ -886,7 +902,14 @@ export const handle = async (req, res) => {
       });
     }
 
-    if (path === "/site") return send(200, sitePage(), "text/html");
+    // "/" and "/site" served the same page under two URLs. The site's own
+    // links point at /site, so it stays reachable — as a redirect, not a
+    // second copy for a crawler to split authority between.
+    if (path === "/site") {
+      res.statusCode = 301;
+      res.setHeader("Location", "/");
+      return res.end();
+    }
 
     const siteRoute = /^\/site\/(product|solution|compare)\/([a-z0-9-]+)$/.exec(path);
     if (siteRoute) {

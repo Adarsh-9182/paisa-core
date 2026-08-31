@@ -7,6 +7,7 @@
  */
 
 import { PRODUCTS, SOLUTIONS, COMPARISONS, PRODUCT_GROUPS, SOLUTION_GROUPS } from "./content.js";
+import { SITE_URL, absolute } from "./seo.js";
 
 export const TOKENS = `
   :root {
@@ -114,8 +115,8 @@ export const TOKENS = `
     color:var(--night-ink-2); margin:14px 0 4px; }
   .drawer a { padding:8px 2px; color:var(--night-ink-2); font-weight:550; }
   .drawer a:hover { color:var(--night-ink); }
-  @media (max-width:1040px){ .navlinks { display:none; } .menu-btn { display:block; }
-                             .navcta .btn-dark { display:none; } }
+  /* the AI CFO is the only nav CTA, so it stays on every width */
+  @media (max-width:1040px){ .navlinks { display:none; } .menu-btn { display:block; } }
 
   /* ---------- footer ---------- */
   footer { background:var(--night); color:var(--night-ink-2); border-top:1px solid var(--night-line);
@@ -141,7 +142,13 @@ export const TOKENS = `
 const FAVICON =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F26B1D'/%3E%3Ctext x='16' y='23' font-family='-apple-system,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'%3E%E2%82%B9%3C/text%3E%3C/svg%3E";
 
-export const head = ({ title, description, extraCss = "" }) => `<!doctype html>
+/**
+ * `path` is what makes a page addressable to a crawler: it fixes the
+ * canonical and og:url, so "/" and "/site" stop reading as two pages with
+ * the same content. `noindex` covers the app surfaces, `jsonLd` the home
+ * page's structured data.
+ */
+export const head = ({ title, description, path = "/", extraCss = "", noindex = false, jsonLd = "" }) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -149,11 +156,25 @@ export const head = ({ title, description, extraCss = "" }) => `<!doctype html>
 <title>${title}</title>
 <meta name="description" content="${description}">
 <meta name="theme-color" content="#16130F">
+<link rel="canonical" href="${absolute(path)}">
+${noindex
+  ? '<meta name="robots" content="noindex, nofollow">'
+  : '<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">'}
+<meta property="og:site_name" content="Paisa">
 <meta property="og:title" content="${title}">
 <meta property="og:description" content="${description}">
 <meta property="og:type" content="website">
+<meta property="og:url" content="${absolute(path)}">
+<meta property="og:image" content="${SITE_URL}/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="en_IN">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${title}">
+<meta name="twitter:description" content="${description}">
+<meta name="twitter:image" content="${SITE_URL}/og.png">
 <link rel="icon" href="${FAVICON}">
+${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ""}
 <style>${TOKENS}${extraCss}</style>
 </head>
 <body>
@@ -191,7 +212,7 @@ const compareMega = () =>
 export const nav = () => `
 <nav class="top" id="nav">
   <div class="wrap inner">
-    <a class="logo" href="/site"><span class="logo-mark">₹</span>paisa</a>
+    <a class="logo" href="/"><span class="logo-mark">₹</span>paisa</a>
     <div class="navlinks">
       <div class="navitem" data-menu>
         <button type="button" aria-expanded="false">Product <i class="chev"></i></button>
