@@ -41,6 +41,8 @@ import {
   parseCookies,
   resolveSessionSecret,
   SESSION_COOKIE,
+  fetchBillingRecords,
+  toBankLines,
 } from "../dist/src/index.js";
 
 const ACTOR = "adarsh";
@@ -944,6 +946,52 @@ export const handle = async (req, res) => {
         return send(200, { ok: false, error: err.message });
       }
     }
+    /* Stripe → billing queue. The key lives only in the environment; it is
+       never accepted from the request, so a sync cannot be triggered against
+       someone else's account by posting a key at this route. */
+    if (path === "/api/connectors/stripe/sync" && req.method === "POST") {
+      const secretKey = process.env.STRIPE_SECRET_KEY;
+      if (!secretKey)
+        return send(400, {
+          ok: false,
+          error: "STRIPE_SECRET_KEY is not set. Add a test key (sk_test_…) to .env and restart.",
+        });
+      try {
+        if (!erp.connectors.all().some((c) => c.source === "stripe"))
+          erp.connectors.register("stripe", "BILLING");
+
+        const { since } = JSON.parse((await readBody(req)) || "{}");
+        const { records, rejected: unmapped } = await fetchBillingRecords({
+          secretKey,
+          ...(since ? { since } : {}),
+        });
+        const outcome = erp.connectors.syncBilling("stripe", records, ACTOR);
+
+        // syncBilling only dedupes and hands the records back — it stores
+        // nothing. Settled charges become bank lines so they land where the
+        // AI CFO can actually see them: auto-posted when a categorisation
+        // rule matches, otherwise queued for review.
+        const { lines, withheld } = toBankLines(outcome.created);
+        const imported = org.banking.importStatement(lines, ACTOR);
+
+        return send(200, {
+          ok: true,
+          fetched: records.length + unmapped.length,
+          ingested: outcome.created.length,
+          duplicates: outcome.duplicates.length,
+          posted: imported.posted.length,
+          needsReview: imported.needsReview.length,
+          // Charges Stripe returned that could not be booked, with the reason.
+          unmapped,
+          // Ingested, but deliberately kept out of the bank feed.
+          withheld,
+          status: erp.connectors.status("stripe"),
+        });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
     if (path === "/api/erp/close/run" && req.method === "POST") {
       const run = erpDo.runClose();
       return send(200, { ok: true, passed: run.passed, blocked: run.blocked, readyToClose: run.readyToClose });

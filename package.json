@@ -16,7 +16,9 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "node --env-file-if-exists=.env demo/server.js",
+    "start": "node --env-file-if-exists=.env demo/server.js"
   },
   "keywords": [],
   "author": "",
