@@ -1,7 +1,8 @@
 /**
  * Paisa — the request handler.
  *
- * Serves the dashboard (three-column layout: nav / morning brief / AI chat)
+ * Serves the dashboard (floating nav, a chat that starts as a landing hero
+ * and becomes a docked thread, and a metrics rail)
  * and a JSON API over the deterministic paisa-core engines. Every number on
  * the page is computed by the core; the AI chat goes through the Orchestrator
  * so every figure in an answer is verified against tool outputs.
@@ -284,54 +285,96 @@ const page = () => `<!doctype html>
 <title>Paisa — Your AI CFO</title>
 <style>
   :root {
-    --bg: #FAF7F2; --surface: #FFFFFF; --line: #EDE7DD;
-    --ink: #1F1B16; --ink-2: #6B6459; --ink-3: #9C948A;
-    --orange: #F26B1D; --orange-soft: #FDEEE3; --orange-deep: #C24E08;
-    --green: #0B7A56; --green-soft: #E3F3EC; --amber: #B45309; --red: #C0392B;
-    --radius: 16px;
+    /* Mission Control — cool graphite ground, electric blue + violet identity */
+    --bg: #F5F6F9; --surface: #FFFFFF; --surface-2: #F0F2F6; --line: rgba(12,15,22,0.09);
+    --line-strong: rgba(12,15,22,0.13);
+    --ink: #0B0E14; --ink-2: #495264; --ink-3: #878FA1;
+    --orange: #2F6BFF; --orange-soft: #E9F0FF; --orange-deep: #1C4FE0;
+    --violet: #6A49F2;
+    --green: #0E9C72; --green-soft: #DFF5EC; --amber: #B3770F; --red: #DD4360; --red-soft: #FCE9EC;
+    --radius: 18px;
+    --shadow-sm: 0 1px 2px rgba(12,15,22,0.05), 0 4px 12px rgba(12,15,22,0.05);
+    --shadow-md: 0 2px 5px rgba(12,15,22,0.05), 0 12px 30px rgba(12,15,22,0.08);
+    --glow: 0 6px 22px rgba(47,107,255,0.26);
   }
   * { box-sizing: border-box; margin: 0; }
+  /* the landing/thread swap toggles [hidden]; class display rules would win without this */
+  [hidden] { display: none !important; }
   html, body { height: 100%; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     background: var(--bg); color: var(--ink); font-size: 14px; -webkit-font-smoothing: antialiased;
   }
-  .app { display: grid; grid-template-columns: 232px 1fr 380px; height: 100vh; }
+  /* ambient mission-control backdrop */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(60% 50% at 12% 0%, rgba(47,107,255,0.10), transparent 70%),
+      radial-gradient(50% 45% at 100% 6%, rgba(106,73,242,0.09), transparent 72%);
+  }
+  .app { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 380px; height: 100vh; }
 
-  /* ---------- sidebar ---------- */
-  .side { border-right: 1px solid var(--line); padding: 20px 14px; display: flex; flex-direction: column; gap: 4px; background: var(--bg); }
-  .logo { display: flex; align-items: center; gap: 9px; padding: 4px 10px 18px; font-weight: 800; font-size: 19px; letter-spacing: -0.02em; }
-  .logo-mark { width: 28px; height: 28px; border-radius: 8px; background: var(--orange); color: #fff; display: grid; place-items: center; font-size: 16px; font-weight: 800; }
-  .nav { display: flex; flex-direction: column; gap: 2px; }
-  .nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; color: var(--ink-2); text-decoration: none; font-weight: 500; }
-  .nav a svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.7; }
-  .nav a.active { background: var(--orange-soft); color: var(--orange-deep); font-weight: 650; }
-  .nav a:hover:not(.active) { background: #F2EDE4; }
-  .side .spacer { flex: 1; }
-  .health-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+  /* ---------- floating nav (hamburger) ---------- */
+  .hamburger {
+    position: fixed; top: 16px; left: 16px; z-index: 60; width: 42px; height: 42px;
+    border-radius: 13px; border: 1px solid var(--line); background: var(--surface);
+    box-shadow: var(--shadow-sm); display: grid; place-items: center; cursor: pointer;
+  }
+  .hamburger:hover { border-color: var(--line-strong); }
+  .hamburger i { display: block; width: 17px; height: 2px; border-radius: 2px; background: var(--ink-2); position: relative; }
+  .hamburger i::before, .hamburger i::after {
+    content: ""; position: absolute; left: 0; width: 17px; height: 2px; border-radius: 2px; background: var(--ink-2);
+    transition: transform 0.18s cubic-bezier(.22,.7,.16,1);
+  }
+  .hamburger i::before { top: -6px; } .hamburger i::after { top: 6px; }
+  .brandpill {
+    position: fixed; top: 16px; left: 70px; z-index: 60; display: flex; align-items: center; gap: 8px;
+    height: 42px; padding: 0 14px 0 8px; border-radius: 13px; border: 1px solid var(--line);
+    background: var(--surface); box-shadow: var(--shadow-sm); font-weight: 750; letter-spacing: -0.02em;
+  }
+  .logo-mark { width: 26px; height: 26px; border-radius: 8px; color: #fff; display: grid; place-items: center;
+    font-size: 15px; font-weight: 800; background: linear-gradient(150deg, var(--orange), var(--violet)); box-shadow: var(--glow); }
+  .nav-menu {
+    position: fixed; top: 66px; left: 16px; z-index: 59; width: 252px; padding: 10px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+    box-shadow: var(--shadow-md); display: none; flex-direction: column; gap: 2px;
+    transform-origin: top left; animation: popIn 0.16s cubic-bezier(.34,1.56,.64,1);
+  }
+  .nav-menu.open { display: flex; }
+  @keyframes popIn { from { opacity: 0; transform: scale(0.97) translateY(-4px); } to { opacity: 1; transform: none; } }
+  .nav-menu a { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 11px; color: var(--ink-2); text-decoration: none; font-weight: 500; font-size: 13.5px; }
+  .nav-menu a svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.7; }
+  .nav-menu a.active { background: var(--orange-soft); color: var(--orange-deep); font-weight: 650; }
+  .nav-menu a:hover:not(.active) { background: var(--surface-2); }
+  .nav-divider { height: 1px; background: var(--line); margin: 8px 2px; }
+  .health-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; padding: 13px; margin-bottom: 8px; }
   .health-card .label { font-size: 10.5px; letter-spacing: 0.09em; font-weight: 700; color: var(--ink-3); }
   .health-row { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 8px; }
   .health-score { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
   .health-grade { font-size: 11.5px; font-weight: 650; color: var(--green); background: var(--green-soft); border-radius: 99px; padding: 2px 9px; }
-  .health-bar { height: 6px; border-radius: 3px; background: #EEE8DE; overflow: hidden; }
+  .health-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
   .health-bar > div { height: 100%; border-radius: 3px; background: var(--green); }
   .profile { display: flex; gap: 10px; align-items: center; padding: 6px 8px; }
   .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--green-soft); color: var(--green); font-weight: 700; font-size: 12.5px; display: grid; place-items: center; }
   .profile b { display: block; font-size: 13px; }
   .profile span { font-size: 11.5px; color: var(--ink-3); }
 
-  /* ---------- center ---------- */
-  .main { overflow-y: auto; padding: 22px 20px 30px; border-left: 1px solid var(--line); background: var(--bg); }
-  .main-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
-  .date-line { color: var(--ink-3); font-size: 13px; margin-bottom: 4px; }
-  h1 { font-size: 32px; letter-spacing: -0.03em; font-weight: 800; }
+  /* ---------- dashboard rail ---------- */
+  .main { grid-area: 1 / 2; overflow-y: auto; padding: 22px 20px 30px; border-left: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 55%, transparent); }
+  .date-line { color: var(--ink-3); font-size: 13px; margin-bottom: 5px; }
+  h1 { font-size: 31px; letter-spacing: -0.032em; font-weight: 700; }
   .btn { border: 0; border-radius: 99px; padding: 10px 18px; font-weight: 650; font-size: 13px; cursor: pointer; font-family: inherit; }
   .btn-primary { background: var(--orange); color: #fff; }
   .btn-primary:hover { background: var(--orange-deep); }
   .btn-ghost { background: transparent; color: var(--orange-deep); }
-  .btn-quiet { background: #F2EDE4; color: var(--ink-2); padding: 7px 13px; }
+  .btn-quiet { background: var(--surface-2); color: var(--ink-2); padding: 7px 13px; }
 
-  .brief { background: var(--surface); border: 1.5px solid #F5C9A8; border-radius: var(--radius); padding: 20px 22px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(31,27,22,0.04); }
+  .brief { position: relative; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 22px; margin-bottom: 16px; box-shadow: var(--shadow-md); }
+  /* animated gradient hairline — the brief is the page's one flourish */
+  .brief::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+    background: linear-gradient(90deg, var(--orange), var(--violet), #0E97B4, var(--orange));
+    background-size: 300% 100%; animation: panGradient 8s ease-in-out infinite; }
+  @keyframes panGradient { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
   .brief-top { display: flex; justify-content: space-between; margin-bottom: 10px; }
   .brief-top .tag { font-size: 10.5px; letter-spacing: 0.1em; font-weight: 800; color: var(--orange-deep); }
   .brief-top .when { font-size: 11.5px; color: var(--ink-3); }
@@ -350,14 +393,14 @@ const page = () => `<!doctype html>
   .chip.conf { background: #EEF2FA; color: #3B5BA5; }
   .chip.risk-low { background: var(--green-soft); color: var(--green); }
   .chip.risk-medium { background: #FBF3D9; color: var(--amber); }
-  .chip.risk-high { background: #FDEBE7; color: var(--red); }
+  .chip.risk-high { background: var(--red-soft); color: var(--red); }
   .chip.approval { background: var(--orange-soft); color: var(--orange-deep); }
   .chip.done { background: #F0EDE7; color: var(--ink-3); }
   .rec p { color: var(--ink-2); font-size: 13px; margin-top: 6px; line-height: 1.5; }
   .rec .impact { margin-top: 6px; font-size: 12.5px; color: var(--ink); font-weight: 600; }
   .rec-actions { display: flex; gap: 8px; margin-top: 10px; }
   .btn-approve { background: var(--green); color: #fff; padding: 7px 14px; }
-  .btn-dismiss { background: #F2EDE4; color: var(--ink-2); padding: 7px 14px; }
+  .btn-dismiss { background: var(--surface-2); color: var(--ink-2); padding: 7px 14px; }
 
   .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
   .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 15px 16px; }
@@ -381,8 +424,8 @@ const page = () => `<!doctype html>
   .chart-tip { position: absolute; pointer-events: none; background: var(--ink); color: #fff; border-radius: 8px; padding: 7px 10px; font-size: 11.5px; line-height: 1.45; opacity: 0; transform: translate(-50%, -110%); white-space: nowrap; transition: opacity 80ms; }
   .legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--ink-2); margin-top: 6px; }
   .legend i { display: inline-block; width: 14px; height: 0; border-top: 2.5px solid; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
-  .legend .l-actual i { border-color: #0B7A56; }
-  .legend .l-forecast i { border-color: #B45309; border-top-style: dashed; }
+  .legend .l-actual i { border-color: #0E9C72; }
+  .legend .l-forecast i { border-color: #B3770F; border-top-style: dashed; }
 
   .up-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
   .up-item:last-child { border-bottom: 0; }
@@ -399,63 +442,88 @@ const page = () => `<!doctype html>
   .tx .amt.in { color: var(--green); }
   .link { color: var(--orange-deep); font-weight: 650; font-size: 12.5px; text-decoration: none; cursor: pointer; }
 
-  /* ---------- chat ---------- */
-  .chat { display: flex; flex-direction: column; background: var(--surface); }
-  .chat-head { padding: 16px 18px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
-  .ai-dot { width: 34px; height: 34px; border-radius: 50%; background: var(--orange); display: grid; place-items: center; color: #fff; font-size: 15px; }
-  .chat-head b { font-size: 14.5px; display: block; }
-  .chat-head .status { font-size: 11.5px; color: var(--green); }
-  .chat-head .status::before { content: "●"; font-size: 8px; margin-right: 5px; vertical-align: 1px; }
-  .chat-log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-  .msg { max-width: 92%; border-radius: 14px; padding: 10px 13px; font-size: 13px; line-height: 1.55; }
-  .msg.user { align-self: flex-end; background: var(--orange); color: #fff; border-bottom-right-radius: 4px; }
-  .msg.ai { align-self: flex-start; background: #F6F2EA; border-bottom-left-radius: 4px; }
-  .msg.ai b { font-weight: 700; }
-  .msg .tools { display: block; margin-top: 7px; font-size: 10.5px; color: var(--ink-3); }
-  .msg.thinking { color: var(--ink-3); font-style: italic; }
-  .suggest { padding: 0 16px 10px; display: flex; flex-wrap: wrap; gap: 6px; }
-  .suggest button { border: 1px solid var(--line); background: var(--bg); border-radius: 99px; padding: 6px 11px; font-size: 11.5px; color: var(--ink-2); cursor: pointer; font-family: inherit; }
-  .suggest button:hover { border-color: var(--orange); color: var(--orange-deep); }
-  .chat-input { display: flex; gap: 8px; padding: 12px 14px 16px; border-top: 1px solid var(--line); }
-  .chat-input input { flex: 1; border: 1px solid var(--line); border-radius: 99px; padding: 11px 16px; font-size: 13px; font-family: inherit; background: var(--bg); outline: none; }
-  .chat-input input:focus { border-color: var(--orange); }
-  .send { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--orange); color: #fff; font-size: 16px; cursor: pointer; flex-shrink: 0; }
+  /* ---------- centre: landing → conversation ---------- */
+  .centre { grid-area: 1 / 1; min-width: 0; display: flex; flex-direction: column; height: 100vh; }
 
-  /* chat is the product: centre column, dashboard demoted to the right rail */
-  .side { grid-area: 1 / 1; }
-  .chat { grid-area: 1 / 2; min-height: 0; }
-  .main { grid-area: 1 / 3; }
-  .chat-log, .suggest, .chat-input { width: 100%; max-width: 760px; margin-inline: auto; }
-  .chat-log { padding: 22px 16px; gap: 14px; }
-  .msg { max-width: 80%; font-size: 14px; }
+  /* landing: everything centred, the ask bar sitting low like a fresh chat */
+  .landing { flex: 1; overflow-y: auto; display: flex; flex-direction: column; justify-content: center; padding: 88px 24px 40px; }
+  .landing-inner { width: 100%; max-width: 660px; margin-inline: auto; }
+  .landing .date-line, .landing h1 { text-align: center; }
+  .landing h1 { margin-bottom: 22px; }
+
+  /* conversation: a scrolling thread with the ask bar pinned under it */
+  .thread { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
+  .thread-log { max-width: 780px; margin-inline: auto; padding: 26px 20px 8px; display: flex; flex-direction: column; gap: 16px; }
+  .msg { max-width: 82%; border-radius: 16px; padding: 11px 14px; font-size: 14px; line-height: 1.6; }
+  .msg.user { align-self: flex-end; color: #fff; border-bottom-right-radius: 5px;
+    background: linear-gradient(150deg, var(--orange), var(--violet)); box-shadow: var(--glow); }
+  .msg.ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 5px; box-shadow: var(--shadow-sm); }
+  .msg.ai b { font-weight: 700; }
+  .msg .tools { display: block; margin-top: 8px; font-size: 10.5px; color: var(--ink-3); }
+  .msg.thinking { color: var(--ink-3); font-style: italic; }
+
+  /* the one ask bar — it starts in the landing and moves into the footer */
+  .ask { display: flex; gap: 9px; }
+  .ask input { flex: 1; border: 1px solid var(--line); border-radius: 99px; padding: 14px 20px; font-size: 14px;
+    font-family: inherit; background: var(--surface); color: var(--ink); outline: none; box-shadow: var(--shadow-sm); }
+  .ask input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+  .ask .send { width: 46px; height: 46px; border-radius: 50%; border: 0; color: #fff; font-size: 17px; cursor: pointer; flex-shrink: 0;
+    background: linear-gradient(150deg, var(--orange), var(--violet)); box-shadow: var(--glow); }
+  .ask .send:active { transform: scale(0.96); }
+  .askdock { flex-shrink: 0; border-top: 1px solid var(--line); background: var(--bg); padding: 14px 20px 20px; }
+  .askdock .ask { max-width: 780px; margin-inline: auto; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; margin-bottom: 18px; }
+  .chips button { border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 7px 13px;
+    font-size: 12px; color: var(--ink-2); cursor: pointer; font-family: inherit; }
+  .chips button:hover { border-color: var(--orange); color: var(--orange-deep); }
+
   .main .tiles { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .main .row2 { grid-template-columns: 1fr; }
-  /* the greeting + morning brief head the chat, so they stretch full width
-     inside the flex column rather than sitting in a message bubble */
-  .chat-log > .main-head, .chat-log > .brief, .chat-log > .recs { flex-shrink: 0; align-self: stretch; }
-  .chat-log > .brief { margin-bottom: 4px; }
 
-  @media (max-width: 1180px) { .app { grid-template-columns: 200px 1fr; } .main { display: none; } .chat { grid-area: 1 / 2; } }
-  @media (max-width: 860px) { .app { grid-template-columns: 1fr; } .side { display: none; } .chat { grid-area: 1 / 1; } }
+  @media (max-width: 1180px) { .app { grid-template-columns: 1fr; } .main { display: none; } }
+  @media (max-width: 720px) { .brandpill { display: none; } .landing { padding-top: 76px; } }
 </style>
 </head>
 <body>
+<button class="hamburger" id="menubtn" aria-label="Open menu" aria-expanded="false"><i></i></button>
+<div class="brandpill"><span class="logo-mark">₹</span>paisa</div>
+<nav class="nav-menu" id="navmenu"></nav>
+
 <div class="app">
 
-  <aside class="side">
-    <div class="logo"><span class="logo-mark">₹</span>paisa</div>
-    <nav class="nav" id="nav"></nav>
-    <div class="spacer"></div>
-    <div class="health-card">
-      <div class="label">FINANCIAL HEALTH</div>
-      <div class="health-row"><span class="health-score" id="hscore">–</span><span class="health-grade" id="hgrade"></span></div>
-      <div class="health-bar"><div id="hbar" style="width:0%"></div></div>
+  <section class="centre">
+    <div class="landing" id="landing">
+      <div class="landing-inner">
+        <div class="date-line" id="dateline"></div>
+        <h1>Good morning, Adarsh</h1>
+
+        <section class="brief">
+          <div class="brief-top"><span class="tag">YOUR AI CFO</span><span class="when">Updated 6:00 AM</span></div>
+          <p id="brief-text">Loading your morning brief…</p>
+          <div class="brief-actions">
+            <button class="btn btn-primary" id="toggle-recs">Review AI recommendations</button>
+            <button class="btn btn-ghost" id="ask-brief">Ask about this</button>
+          </div>
+        </section>
+
+        <section class="recs" id="recs"></section>
+
+        <div class="chips" id="suggest"></div>
+
+        <form class="ask" id="chatform">
+          <input id="chatbox" placeholder="Ask anything about your money…" autocomplete="off">
+          <button class="send" type="submit" aria-label="Send">↑</button>
+        </form>
+      </div>
     </div>
-    <div class="profile">
-      <div class="avatar">AK</div>
-      <div><b>Adarsh Kumar</b><span>Nimbus Labs Pvt Ltd</span></div>
+
+    <div class="thread" id="thread" hidden>
+      <div class="thread-log" id="log"></div>
     </div>
-  </aside>
+
+    <div class="askdock" id="askdock" hidden></div>
+  </section>
 
   <main class="main">
     <section class="tiles" id="tiles"></section>
@@ -484,34 +552,6 @@ const page = () => `<!doctype html>
       <table class="tx"><tbody id="txbody"></tbody></table>
     </section>
   </main>
-
-  <aside class="chat">
-    <div class="chat-log" id="log">
-      <div class="main-head">
-        <div>
-          <div class="date-line" id="dateline"></div>
-          <h1>Good morning, Adarsh</h1>
-        </div>
-        <button class="btn btn-quiet">Generate report</button>
-      </div>
-
-      <section class="brief">
-        <div class="brief-top"><span class="tag">YOUR AI CFO</span><span class="when">Updated 6:00 AM</span></div>
-        <p id="brief-text">Loading your morning brief…</p>
-        <div class="brief-actions">
-          <button class="btn btn-primary" id="toggle-recs">Review AI recommendations</button>
-          <button class="btn btn-ghost" id="ask-brief">Ask about this</button>
-        </div>
-      </section>
-
-      <section class="recs" id="recs"></section>
-    </div>
-    <div class="suggest" id="suggest"></div>
-    <form class="chat-input" id="chatform">
-      <input id="chatbox" placeholder="Ask anything about your money…" autocomplete="off">
-      <button class="send" type="submit">↑</button>
-    </form>
-  </aside>
 </div>
 
 <script>
@@ -538,17 +578,36 @@ const NAV = [
   ["Reports", "M5 21V9m7 12V3m7 18v-8", false, "Give me the full morning brief"],
   ["Settings", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12", false, null],
 ];
-$("nav").innerHTML = NAV.map(([name, d, active]) =>
-  '<a href="#" class="' + (active ? "active" : "") + '"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>' + name + "</a>"
-).join("");
-[...$("nav").children].forEach((a, i) => {
+$("navmenu").innerHTML =
+  NAV.map(([name, d, active]) =>
+    '<a href="#" class="' + (active ? "active" : "") + '"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>' + name + "</a>"
+  ).join("") +
+  '<div class="nav-divider"></div>' +
+  '<div class="health-card">' +
+    '<div class="label">FINANCIAL HEALTH</div>' +
+    '<div class="health-row"><span class="health-score" id="hscore">–</span><span class="health-grade" id="hgrade"></span></div>' +
+    '<div class="health-bar"><div id="hbar" style="width:0%"></div></div>' +
+  "</div>" +
+  '<div class="profile"><div class="avatar">AK</div><div><b>Adarsh Kumar</b><span>Nimbus Labs Pvt Ltd</span></div></div>';
+
+const navLinks = [...$("navmenu").querySelectorAll("a")];
+const closeMenu = () => { $("navmenu").classList.remove("open"); $("menubtn").setAttribute("aria-expanded", "false"); };
+$("menubtn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const open = $("navmenu").classList.toggle("open");
+  $("menubtn").setAttribute("aria-expanded", open ? "true" : "false");
+});
+document.addEventListener("click", (e) => { if (!$("navmenu").contains(e.target) && !$("menubtn").contains(e.target)) closeMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+navLinks.forEach((a, i) => {
   a.addEventListener("click", (e) => {
     e.preventDefault();
-    [...$("nav").children].forEach((el) => el.classList.remove("active"));
+    navLinks.forEach((el) => el.classList.remove("active"));
     a.classList.add("active");
+    closeMenu();
     const prompt = NAV[i][3];
     if (prompt) sendChat(prompt);
-    else $("chatbox").focus();
+    else { openThread(); $("chatbox").focus(); }
   });
 });
 
@@ -606,34 +665,34 @@ async function loadChart() {
   // gridlines + y labels (recessive)
   for (let k = 0; k <= 3; k++) {
     const v = yMin + ((yMax - yMin) * k) / 3;
-    g += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#EDE7DD" stroke-width="1"/>';
-    g += '<text x="' + (padL - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end" font-size="10" fill="#9C948A">' + fmtL(v) + "</text>";
+    g += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#E4E7EE" stroke-width="1"/>';
+    g += '<text x="' + (padL - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end" font-size="10" fill="#878FA1">' + fmtL(v) + "</text>";
   }
   // x labels
   pts.forEach((p, i) => {
     const name = new Date(p.month + "-01T00:00:00").toLocaleDateString("en", { month: "short" });
-    g += '<text x="' + x(i) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="#9C948A">' + name + "</text>";
+    g += '<text x="' + x(i) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="#878FA1">' + name + "</text>";
   });
   // paths: actual solid, forecast dashed (starts at last actual point)
   const lastActual = pts.map((p) => p.kind).lastIndexOf("actual");
   const path = (from, to) => pts.slice(from, to + 1).map((p, k) => (k ? "L" : "M") + x(from + k) + " " + y(p.closing)).join(" ");
   // soft area under actuals
-  g += '<path d="' + path(0, lastActual) + " L" + x(lastActual) + " " + y(yMin) + " L" + x(0) + " " + y(yMin) + ' Z" fill="#0B7A56" opacity="0.07"/>';
-  g += '<path d="' + path(0, lastActual) + '" fill="none" stroke="#0B7A56" stroke-width="2" stroke-linecap="round"/>';
+  g += '<path d="' + path(0, lastActual) + " L" + x(lastActual) + " " + y(yMin) + " L" + x(0) + " " + y(yMin) + ' Z" fill="#0E9C72" opacity="0.07"/>';
+  g += '<path d="' + path(0, lastActual) + '" fill="none" stroke="#0E9C72" stroke-width="2" stroke-linecap="round"/>';
   if (lastActual < pts.length - 1)
-    g += '<path d="' + path(lastActual, pts.length - 1) + '" fill="none" stroke="#B45309" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round"/>';
+    g += '<path d="' + path(lastActual, pts.length - 1) + '" fill="none" stroke="#B3770F" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round"/>';
   // end-point markers + direct labels
   const mark = (i, color, label) => {
     g += '<circle cx="' + x(i) + '" cy="' + y(pts[i].closing) + '" r="4" fill="' + color + '" stroke="#FFFFFF" stroke-width="2"/>';
     g += '<text x="' + x(i) + '" y="' + (y(pts[i].closing) - 10) + '" text-anchor="middle" font-size="10.5" font-weight="700" fill="' + color + '">' + label + "</text>";
   };
-  mark(lastActual, "#0B7A56", pts[lastActual].closingLabel);
-  mark(pts.length - 1, "#B45309", pts[pts.length - 1].closingLabel);
+  mark(lastActual, "#0E9C72", pts[lastActual].closingLabel);
+  mark(pts.length - 1, "#B3770F", pts[pts.length - 1].closingLabel);
   // hover targets
   pts.forEach((p, i) => {
     g += '<rect data-i="' + i + '" x="' + (x(i) - (W - padL - padR) / (2 * (pts.length - 1))) + '" y="0" width="' + (W - padL - padR) / (pts.length - 1) + '" height="' + H + '" fill="transparent"/>';
   });
-  g += '<line id="xh" y1="' + padT + '" y2="' + (H - padB) + '" stroke="#9C948A" stroke-width="1" stroke-dasharray="2 3" opacity="0"/>';
+  g += '<line id="xh" y1="' + padT + '" y2="' + (H - padB) + '" stroke="#878FA1" stroke-width="1" stroke-dasharray="2 3" opacity="0"/>';
   svg.innerHTML = g;
 
   const tip = $("tip");
@@ -652,7 +711,7 @@ async function loadChart() {
 
   const b = await j("/api/brief");
   $("cash-line").innerHTML = "<b>" + b.cash + "</b> in bank · " + esc(data.assumption);
-  if (data.depletionMonth) { $("cf-badge").textContent = "At risk"; $("cf-badge").style.color = "#C0392B"; $("cf-badge").style.background = "#FDEBE7"; }
+  if (data.depletionMonth) { $("cf-badge").textContent = "At risk"; $("cf-badge").style.color = "#DD4360"; $("cf-badge").style.background = "#FCE9EC"; }
 }
 
 /* ---- upcoming ---- */
@@ -711,11 +770,26 @@ $("suggest").addEventListener("click", (e) => { if (e.target.tagName === "BUTTON
 $("ask-brief").addEventListener("click", () => sendChat("Summarize business performance"));
 $("chatform").addEventListener("submit", (e) => { e.preventDefault(); const v = $("chatbox").value.trim(); if (v) sendChat(v); $("chatbox").value = ""; });
 
+/* The landing is the empty state. The first question retires it: the ask bar
+   moves out of the hero and docks under a scrolling thread, which then keeps
+   itself pinned to the newest message. */
+let threadOpen = false;
+function openThread() {
+  if (threadOpen) return;
+  threadOpen = true;
+  $("askdock").appendChild($("chatform"));
+  $("askdock").hidden = false;
+  $("landing").hidden = true;
+  $("thread").hidden = false;
+}
+const scrollThread = () => { const t = $("thread"); t.scrollTop = t.scrollHeight; };
+
 async function sendChat(text) {
+  openThread();
   const log = $("log");
   log.insertAdjacentHTML("beforeend", '<div class="msg user">' + esc(text) + "</div>");
   log.insertAdjacentHTML("beforeend", '<div class="msg ai thinking" id="pending">Checking the ledger…</div>');
-  log.scrollTop = log.scrollHeight;
+  scrollThread();
   try {
     const res = await j("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text }) });
     const tools = res.tools && res.tools.length ? '<span class="tools">verified against: ' + res.tools.join(", ") + "</span>" : "";
@@ -723,7 +797,7 @@ async function sendChat(text) {
   } catch {
     $("pending").outerHTML = '<div class="msg ai">Something went wrong reaching the engine — try again.</div>';
   }
-  log.scrollTop = log.scrollHeight;
+  scrollThread();
 }
 
 loadBrief(); loadTiles(); loadChart(); loadUpcoming(); loadTx(); loadRecs();
