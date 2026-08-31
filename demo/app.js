@@ -528,19 +528,32 @@ const md = (s) => esc(s)
   .replace(/^  • /gm, "&nbsp;&nbsp;• ")
   .replace(/\\n/g, "<br>");
 
+/* Every section is the same chat, asked a different question — there is no
+   separate Money/Invoices/Taxes page, so a click sends its prompt to
+   sendChat() instead of navigating. Home and Ask AI just focus the chat. */
 const NAV = [
-  ["Home", "M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z", true],
-  ["Ask AI", "M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1M7.7 16.3l-2.1 2.1", false],
-  ["Money", "M3 7h18v10H3zM7 12h.01M17 12h.01M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", false],
-  ["Invoices", "M7 3h10a1 1 0 0 1 1 1v16l-3-2-3 2-3-2-3 2V4a1 1 0 0 1 1-1zM9 8h6M9 12h6", false],
-  ["Taxes & GST", "M4 5h16v14H4zM8 3v4m8-4v4M4 11h16", false],
-  ["Investments", "M4 17 10 11l4 4 6-7M20 8v4h-4", false],
-  ["Reports", "M5 21V9m7 12V3m7 18v-8", false],
-  ["Settings", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12", false],
+  ["Home", "M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z", true, null],
+  ["Ask AI", "M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1M7.7 16.3l-2.1 2.1", false, null],
+  ["Money", "M3 7h18v10H3zM7 12h.01M17 12h.01M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", false, "Show my cash position, burn rate, and recent transactions"],
+  ["Invoices", "M7 3h10a1 1 0 0 1 1 1v16l-3-2-3 2-3-2-3 2V4a1 1 0 0 1 1-1zM9 8h6M9 12h6", false, "Show unpaid invoices and receivables aging"],
+  ["Taxes & GST", "M4 5h16v14H4zM8 3v4m8-4v4M4 11h16", false, "What's my GST position and upcoming filings?"],
+  ["Investments", "M4 17 10 11l4 4 6-7M20 8v4h-4", false, "Show my investment portfolio"],
+  ["Reports", "M5 21V9m7 12V3m7 18v-8", false, "Give me the full morning brief"],
+  ["Settings", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12", false, null],
 ];
 $("nav").innerHTML = NAV.map(([name, d, active]) =>
   '<a href="#" class="' + (active ? "active" : "") + '"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>' + name + "</a>"
 ).join("");
+[...$("nav").children].forEach((a, i) => {
+  a.addEventListener("click", (e) => {
+    e.preventDefault();
+    [...$("nav").children].forEach((el) => el.classList.remove("active"));
+    a.classList.add("active");
+    const prompt = NAV[i][3];
+    if (prompt) sendChat(prompt);
+    else $("chatbox").focus();
+  });
+});
 
 $("dateline").textContent = new Date("${AS_OF}T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
