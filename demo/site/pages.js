@@ -190,8 +190,7 @@ export const solutionPage = (slug) => {
     <h1>${s.headline}</h1>
     <p class="lede on-dark">${s.sub}</p>
     <div class="phero-cta">
-      <a class="btn btn-primary" href="/erp">See the close</a>
-      <a class="btn btn-dark" href="/site/product/paisa-ai">How the AI is grounded</a>
+      <a class="btn btn-primary" href="/site/product/paisa-ai">How the AI is grounded</a>
     </div>
   </div>
 </header>
