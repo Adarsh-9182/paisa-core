@@ -21,6 +21,7 @@ import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
          aboutPage, customersPage, contactPage, continuousClosePage, docsPage } from "./site/pages.js";
 import { boot, sync } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
+import { loginPage } from "./login-page.js";
 import {
   parseINR,
   formatINR,
@@ -28,9 +29,33 @@ import {
   CfoPlanner,
   AnthropicProvider,
   FallbackProvider,
+  hashPassword,
+  verifyPassword,
+  issueSession,
+  readSession,
+  sessionCookie,
+  clearCookie,
+  parseCookies,
+  resolveSessionSecret,
+  SESSION_COOKIE,
 } from "../dist/src/index.js";
 
 const ACTOR = "adarsh";
+
+/* ------------------------------------------------------------------ */
+/* Auth: one demo user, env-configured, cookie-based sessions          */
+/* ------------------------------------------------------------------ */
+
+const AUTH_USER = process.env.PAISA_USER ?? "adarsh";
+const SESSION_SECRET = resolveSessionSecret();
+let passwordHash;
+const authReady = hashPassword(process.env.PAISA_PASSWORD ?? "paisa123456").then((h) => {
+  passwordHash = h;
+});
+
+const isSecure = (req) => req.headers["x-forwarded-proto"] === "https" || !!process.env.VERCEL;
+
+const currentSession = (req) => readSession(parseCookies(req.headers.cookie)[SESSION_COOKIE], SESSION_SECRET);
 
 /* ------------------------------------------------------------------ */
 /* Boot: one runtime, durable when a database is configured            */
@@ -271,7 +296,7 @@ const page = () => `<!doctype html>
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     background: var(--bg); color: var(--ink); font-size: 14px; -webkit-font-smoothing: antialiased;
   }
-  .app { display: grid; grid-template-columns: 232px 1fr 360px; height: 100vh; }
+  .app { display: grid; grid-template-columns: 232px 1fr 380px; height: 100vh; }
 
   /* ---------- sidebar ---------- */
   .side { border-right: 1px solid var(--line); padding: 20px 14px; display: flex; flex-direction: column; gap: 4px; background: var(--bg); }
@@ -296,7 +321,7 @@ const page = () => `<!doctype html>
   .profile span { font-size: 11.5px; color: var(--ink-3); }
 
   /* ---------- center ---------- */
-  .main { overflow-y: auto; padding: 26px 30px 40px; }
+  .main { overflow-y: auto; padding: 22px 20px 30px; border-left: 1px solid var(--line); background: var(--bg); }
   .main-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
   .date-line { color: var(--ink-3); font-size: 13px; margin-bottom: 4px; }
   h1 { font-size: 32px; letter-spacing: -0.03em; font-weight: 800; }
@@ -375,7 +400,7 @@ const page = () => `<!doctype html>
   .link { color: var(--orange-deep); font-weight: 650; font-size: 12.5px; text-decoration: none; cursor: pointer; }
 
   /* ---------- chat ---------- */
-  .chat { border-left: 1px solid var(--line); display: flex; flex-direction: column; background: var(--surface); }
+  .chat { display: flex; flex-direction: column; background: var(--surface); }
   .chat-head { padding: 16px 18px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
   .ai-dot { width: 34px; height: 34px; border-radius: 50%; background: var(--orange); display: grid; place-items: center; color: #fff; font-size: 15px; }
   .chat-head b { font-size: 14.5px; display: block; }
@@ -396,15 +421,29 @@ const page = () => `<!doctype html>
   .chat-input input:focus { border-color: var(--orange); }
   .send { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--orange); color: #fff; font-size: 16px; cursor: pointer; flex-shrink: 0; }
 
-  @media (max-width: 1180px) { .app { grid-template-columns: 200px 1fr; } .chat { display: none; } }
-  @media (max-width: 860px) { .app { grid-template-columns: 1fr; } .side { display: none; } .tiles { grid-template-columns: repeat(2, 1fr); } .row2 { grid-template-columns: 1fr; } }
+  /* chat is the product: centre column, dashboard demoted to the right rail */
+  .side { grid-area: 1 / 1; }
+  .chat { grid-area: 1 / 2; min-height: 0; }
+  .main { grid-area: 1 / 3; }
+  .chat-log, .suggest, .chat-input { width: 100%; max-width: 760px; margin-inline: auto; }
+  .chat-log { padding: 22px 16px; gap: 14px; }
+  .msg { max-width: 80%; font-size: 14px; }
+  .main .tiles { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .main .row2 { grid-template-columns: 1fr; }
+  /* the greeting + morning brief head the chat, so they stretch full width
+     inside the flex column rather than sitting in a message bubble */
+  .chat-log > .main-head, .chat-log > .brief, .chat-log > .recs { flex-shrink: 0; align-self: stretch; }
+  .chat-log > .brief { margin-bottom: 4px; }
+
+  @media (max-width: 1180px) { .app { grid-template-columns: 200px 1fr; } .main { display: none; } .chat { grid-area: 1 / 2; } }
+  @media (max-width: 860px) { .app { grid-template-columns: 1fr; } .side { display: none; } .chat { grid-area: 1 / 1; } }
 </style>
 </head>
 <body>
 <div class="app">
 
   <aside class="side">
-    <div class="logo"><span class="logo-mark">P</span>paisa</div>
+    <div class="logo"><span class="logo-mark">₹</span>paisa</div>
     <nav class="nav" id="nav"></nav>
     <div class="spacer"></div>
     <div class="health-card">
@@ -419,25 +458,6 @@ const page = () => `<!doctype html>
   </aside>
 
   <main class="main">
-    <div class="main-head">
-      <div>
-        <div class="date-line" id="dateline"></div>
-        <h1>Good morning, Adarsh</h1>
-      </div>
-      <button class="btn btn-quiet">Generate report</button>
-    </div>
-
-    <section class="brief">
-      <div class="brief-top"><span class="tag">YOUR AI CFO</span><span class="when">Updated 6:00 AM</span></div>
-      <p id="brief-text">Loading your morning brief…</p>
-      <div class="brief-actions">
-        <button class="btn btn-primary" id="toggle-recs">Review AI recommendations</button>
-        <button class="btn btn-ghost" id="ask-brief">Ask about this</button>
-      </div>
-    </section>
-
-    <section class="recs" id="recs"></section>
-
     <section class="tiles" id="tiles"></section>
 
     <section class="row2">
@@ -466,12 +486,25 @@ const page = () => `<!doctype html>
   </main>
 
   <aside class="chat">
-    <div class="chat-head">
-      <div class="ai-dot">✦</div>
-      <div><b>Paisa AI</b><span class="status">Watching your finances</span></div>
-    </div>
     <div class="chat-log" id="log">
-      <div class="msg ai">Good morning! I've already been through today's numbers. Ask me anything — every figure I give you is pulled straight from your ledger and verified.</div>
+      <div class="main-head">
+        <div>
+          <div class="date-line" id="dateline"></div>
+          <h1>Good morning, Adarsh</h1>
+        </div>
+        <button class="btn btn-quiet">Generate report</button>
+      </div>
+
+      <section class="brief">
+        <div class="brief-top"><span class="tag">YOUR AI CFO</span><span class="when">Updated 6:00 AM</span></div>
+        <p id="brief-text">Loading your morning brief…</p>
+        <div class="brief-actions">
+          <button class="btn btn-primary" id="toggle-recs">Review AI recommendations</button>
+          <button class="btn btn-ghost" id="ask-brief">Ask about this</button>
+        </div>
+      </section>
+
+      <section class="recs" id="recs"></section>
     </div>
     <div class="suggest" id="suggest"></div>
     <form class="chat-input" id="chatform">
@@ -492,19 +525,32 @@ const md = (s) => esc(s)
   .replace(/^  • /gm, "&nbsp;&nbsp;• ")
   .replace(/\\n/g, "<br>");
 
+/* Every section is the same chat, asked a different question — there is no
+   separate Money/Invoices/Taxes page, so a click sends its prompt to
+   sendChat() instead of navigating. Home and Ask AI just focus the chat. */
 const NAV = [
-  ["Home", "M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z", true],
-  ["Ask AI", "M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1M7.7 16.3l-2.1 2.1", false],
-  ["Money", "M3 7h18v10H3zM7 12h.01M17 12h.01M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", false],
-  ["Invoices", "M7 3h10a1 1 0 0 1 1 1v16l-3-2-3 2-3-2-3 2V4a1 1 0 0 1 1-1zM9 8h6M9 12h6", false],
-  ["Taxes & GST", "M4 5h16v14H4zM8 3v4m8-4v4M4 11h16", false],
-  ["Investments", "M4 17 10 11l4 4 6-7M20 8v4h-4", false],
-  ["Reports", "M5 21V9m7 12V3m7 18v-8", false],
-  ["Settings", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12", false],
+  ["Home", "M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z", true, null],
+  ["Ask AI", "M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1M7.7 16.3l-2.1 2.1", false, null],
+  ["Money", "M3 7h18v10H3zM7 12h.01M17 12h.01M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", false, "Show my cash position, burn rate, and recent transactions"],
+  ["Invoices", "M7 3h10a1 1 0 0 1 1 1v16l-3-2-3 2-3-2-3 2V4a1 1 0 0 1 1-1zM9 8h6M9 12h6", false, "Show unpaid invoices and receivables aging"],
+  ["Taxes & GST", "M4 5h16v14H4zM8 3v4m8-4v4M4 11h16", false, "What's my GST position and upcoming filings?"],
+  ["Investments", "M4 17 10 11l4 4 6-7M20 8v4h-4", false, "Show my investment portfolio"],
+  ["Reports", "M5 21V9m7 12V3m7 18v-8", false, "Give me the full morning brief"],
+  ["Settings", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12", false, null],
 ];
 $("nav").innerHTML = NAV.map(([name, d, active]) =>
   '<a href="#" class="' + (active ? "active" : "") + '"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>' + name + "</a>"
 ).join("");
+[...$("nav").children].forEach((a, i) => {
+  a.addEventListener("click", (e) => {
+    e.preventDefault();
+    [...$("nav").children].forEach((el) => el.classList.remove("active"));
+    a.classList.add("active");
+    const prompt = NAV[i][3];
+    if (prompt) sendChat(prompt);
+    else $("chatbox").focus();
+  });
+});
 
 $("dateline").textContent = new Date("${AS_OF}T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
@@ -700,6 +746,7 @@ const readBody = (req) =>
 
 export const handle = async (req, res) => {
   await ready;
+  await authReady;
   const path = (req.url ?? "/").split("?")[0];
   const send = (code, body, type = "application/json") => {
     res.statusCode = code;
@@ -708,7 +755,33 @@ export const handle = async (req, res) => {
   };
 
   try {
-    if (path === "/") return send(200, page(), "text/html");
+    if (path === "/login") {
+      const query = new URLSearchParams((req.url ?? "").split("?")[1] ?? "");
+      if (currentSession(req)) {
+        res.statusCode = 302;
+        res.setHeader("Location", "/");
+        return res.end();
+      }
+      return send(200, loginPage(query.get("error")), "text/html");
+    }
+
+    if (path === "/api/login" && req.method === "POST") {
+      const { username, password } = JSON.parse((await readBody(req)) || "{}");
+      const ok = typeof username === "string" && typeof password === "string"
+        && username === AUTH_USER && (await verifyPassword(password, passwordHash));
+      if (!ok) return send(401, { error: "Invalid username or password" });
+      const token = issueSession(AUTH_USER, "org_nimbus", SESSION_SECRET);
+      res.setHeader("Set-Cookie", sessionCookie(token, isSecure(req)));
+      return send(200, { ok: true });
+    }
+
+    if (path === "/api/logout" && req.method === "POST") {
+      res.setHeader("Set-Cookie", clearCookie(isSecure(req)));
+      return send(200, { ok: true });
+    }
+
+    if (path === "/") return send(200, sitePage(), "text/html");
+    if (path === "/app") return send(200, page(), "text/html");
 
     if (path === "/api/chat" && req.method === "POST") {
       const { message } = JSON.parse((await readBody(req)) || "{}");
