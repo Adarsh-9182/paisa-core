@@ -381,8 +381,8 @@ ${nav()}
         consolidation, and a close that runs itself. Its AI CFO answers in plain language — and is
         structurally incapable of inventing a figure.</p>
       <div class="hero-cta fade-up" style="animation-delay:.88s">
-        <a class="btn btn-primary" href="/erp">Open the ERP console</a>
-        <a class="btn btn-dark" href="#ai">How the AI is grounded</a>
+        <a class="btn btn-primary" href="/app">Ask the AI CFO</a>
+        <a class="btn btn-dark" href="/erp">Open the ERP console</a>
       </div>
       <div class="hero-note fade-up" style="animation-delay:1s">No sign-up — the demo runs on a seeded company with a live close waiting.</div>
       <div class="hint fade-up" style="animation-delay:1.15s"><i></i> watch the close resolve itself</div>
@@ -660,8 +660,8 @@ ${nav()}
     <p class="lede on-dark">The demo runs on a seeded company with June still open — two real blockers
       waiting, agents holding proposals, and every number computed by the engines.</p>
     <div class="cta-row">
-      <a class="btn btn-primary" href="/erp">Open the ERP console</a>
-      <a class="btn btn-dark" href="/">Try the AI CFO</a>
+      <a class="btn btn-primary" href="/app">Try the AI CFO</a>
+      <a class="btn btn-dark" href="/erp">Open the ERP console</a>
     </div>
   </div>
 </section>

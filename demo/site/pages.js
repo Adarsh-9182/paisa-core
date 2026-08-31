@@ -98,8 +98,8 @@ const ctaBlock = (headline, sub) => `
     <h2>${headline}</h2>
     <p class="lede on-dark">${sub}</p>
     <div class="cta-row">
-      <a class="btn btn-primary" href="/erp">Open the ERP console</a>
-      <a class="btn btn-dark" href="/">Try the assistant</a>
+      <a class="btn btn-primary" href="/app">Try the AI CFO</a>
+      <a class="btn btn-dark" href="/erp">Open the ERP console</a>
     </div>
   </div>
 </section>`;
