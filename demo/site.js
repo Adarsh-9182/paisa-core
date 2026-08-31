@@ -203,7 +203,11 @@ export const sitePage = () => head({
   }
 
   /* the ledger canvas sits behind the hero content */
-  #fx { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:0; opacity:.85; }
+  /* masked so the field dissolves toward the headline rather than stopping
+     at a hard edge */
+  #fx { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:0; opacity:.9;
+        -webkit-mask-image:linear-gradient(90deg, transparent 52%, #000 72%);
+        mask-image:linear-gradient(90deg, transparent 52%, #000 72%); }
   .hero .wrap { position:relative; z-index:2; }
   .hero::after { z-index:1; }
 
@@ -674,7 +678,13 @@ ${SHELL_JS}
   if (canvas && !reduced) {
     const ctx = canvas.getContext("2d");
     let w = 0, h = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const GLYPHS = ["₹", "$", "€", "£", "¥"];
+    // ₹ leads — the others are the multi-currency note, not an equal chorus
+    const GLYPHS = ["₹", "₹", "₹", "₹", "$", "€", "£", "¥"];
+    // The entries fall through the right of the hero only, so the headline
+    // column stays clean and the empty half earns its space.
+    const FIELD_START = 0.58;
+    const fieldMid = () => w * (FIELD_START + (1 - FIELD_START) / 2);
+    const fieldWidth = () => w * (1 - FIELD_START);
 
     const resize = () => {
       const r = canvas.getBoundingClientRect();
@@ -700,7 +710,9 @@ ${SHELL_JS}
         hue: Math.random() < 0.18,                     // a few carry the accent colour
       };
     };
-    for (let i = 0; i < 26; i++) pairs.push(makePair(i));
+    // 11, not 26: enough to read as a ledger in motion, few enough that two
+    // entries rarely collide.
+    for (let i = 0; i < 11; i++) pairs.push(makePair(i));
 
     const fmt = (n) => {
       const r = Math.round(n);
@@ -713,7 +725,7 @@ ${SHELL_JS}
     let raf = 0, running = true;
     const draw = () => {
       ctx.clearRect(0, 0, w, h);
-      const mid = w * 0.5;
+      const mid = fieldMid();
 
       for (const p of pairs) {
         p.y += p.speed * 1.5;
@@ -724,9 +736,11 @@ ${SHELL_JS}
 
         if (p.y > h + 60) { Object.assign(p, makePair()); p.y = -40; continue; }
 
-        const gap = w * p.spread * (1 - p.settle);
-        const alpha = (0.05 + p.depth * 0.16) * (1 - Math.max(0, progress - 0.86) / 0.14);
-        const size = 9 + p.depth * 7;
+        const gap = fieldWidth() * p.spread * (1 - p.settle);
+        // fade in at the top as well as out at the bottom, so nothing pops
+        const enter = Math.min(1, Math.max(0, progress / 0.12));
+        const alpha = (0.04 + p.depth * 0.11) * enter * (1 - Math.max(0, progress - 0.82) / 0.18);
+        const size = 9 + p.depth * 6;
 
         ctx.font = size + "px ui-monospace, SFMono-Regular, Menlo, monospace";
         ctx.textBaseline = "middle";
