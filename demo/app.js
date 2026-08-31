@@ -296,7 +296,7 @@ const page = () => `<!doctype html>
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     background: var(--bg); color: var(--ink); font-size: 14px; -webkit-font-smoothing: antialiased;
   }
-  .app { display: grid; grid-template-columns: 232px 1fr 360px; height: 100vh; }
+  .app { display: grid; grid-template-columns: 232px 1fr 380px; height: 100vh; }
 
   /* ---------- sidebar ---------- */
   .side { border-right: 1px solid var(--line); padding: 20px 14px; display: flex; flex-direction: column; gap: 4px; background: var(--bg); }
@@ -321,7 +321,7 @@ const page = () => `<!doctype html>
   .profile span { font-size: 11.5px; color: var(--ink-3); }
 
   /* ---------- center ---------- */
-  .main { overflow-y: auto; padding: 26px 30px 40px; }
+  .main { overflow-y: auto; padding: 22px 20px 30px; border-left: 1px solid var(--line); background: var(--bg); }
   .main-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
   .date-line { color: var(--ink-3); font-size: 13px; margin-bottom: 4px; }
   h1 { font-size: 32px; letter-spacing: -0.03em; font-weight: 800; }
@@ -400,7 +400,7 @@ const page = () => `<!doctype html>
   .link { color: var(--orange-deep); font-weight: 650; font-size: 12.5px; text-decoration: none; cursor: pointer; }
 
   /* ---------- chat ---------- */
-  .chat { border-left: 1px solid var(--line); display: flex; flex-direction: column; background: var(--surface); }
+  .chat { display: flex; flex-direction: column; background: var(--surface); }
   .chat-head { padding: 16px 18px; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: center; }
   .ai-dot { width: 34px; height: 34px; border-radius: 50%; background: var(--orange); display: grid; place-items: center; color: #fff; font-size: 15px; }
   .chat-head b { font-size: 14.5px; display: block; }
@@ -421,8 +421,19 @@ const page = () => `<!doctype html>
   .chat-input input:focus { border-color: var(--orange); }
   .send { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--orange); color: #fff; font-size: 16px; cursor: pointer; flex-shrink: 0; }
 
-  @media (max-width: 1180px) { .app { grid-template-columns: 200px 1fr; } .chat { display: none; } }
-  @media (max-width: 860px) { .app { grid-template-columns: 1fr; } .side { display: none; } .tiles { grid-template-columns: repeat(2, 1fr); } .row2 { grid-template-columns: 1fr; } }
+  /* chat is the product: centre column, dashboard demoted to the right rail */
+  .side { grid-area: 1 / 1; }
+  .chat { grid-area: 1 / 2; min-height: 0; }
+  .main { grid-area: 1 / 3; }
+  .chat-log, .suggest, .chat-input { width: 100%; max-width: 760px; margin-inline: auto; }
+  .chat-log { padding: 22px 16px; gap: 14px; }
+  .msg { max-width: 80%; font-size: 14px; }
+  .main .tiles { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .main .row2 { grid-template-columns: 1fr; }
+  .main-head h1 { font-size: 20px; }
+
+  @media (max-width: 1180px) { .app { grid-template-columns: 200px 1fr; } .main { display: none; } .chat { grid-area: 1 / 2; } }
+  @media (max-width: 860px) { .app { grid-template-columns: 1fr; } .side { display: none; } .chat { grid-area: 1 / 1; } }
 </style>
 </head>
 <body>
