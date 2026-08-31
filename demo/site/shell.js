@@ -215,15 +215,15 @@ export const nav = () => `
     <a class="logo" href="/"><span class="logo-mark">₹</span>paisa</a>
     <div class="navlinks">
       <div class="navitem" data-menu>
-        <button type="button" aria-expanded="false">Product <i class="chev"></i></button>
+        <button type="button" aria-expanded="false">What it does <i class="chev"></i></button>
         ${productMega()}
       </div>
       <div class="navitem" data-menu>
-        <button type="button" aria-expanded="false">Solutions <i class="chev"></i></button>
+        <button type="button" aria-expanded="false">Who runs it <i class="chev"></i></button>
         ${solutionMega()}
       </div>
       <div class="navitem" data-menu>
-        <button type="button" aria-expanded="false">Compare <i class="chev"></i></button>
+        <button type="button" aria-expanded="false">Instead of <i class="chev"></i></button>
         ${compareMega()}
       </div>
       <div class="navitem" data-menu>
@@ -252,11 +252,11 @@ export const nav = () => `
     </div>
   </div>
   <div class="drawer" id="drawer">
-    <h6>Product</h6>
+    <h6>What it does</h6>
     ${PRODUCTS.map((p) => `<a href="/site/product/${p.slug}">${p.name}</a>`).join("")}
-    <h6>Solutions</h6>
+    <h6>Who runs it</h6>
     ${SOLUTIONS.map((s) => `<a href="/site/solution/${s.slug}">${s.name}</a>`).join("")}
-    <h6>Compare</h6>
+    <h6>Instead of</h6>
     ${COMPARISONS.map((c) => `<a href="/site/compare/${c.slug}">Paisa vs ${c.name}</a>`).join("")}
     <h6>Company</h6>
     <a href="/site/about">About</a>
