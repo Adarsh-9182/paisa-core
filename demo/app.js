@@ -950,6 +950,11 @@ export const handle = async (req, res) => {
        never accepted from the request, so a sync cannot be triggered against
        someone else's account by posting a key at this route. */
     if (path === "/api/connectors/stripe/sync" && req.method === "POST") {
+      // A sync spends Stripe rate limit and writes to the review queue, so it
+      // needs a signed-in caller. The key is server-side either way, but an
+      // open endpoint lets anyone trigger the work.
+      if (!currentSession(req)) return send(401, { ok: false, error: "Sign in required" });
+
       const secretKey = process.env.STRIPE_SECRET_KEY;
       if (!secretKey)
         return send(400, {
