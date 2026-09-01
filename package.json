@@ -1,7 +1,7 @@
 {
   "name": "paisa-core",
   "version": "1.0.0",
-  "description": "Deterministic financial core for Paisa — AI CFO for businesses",
+  "description": "Deterministic financial core for Paisa \u2014 AI CFO for businesses",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "exports": {
@@ -18,7 +18,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "dev": "node --env-file-if-exists=.env demo/server.js",
-    "start": "node --env-file-if-exists=.env demo/server.js"
+    "start": "node --env-file-if-exists=.env demo/server.js",
+    "eval": "npm run build && node --env-file-if-exists=.env scripts/eval.mjs"
   },
   "keywords": [],
   "author": "",

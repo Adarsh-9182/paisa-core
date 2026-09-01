@@ -16,6 +16,14 @@ export interface ChatTurn {
 /** Runs one engine tool; returns the structured result string (errors come back as `error="…"`). */
 export type ToolExecutor = (tool: string, args: Record<string, unknown>) => string;
 
+/** What one model call consumed, as the provider reported it. */
+export interface CallUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  /** Input tokens served from the provider's prompt cache, when it says so. */
+  readonly cachedInputTokens?: number;
+}
+
 export interface AgentContext {
   readonly system: string;
   /** Prior conversation turns, oldest first. The current question is separate. */
@@ -25,6 +33,18 @@ export interface AgentContext {
   readonly executeTool: ToolExecutor;
   /** Upper bound on model↔tool round trips before the provider must answer. */
   readonly maxRounds: number;
+  /**
+   * Called once per model call with what it consumed.
+   *
+   * Optional, and reported rather than returned, because a run makes several
+   * calls and the interesting number is the sum across all of them. Nothing
+   * measured what a question cost before this existed — which made "which
+   * model should we use" a question that could only be answered with taste.
+   *
+   * A provider that cannot measure (the offline planner) simply never calls
+   * it, and the absence is visible in the report rather than showing as zero.
+   */
+  readonly onUsage?: (usage: CallUsage) => void;
 }
 
 export interface LanguageModelProvider {

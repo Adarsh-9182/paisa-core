@@ -79,7 +79,25 @@ export class OpenAIProvider implements LanguageModelProvider {
         const body = (await res.text()).slice(0, 300);
         throw new Error(`OpenAI API error ${res.status}: ${body}`);
       }
-      const data = (await res.json()) as { choices?: { message?: OpenAiMessage }[] };
+      const data = (await res.json()) as {
+        choices?: { message?: OpenAiMessage }[];
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          prompt_tokens_details?: { cached_tokens?: number };
+        };
+      };
+      // Reported per call, not per run: a single question makes several, and
+      // the sum is the only number that answers "what did that cost".
+      if (data.usage) {
+        ctx.onUsage?.({
+          inputTokens: data.usage.prompt_tokens ?? 0,
+          outputTokens: data.usage.completion_tokens ?? 0,
+          ...(data.usage.prompt_tokens_details?.cached_tokens !== undefined
+            ? { cachedInputTokens: data.usage.prompt_tokens_details.cached_tokens }
+            : {}),
+        });
+      }
       const msg = data.choices?.[0]?.message;
       if (!msg) throw new Error("OpenAI returned no message");
       if (msg.refusal) throw new Error("Model declined the request; falling back.");

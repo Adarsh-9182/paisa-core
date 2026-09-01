@@ -12,7 +12,7 @@
  * payment tool.
  */
 
-import { AgentContext, ChatTurn, LanguageModelProvider } from "./provider.js";
+import { AgentContext, CallUsage, ChatTurn, LanguageModelProvider } from "./provider.js";
 import { TOOLS, toolNames } from "./tools.js";
 import { DOCUMENT_TOOL, UploadedDocument } from "./document.js";
 import { Organization } from "../organization.js";
@@ -171,6 +171,12 @@ export class Orchestrator {
     history: readonly ChatTurn[] = [],
     onEvent?: (event: AgentEvent) => void,
     document?: UploadedDocument,
+    /**
+     * What each model call consumed, as the provider reports it. Optional
+     * and additive: nothing in the product measured this, which made "which
+     * model should we use" answerable only by taste. See ai/eval.ts.
+     */
+    onUsage?: (usage: CallUsage) => void,
   ): Promise<AiAuditRecord> {
     if (user.orgId !== org.orgId) throw new PermissionError("User does not belong to this organization");
     if (!user.permissions.has("access_ai_cfo"))
@@ -213,6 +219,7 @@ export class Orchestrator {
       availableTools: toolNames(),
       executeTool,
       maxRounds: this.maxToolRounds,
+      ...(onUsage ? { onUsage } : {}),
     };
 
     let answer = await this.provider.run({ ...baseCtx, history });
