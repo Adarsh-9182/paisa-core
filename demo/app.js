@@ -828,6 +828,9 @@ const scrollThread = () => { const t = $("thread"); t.scrollTop = t.scrollHeight
    anything. Only completed turns go in: a failed request would otherwise
    leave the model reading its own error message back as context. */
 const history = [];
+/** Leaves room inside the 60s function limit to still send a reply. */
+const CHAT_DEADLINE_MS = 48_000;
+
 const HISTORY_TURNS = 12;
 
 async function sendChat(text) {
@@ -977,16 +980,28 @@ export const handle = async (req, res) => {
       if (!message) return send(400, { error: "message required" });
       try {
         const books = await resolveBooks(req, res);
-        const record = await orchestrator.ask(
-          { ...aiUser, orgId: books.org.orgId },
-          books.org,
-          message,
-          sanitizeHistory(history),
-        );
+
+        // A rejected answer costs a second full agent loop, and two of them
+        // can outlive the function. Racing a deadline turns that into an
+        // honest reply instead of a 504 with nothing in it.
+        const record = await Promise.race([
+          orchestrator.ask(
+            { ...aiUser, orgId: books.org.orgId },
+            books.org,
+            message,
+            sanitizeHistory(history),
+          ),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("agent deadline exceeded")), CHAT_DEADLINE_MS),
+          ),
+        ]);
         return send(200, { answer: record.finalAnswer, tools: record.toolsInvoked.map((t) => t.tool), verified: record.verified });
       } catch (err) {
+        const timedOut = err.message === "agent deadline exceeded";
         return send(200, {
-          answer: "I couldn't verify every figure in my draft answer against the ledger, so I'm not sending it. Try rephrasing the question.",
+          answer: timedOut
+            ? "That took longer than I'm allowed to spend on one question. Try asking for one thing at a time."
+            : "I couldn't verify every figure in my draft answer against the ledger, so I'm not sending it. Try rephrasing the question.",
           tools: [],
           verified: false,
           detail: err.message,
