@@ -117,7 +117,7 @@ if (process.env.ANTHROPIC_API_KEY) chain.push(new AnthropicProvider());
 if (process.env.OPENAI_API_KEY) chain.push(new OpenAIProvider());
 chain.push(planner);
 const provider = chain.length > 1 ? new FallbackProvider(chain) : planner;
-const orchestrator = new Orchestrator(provider, 6);
+const orchestrator = new Orchestrator(provider, 6, { asOf: AS_OF, periodFrom: PERIOD_FROM });
 const aiUser = {
   userId: ACTOR,
   orgId: "org_nimbus",
@@ -828,9 +828,6 @@ const scrollThread = () => { const t = $("thread"); t.scrollTop = t.scrollHeight
    anything. Only completed turns go in: a failed request would otherwise
    leave the model reading its own error message back as context. */
 const history = [];
-/** Leaves room inside the 60s function limit to still send a reply. */
-const CHAT_DEADLINE_MS = 48_000;
-
 const HISTORY_TURNS = 12;
 
 async function sendChat(text) {
@@ -873,6 +870,8 @@ const jsonSafe = (v) => JSON.parse(JSON.stringify(v, (_k, val) => (typeof val ==
 const HISTORY_TURNS = 12;
 /** Per-turn character cap, so one request cannot arrive enormous. */
 const HISTORY_CHARS = 4000;
+/** Leaves room inside the 60s function limit to still send a reply. */
+const CHAT_DEADLINE_MS = 48_000;
 
 /**
  * The browser holds the conversation and returns it each turn, because the
