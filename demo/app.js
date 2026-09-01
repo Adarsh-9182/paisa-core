@@ -499,6 +499,16 @@ const page = () => `<!doctype html>
   .msg.ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 5px; box-shadow: var(--shadow-sm); }
   .msg.ai b { font-weight: 700; }
   .msg .tools { display: block; margin-top: 8px; font-size: 10.5px; color: var(--ink-3); }
+  /* A drafted action. It reads as a distinct object inside the reply, not as
+     more prose, because approving it changes the books. */
+  .act { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--orange); border-radius: 8px; background: var(--bg); }
+  .act .what { font-size: 12px; line-height: 1.45; }
+  .act .kind { display: block; margin-bottom: 4px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+  .act .row { display: flex; gap: 8px; margin-top: 9px; }
+  .act button { padding: 5px 12px; font: inherit; font-size: 11.5px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+  .act button[data-do="approve"] { background: var(--orange); border-color: var(--orange-deep); color: #fff; font-weight: 600; }
+  .act button:disabled { opacity: .5; cursor: default; }
+  .act .done { margin-top: 9px; font-size: 11.5px; color: var(--ink-3); }
   .msg.thinking { color: var(--ink-3); font-style: italic; }
 
   /* the one ask bar — it starts in the landing and moves into the footer */
@@ -830,6 +840,46 @@ const scrollThread = () => { const t = $("thread"); t.scrollTop = t.scrollHeight
 const history = [];
 const HISTORY_TURNS = 12;
 
+/* An action the agent drafted this turn. Nothing has happened to the books
+   yet — the card is the approval step, and it is rendered from the server's
+   list rather than parsed out of the answer text, so a model that describes
+   an action it never queued cannot produce a button. */
+function actionCards(actions) {
+  if (!actions || !actions.length) return "";
+  return actions
+    .map(
+      (a) =>
+        '<div class="act" data-id="' + esc(a.id) + '">' +
+        '<span class="kind">' + esc(a.kind.replace(/_/g, " ")) + " · needs your approval</span>" +
+        '<div class="what">' + esc(a.summary) + "</div>" +
+        '<div class="row"><button data-do="approve">Approve</button>' +
+        '<button data-do="dismiss">Dismiss</button></div></div>',
+    )
+    .join("");
+}
+
+/* Decisions are delegated from the thread, so cards added later still work. */
+$("log").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".act button[data-do]");
+  if (!btn) return;
+  const card = btn.closest(".act");
+  const row = card.querySelector(".row");
+  card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  try {
+    const out = await j("/api/actions/" + encodeURIComponent(card.dataset.id) + "/" + btn.dataset.do, { method: "POST" });
+    // j() resolves whatever the status was, so a refusal arrives here as a
+    // body, not a rejection. Read it, or a failed approval renders as done.
+    if (!out.ok) throw new Error(out.error || "refused");
+    row.outerHTML =
+      '<div class="done">' +
+      (btn.dataset.do === "approve" ? "Approved — " + esc(out.result || "done") : "Dismissed. Nothing was posted.") +
+      "</div>";
+    if (btn.dataset.do === "approve") await Promise.all([loadBrief(), loadTx(), loadUpcoming()]);
+  } catch {
+    row.outerHTML = '<div class="done">That didn\'t go through — nothing was posted.</div>';
+  }
+});
+
 async function sendChat(text) {
   openThread();
   const log = $("log");
@@ -843,7 +893,7 @@ async function sendChat(text) {
       body: JSON.stringify({ message: text, history: history.slice(-HISTORY_TURNS) }),
     });
     const tools = res.tools && res.tools.length ? '<span class="tools">verified against: ' + res.tools.join(", ") + "</span>" : "";
-    $("pending").outerHTML = '<div class="msg ai">' + md(res.answer) + tools + "</div>";
+    $("pending").outerHTML = '<div class="msg ai">' + md(res.answer) + actionCards(res.actions) + tools + "</div>";
     history.push({ role: "user", text }, { role: "assistant", text: res.answer });
   } catch {
     $("pending").outerHTML = '<div class="msg ai">Something went wrong reaching the engine — try again.</div>';
@@ -980,6 +1030,12 @@ export const handle = async (req, res) => {
       try {
         const books = await resolveBooks(req, res);
 
+        // Which actions existed before this turn, so the reply can carry only
+        // the ones this turn drafted. The queue also holds anything left
+        // undecided from earlier questions, and offering those again under a
+        // new answer would attach a button to text that never proposed it.
+        const before = new Set(books.org.actions.pending().map((a) => a.id));
+
         // A rejected answer costs a second full agent loop, and two of them
         // can outlive the function. Racing a deadline turns that into an
         // honest reply instead of a 504 with nothing in it.
@@ -994,7 +1050,16 @@ export const handle = async (req, res) => {
             setTimeout(() => reject(new Error("agent deadline exceeded")), CHAT_DEADLINE_MS),
           ),
         ]);
-        return send(200, { answer: record.finalAnswer, tools: record.toolsInvoked.map((t) => t.tool), verified: record.verified });
+        const drafted = books.org.actions
+          .pending()
+          .filter((a) => !before.has(a.id))
+          .map((a) => ({ id: a.id, kind: a.kind, summary: a.summary }));
+        return send(200, {
+          answer: record.finalAnswer,
+          tools: record.toolsInvoked.map((t) => t.tool),
+          verified: record.verified,
+          actions: drafted,
+        });
       } catch (err) {
         const timedOut = err.message === "agent deadline exceeded";
         return send(200, {
