@@ -13,15 +13,20 @@
  */
 
 import { AgentContext, CallUsage, ChatTurn, LanguageModelProvider } from "./provider.js";
+import type { Permission } from "../tenancy/roles.js";
 import { TOOLS, toolNames } from "./tools.js";
 import { DOCUMENT_TOOL, UploadedDocument } from "./document.js";
 import { Organization } from "../organization.js";
 
-export type Permission =
-  | "view_reports"
-  | "view_payroll"
-  | "approve_payments"
-  | "access_ai_cfo";
+/**
+ * Re-exported, not redefined.
+ *
+ * This file used to declare its own four-member Permission union while
+ * tenancy/roles.ts declared the real one. Two unions named the same thing is
+ * how a permission ends up enforced in one place and unknown in the other —
+ * so there is one definition, and it lives with the roles that grant it.
+ */
+export type { Permission } from "../tenancy/roles.js";
 
 export interface AiUser {
   readonly userId: string;

@@ -12,6 +12,8 @@ import { CashFlowIntelligence } from "./cashflow.js";
 import { HealthScorer } from "./health.js";
 import { RulesEngine, standardRules } from "./rules.js";
 import { EventBus } from "./events.js";
+import { AccessContext, AccessError, MemberDirectory } from "./tenancy/members.js";
+import { Permission } from "./tenancy/roles.js";
 import { InvoiceEngine } from "./invoices.js";
 import { GstEngine } from "./gst.js";
 import { BankFeedEngine } from "./banking.js";
@@ -45,8 +47,33 @@ export interface Organization {
   readonly actions: ActionQueue;
 }
 
+/**
+ * An authorised handle on one organization's books.
+ *
+ * Holding one is proof that membership was checked, so a function that takes
+ * a TenantSession cannot be called with an unchecked user. That is the whole
+ * mechanism: not a rule every route has to remember, but a type it cannot
+ * obtain without passing the gate.
+ */
+export interface TenantSession {
+  readonly access: AccessContext;
+  readonly org: Organization;
+  /** Throws AccessError unless this member holds the permission. */
+  require(permission: Permission): void;
+}
+
 export class Platform {
   private orgs = new Map<string, Organization>();
+  private members = new MemberDirectory();
+
+  /**
+   * Build the engines for an organization, with no membership attached.
+   *
+   * This is the unguarded construction path, used by seeding, tests and
+   * demo fixtures. It hands back the raw Organization, so anything calling
+   * it is already inside the trust boundary. Product code founds a workspace
+   * with createWorkspace() and reaches the books through open().
+   */
 
   createOrganization(orgId: string, name: string): Organization {
     if (this.orgs.has(orgId)) throw new Error(`Organization ${orgId} already exists`);
@@ -76,12 +103,45 @@ export class Platform {
     return org;
   }
 
-  /** Access requires both userId membership and orgId — no cross-tenant reads. */
-  organization(orgId: string, memberships: ReadonlySet<string>): Organization {
-    if (!memberships.has(orgId))
-      throw new Error(`Access denied: user is not a member of ${orgId}`);
+  /**
+   * Found a workspace: create the books and their first owner in one step.
+   *
+   * The two cannot be separate operations. An organization that exists with
+   * no members is a set of books nobody can open and nobody can grant access
+   * to — unrecoverable without a support back door, which is precisely the
+   * thing that should not exist.
+   */
+  createWorkspace(orgId: string, name: string, ownerUserId: string): TenantSession {
+    const org = this.createOrganization(orgId, name);
+    this.members.found(orgId, ownerUserId);
+    return this.open(ownerUserId, orgId);
+  }
+
+  /**
+   * The only authorised way into an organization's books.
+   *
+   * This replaces `organization(orgId, memberships)`, which took the caller's
+   * own idea of which orgs it belonged to. A boundary the caller supplies is
+   * not a boundary — it is a convention, and the first route that forgets to
+   * pass the right set is a cross-tenant read. Membership is now looked up
+   * here, from the directory, and there is no argument a caller can pass to
+   * influence the answer.
+   */
+  open(userId: string, orgId: string): TenantSession {
+    // Authorize first: a caller must not be able to tell an organization that
+    // exists from one that does not by which error comes back.
+    const access = this.members.authorize(userId, orgId);
     const org = this.orgs.get(orgId);
-    if (!org) throw new Error(`Unknown organization ${orgId}`);
-    return org;
+    if (!org) throw new AccessError(`No access to organization ${orgId}`);
+    return {
+      access,
+      org,
+      require: (permission) => this.members.require(access, permission),
+    };
+  }
+
+  /** Membership administration, for a caller that has already been authorised. */
+  get directory(): MemberDirectory {
+    return this.members;
   }
 }

@@ -124,10 +124,24 @@ describe("multi-tenant isolation", () => {
   });
 
   it("access requires membership", () => {
+    // The membership set used to be supplied by the caller, which made this a
+    // convention rather than a boundary. It is now looked up, and there is no
+    // argument a caller can pass to influence the answer.
     const platform = new Platform();
-    platform.createOrganization("org_abc", "ABC Technologies");
-    expect(() => platform.organization("org_abc", new Set(["org_other"]))).toThrow(/Access denied/);
-    expect(platform.organization("org_abc", new Set(["org_abc"])).name).toBe("ABC Technologies");
+    platform.createWorkspace("org_abc", "ABC Technologies", "u_owner");
+    expect(platform.open("u_owner", "org_abc").org.name).toBe("ABC Technologies");
+    expect(() => platform.open("u_stranger", "org_abc")).toThrow(/No access to organization/);
+  });
+
+  it("cannot tell an organization that does not exist from one you are not in", () => {
+    // Distinguishing the two turns the endpoint into an oracle for
+    // enumerating other people's organizations.
+    const platform = new Platform();
+    platform.createWorkspace("org_abc", "ABC Technologies", "u_owner");
+    const notMine = (() => { try { platform.open("u_x", "org_abc"); } catch (e) { return (e as Error).message; } })();
+    const notThere = (() => { try { platform.open("u_x", "org_nope"); } catch (e) { return (e as Error).message; } })();
+    expect(notMine).toBe("No access to organization org_abc");
+    expect(notThere).toBe("No access to organization org_nope");
   });
 
   it("journal rejects a chart from another organization", () => {

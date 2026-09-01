@@ -103,3 +103,48 @@ export const homeJsonLd = () =>
       },
     ],
   });
+
+/**
+ * Host canonicalisation.
+ *
+ * The same site currently answers on three hosts — the apex, www, and a
+ * vercel.app subdomain — all returning 200 with identical content. Three
+ * copies of a page compete with each other in an index, and the canonical
+ * tag only *suggests* which one wins. A 301 settles it.
+ *
+ * This is deliberately opt-in through an environment variable rather than
+ * inferred. Inferring "is this production" from the hostname would redirect
+ * preview deployments and local development to the live site, which is a far
+ * worse failure than a duplicate page: it makes a preview untestable and
+ * silently sends a developer's traffic to production.
+ *
+ * Set PAISA_CANONICAL_HOST=www.askpaisaai.com in the production
+ * environment only.
+ */
+export const canonicalHost = () => process.env.PAISA_CANONICAL_HOST?.trim().toLowerCase() || null;
+
+/**
+ * Where this request should have gone, or null if it is already there.
+ *
+ * The path and query are preserved: a 301 that drops the path sends every
+ * deep link to the home page and throws away exactly the ranking it was
+ * meant to consolidate.
+ */
+export const canonicalRedirect = (host, url) => {
+  const target = canonicalHost();
+  if (!target) return null;
+  const actual = (host ?? "").split(":")[0].toLowerCase();
+  if (!actual || actual === target) return null;
+  return `https://${target}${url || "/"}`;
+};
+
+/**
+ * A non-canonical host must not be indexed even while it still answers —
+ * a 301 takes time to be recrawled, and a preview deployment should never
+ * be indexed at all.
+ */
+export const isCanonicalHost = (host) => {
+  const target = canonicalHost();
+  if (!target) return true; // nothing declared: not our business to guess
+  return (host ?? "").split(":")[0].toLowerCase() === target;
+};

@@ -21,7 +21,7 @@ import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
 import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
          aboutPage, customersPage, contactPage, continuousClosePage, docsPage } from "./site/pages.js";
-import { robotsTxt, sitemapXml } from "./site/seo.js";
+import { canonicalRedirect, isCanonicalHost, robotsTxt, sitemapXml } from "./site/seo.js";
 import { boot, sync } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
 import { loginPage } from "./login-page.js";
@@ -45,6 +45,10 @@ import {
   SESSION_COOKIE,
   fetchBillingRecords,
   toBankLines,
+  AccountDirectory,
+  MemberDirectory,
+  AccessError,
+  normalizeEmail,
 } from "../dist/src/index.js";
 
 const ACTOR = "adarsh";
@@ -53,29 +57,50 @@ const ACTOR = "adarsh";
 /* Auth: one demo user, env-configured, cookie-based sessions          */
 /* ------------------------------------------------------------------ */
 
-const AUTH_USER = process.env.PAISA_USER ?? "adarsh";
 const SESSION_SECRET = resolveSessionSecret();
 
 /**
- * The development password is a convenience for running this locally, and it
- * is committed, so it must never be what guards a deployment. Production
- * refuses to boot without a real one rather than quietly falling back — the
- * same rule resolveSessionSecret() already applies to session signing.
+ * Accounts and memberships.
+ *
+ * This replaces a single username and a single password in an environment
+ * variable. People now have accounts; access to a set of books is a
+ * membership with a role, checked on every request. A revoked member is
+ * locked out on their next request rather than at their next login, because
+ * the session only carries an identity — authority is looked up, never
+ * carried in the cookie.
+ */
+const accounts = new AccountDirectory();
+const members = new MemberDirectory();
+
+/**
+ * Signup is closed by default.
+ *
+ * A B2B ledger is not a product strangers should be able to create an
+ * account on. PAISA_OPEN_SIGNUP=1 turns it on deliberately; otherwise the
+ * only accounts are the founding owner and people an owner invites.
+ */
+const openSignup = () => process.env.PAISA_OPEN_SIGNUP === "1";
+
+/**
+ * The founding owner, from the environment.
+ *
+ * The development password is committed, so it must never guard a
+ * deployment: production refuses to boot without a real one rather than
+ * quietly falling back — the same rule resolveSessionSecret() applies to
+ * session signing.
  */
 const resolvePassword = () => {
   const password = process.env.PAISA_PASSWORD;
-  if (password && password.length >= 8) return password;
+  if (password && password.length >= 10) return password;
   if (process.env.NODE_ENV === "production" || process.env.VERCEL)
     throw new Error(
-      "PAISA_PASSWORD must be set (at least 8 characters) — refusing to serve with the committed development password",
+      "PAISA_PASSWORD must be set (at least 10 characters) — refusing to serve with the committed development password",
     );
-  return "paisa123456";
+  return "paisa123456-dev";
 };
 
-let passwordHash;
-const authReady = hashPassword(resolvePassword()).then((h) => {
-  passwordHash = h;
-});
+const OWNER_EMAIL = normalizeEmail(process.env.PAISA_OWNER_EMAIL ?? "owner@paisa.local");
+
 
 const isSecure = (req) => req.headers["x-forwarded-proto"] === "https" || !!process.env.VERCEL;
 
@@ -93,6 +118,22 @@ const ready = boot(seedAll).then((b) => {
   erpDo = erpActions(erp);
   return b;
 });
+
+/**
+ * Seeding the founding owner is part of booting, not of the first request.
+ * An organization whose only owner does not exist yet is a set of books
+ * nobody can open, and the window in which that is true should be zero.
+ *
+ * Defined after `ready` on purpose: reading it from above would work only
+ * because of when the first await happens, which is not a property worth
+ * depending on.
+ */
+const authReady = (async () => {
+  const owner = await accounts.register(OWNER_EMAIL, resolvePassword(), process.env.PAISA_OWNER_NAME);
+  const booted = await ready;
+  members.found(booted.org.orgId, owner.userId);
+  return owner;
+})();
 
 /* ------------------------------------------------------------------ */
 /* AI CFO chat                                                          */
@@ -982,6 +1023,32 @@ export const handle = async (req, res) => {
     res.end(type === "application/json" ? JSON.stringify(jsonSafe(body), null, 2) : body);
   };
 
+  /*
+   * One host, before anything else runs.
+   *
+   * The site answers on the apex, on www and on a vercel.app subdomain, all
+   * 200, all identical. Three copies of a page compete in an index and the
+   * canonical tag only suggests a winner; a 301 decides it. Path and query
+   * are preserved, because a redirect that drops them sends every deep link
+   * to the home page and discards the ranking it was meant to consolidate.
+   *
+   * Safe methods only: 301-ing a POST would turn a form submission into a
+   * GET and lose the body.
+   */
+  const host = req.headers["x-forwarded-host"] ?? req.headers.host;
+  if (req.method === "GET" || req.method === "HEAD") {
+    const target = canonicalRedirect(host, req.url);
+    if (target) {
+      res.statusCode = 301;
+      res.setHeader("Location", target);
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      return res.end();
+    }
+  }
+  // Belt as well as braces: a preview deployment or a host that has not been
+  // recrawled yet must not be indexed while the 301 propagates.
+  if (!isCanonicalHost(host)) res.setHeader("X-Robots-Tag", "noindex");
+
   try {
     if (path === "/login") {
       const query = new URLSearchParams((req.url ?? "").split("?")[1] ?? "");
@@ -994,18 +1061,137 @@ export const handle = async (req, res) => {
     }
 
     if (path === "/api/login" && req.method === "POST") {
-      const { username, password } = JSON.parse((await readBody(req)) || "{}");
-      const ok = typeof username === "string" && typeof password === "string"
-        && username === AUTH_USER && (await verifyPassword(password, passwordHash));
-      if (!ok) return send(401, { error: "Invalid username or password" });
-      const token = issueSession(AUTH_USER, "org_nimbus", SESSION_SECRET);
+      const { email, password } = JSON.parse((await readBody(req)) || "{}");
+      const account = await accounts.authenticate(String(email ?? ""), String(password ?? ""));
+      // One message for both halves. "No account with that email" is a free
+      // membership check for anyone holding a list of addresses, which for a
+      // finance product is a list of who banks with you.
+      if (!account) return send(401, { error: "Invalid email or password" });
+
+      const workspaces = members.listUser(account.userId);
+      if (!workspaces.length) return send(403, { error: "Your account is not a member of any workspace." });
+      const token = issueSession(account.userId, workspaces[0].orgId, SESSION_SECRET);
       res.setHeader("Set-Cookie", sessionCookie(token, isSecure(req)));
-      return send(200, { ok: true });
+      return send(200, { ok: true, orgId: workspaces[0].orgId });
+    }
+
+    if (path === "/api/register" && req.method === "POST") {
+      // Closed unless deliberately opened: a B2B ledger is not something
+      // strangers should be able to create an account on.
+      if (!openSignup()) return send(404, { error: "Not found" });
+      const { email, password, name } = JSON.parse((await readBody(req)) || "{}");
+      try {
+        const account = await accounts.register(String(email ?? ""), String(password ?? ""), name);
+        return send(201, { ok: true, userId: account.userId, email: account.email });
+      } catch (err) {
+        return send(400, { error: err.message });
+      }
     }
 
     if (path === "/api/logout" && req.method === "POST") {
       res.setHeader("Set-Cookie", clearCookie(isSecure(req)));
       return send(200, { ok: true });
+    }
+
+    /* ---- authenticated: identity and workspaces ---- */
+
+    /**
+     * Authority is looked up, never read out of the cookie.
+     *
+     * The session carries only who you are and which workspace you are
+     * looking at. The role comes from the directory on every request, so a
+     * revoked member is locked out on their next call rather than at their
+     * next login, and a role change takes effect immediately.
+     */
+    const authed = () => {
+      const claims = currentSession(req);
+      if (!claims) return null;
+      const account = accounts.get(claims.userId);
+      if (!account) return null;
+      try {
+        return { account, access: members.authorize(claims.userId, claims.orgId) };
+      } catch {
+        return null;
+      }
+    };
+
+    if (path === "/api/me") {
+      const me = authed();
+      if (!me) return send(401, { error: "Not signed in" });
+      return send(200, {
+        user: me.account,
+        orgId: me.access.orgId,
+        role: me.access.role,
+        permissions: [...me.access.permissions].sort(),
+        workspaces: members.listUser(me.account.userId).map((m) => ({ orgId: m.orgId, role: m.role })),
+      });
+    }
+
+    if (path === "/api/workspace/switch" && req.method === "POST") {
+      const me = authed();
+      if (!me) return send(401, { error: "Not signed in" });
+      const { orgId } = JSON.parse((await readBody(req)) || "{}");
+      try {
+        // Re-authorising here is the point: a cookie naming a workspace is
+        // not evidence of belonging to it.
+        members.authorize(me.account.userId, String(orgId ?? ""));
+      } catch {
+        return send(403, { error: `No access to organization ${orgId}` });
+      }
+      const token = issueSession(me.account.userId, String(orgId), SESSION_SECRET);
+      res.setHeader("Set-Cookie", sessionCookie(token, isSecure(req)));
+      return send(200, { ok: true, orgId });
+    }
+
+    /* ---- members ---- */
+
+    if (path === "/api/members") {
+      const me = authed();
+      if (!me) return send(401, { error: "Not signed in" });
+
+      if (req.method === "GET") {
+        return send(200, {
+          items: members.listOrg(me.access.orgId).map((m) => ({
+            ...m,
+            email: accounts.get(m.userId)?.email ?? null,
+            name: accounts.get(m.userId)?.displayName ?? null,
+          })),
+        });
+      }
+
+      if (req.method === "POST") {
+        const { email, role } = JSON.parse((await readBody(req)) || "{}");
+        const invitee = accounts.findByEmail(String(email ?? ""));
+        // Deliberately checked *after* the permission check below would have
+        // run — see the try/catch: a caller who cannot manage members must
+        // not be able to use this endpoint to discover who has an account.
+        try {
+          members.require(me.access, "manage_members");
+          if (!invitee) return send(404, { error: "No account with that email. Ask them to sign up first." });
+          const added = members.add(me.access, invitee.userId, role);
+          return send(201, { ok: true, member: { ...added, email: invitee.email } });
+        } catch (err) {
+          return send(err instanceof AccessError ? 403 : 400, { error: err.message });
+        }
+      }
+    }
+
+    if (path.startsWith("/api/members/")) {
+      const me = authed();
+      if (!me) return send(401, { error: "Not signed in" });
+      const userId = decodeURIComponent(path.slice("/api/members/".length));
+      try {
+        if (req.method === "PATCH") {
+          const { role } = JSON.parse((await readBody(req)) || "{}");
+          return send(200, { ok: true, member: members.changeRole(me.access, userId, role) });
+        }
+        if (req.method === "DELETE") {
+          members.remove(me.access, userId);
+          return send(200, { ok: true });
+        }
+      } catch (err) {
+        return send(err instanceof AccessError ? 403 : 400, { error: err.message });
+      }
     }
 
     if (path === "/") return send(200, sitePage(), "text/html");
