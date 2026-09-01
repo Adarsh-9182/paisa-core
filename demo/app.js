@@ -53,8 +53,25 @@ const ACTOR = "adarsh";
 
 const AUTH_USER = process.env.PAISA_USER ?? "adarsh";
 const SESSION_SECRET = resolveSessionSecret();
+
+/**
+ * The development password is a convenience for running this locally, and it
+ * is committed, so it must never be what guards a deployment. Production
+ * refuses to boot without a real one rather than quietly falling back — the
+ * same rule resolveSessionSecret() already applies to session signing.
+ */
+const resolvePassword = () => {
+  const password = process.env.PAISA_PASSWORD;
+  if (password && password.length >= 8) return password;
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL)
+    throw new Error(
+      "PAISA_PASSWORD must be set (at least 8 characters) — refusing to serve with the committed development password",
+    );
+  return "paisa123456";
+};
+
 let passwordHash;
-const authReady = hashPassword(process.env.PAISA_PASSWORD ?? "paisa123456").then((h) => {
+const authReady = hashPassword(resolvePassword()).then((h) => {
   passwordHash = h;
 });
 
