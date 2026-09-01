@@ -222,7 +222,67 @@ export const TOOLS: Record<string, ToolFn> = {
       throw new Error(`"${acct.name}" is ${acct.type}; money going out must be categorised to an EXPENSE account`);
     if (direction === "in" && acct.type !== "REVENUE")
       throw new Error(`"${acct.name}" is ${acct.type}; money coming in must be categorised to a REVENUE account`);
-    return `proposal=categorize reference="${reference}" account_code=${code} account="${acct.name}" description="${line.description}" amount=${formatINR(line.amount)} status="draft — posts only after the user approves"`;
+
+    // The effect is captured here, so the model chooses the arguments but
+    // never the operation. Approving runs exactly this and nothing else.
+    const action = org.actions.propose({
+      kind: "categorize",
+      summary: `Categorise "${line.description}" as ${acct.name}`,
+      detail: `reference=${reference} amount=${formatINR(line.amount)} account=${code} ${acct.name}`,
+      proposedBy: "cfo-agent",
+      effect: () => {
+        const entry = org.banking.categorize(reference, acct.id, "cfo-agent");
+        return `posted entry ${entry.id} to ${acct.name}`;
+      },
+    });
+
+    return `action_id=${action.id} kind=categorize reference="${reference}" account="${acct.name}" amount=${formatINR(line.amount)} status="awaiting approval — nothing has posted"`;
+  },
+
+  propose_payment_reminder: (org, args) => {
+    const asOf = str(args.asOf, "asOf");
+    const number = str(args.invoiceNumber, "invoiceNumber");
+    const overdue = org.invoices.overdue(asOf).find((o) => o.invoice.number === number);
+    if (!overdue) throw new Error(`Invoice ${number} is not overdue as of ${asOf}`);
+
+    const { invoice, outstanding, daysOverdue } = overdue;
+    const body =
+      `Subject: ${invoice.number} — payment overdue by ${daysOverdue} days\n\n` +
+      `Hello ${invoice.customer},\n\n` +
+      `Invoice ${invoice.number} for ${formatINR(outstanding)} was due on ${invoice.dueDate} ` +
+      `and is now ${daysOverdue} days overdue.\n\n` +
+      `Could you confirm when payment will be made? If it has already been sent, ` +
+      `please share the reference so we can match it.\n\nThank you.`;
+
+    const action = org.actions.propose({
+      kind: "payment_reminder",
+      summary: `Send a reminder to ${invoice.customer} for ${invoice.number}`,
+      detail: body,
+      proposedBy: "cfo-agent",
+      effect: () => {
+        // Recorded, not transmitted: nothing here has a mail server, and
+        // claiming an email was sent would be worse than not sending one.
+        org.bus.emit({
+          orgId: org.orgId,
+          type: "invoice.reminder_drafted",
+          at: new Date().toISOString(),
+          actor: "cfo-agent",
+          payload: { invoice: invoice.number, customer: invoice.customer, daysOverdue },
+        });
+        return `reminder for ${invoice.number} recorded against ${invoice.customer}`;
+      },
+    });
+
+    return `action_id=${action.id} kind=payment_reminder invoice=${invoice.number} customer="${invoice.customer}" outstanding=${formatINR(outstanding)} days_overdue=${daysOverdue} status="drafted — awaiting approval, nothing sent"`;
+  },
+
+  list_pending_actions: (org) => {
+    const pending = org.actions.pending();
+    if (pending.length === 0) return `pending_actions=0 note="Nothing is waiting on your approval."`;
+    const rows = pending
+      .map((a) => `[${a.id}] kind=${a.kind} summary="${a.summary}" expires=${a.expiresAt}`)
+      .join("; ");
+    return `pending_actions=${pending.length} actions: ${rows}`;
   },
 
   screen_transactions: (org, args) => {
@@ -293,7 +353,8 @@ export const TOOL_SPECS: readonly ToolSpec[] = [
   { name: "get_portfolio", description: "Investment portfolio: holdings with cost basis and marked market value, unrealized/realized P&L, and allocation by instrument kind. Unmarked holdings are declared, never priced by guesswork.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date") }, required: ["asOf"], additionalProperties: false } },
   { name: "list_review_queue", description: "Bank statement lines awaiting human categorisation (the review queue): reference, date, description, amount, direction. Check this before proposing categorisations.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "propose_categorization", description: "Draft a categorisation for ONE review-queue line. This never posts anything — the user gets an Approve button and the journal entry is created only after their explicit approval. Money out needs an EXPENSE account code, money in a REVENUE code (e.g. 5300 Software, 5400 Travel, 4000 Sales).", inputSchema: { type: "object", properties: { reference: { type: "string", description: "The line's bank reference, exactly as list_review_queue printed it" }, accountCode: { type: "string", description: "Chart of accounts code to categorise into" } }, required: ["reference", "accountCode"], additionalProperties: false } },
-  { name: "get_morning_brief", description: "The full morning brief: health, cash, month metrics, overdue invoices, filings, recommendations.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), periodFrom: dateArg("Period start") }, required: ["asOf", "periodFrom"], additionalProperties: false } },
+  { name: "propose_payment_reminder", description: "Draft a payment-chasing message for ONE overdue invoice. This only drafts — the user sees an Approve button and nothing is recorded or sent until they click it. Use for questions about chasing, following up on, or collecting an overdue invoice.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), invoiceNumber: { type: "string", description: "The invoice number exactly as list_overdue_invoices printed it" } }, required: ["asOf", "invoiceNumber"], additionalProperties: false } },
+  { name: "list_pending_actions", description: "Everything the user has been asked to approve and has not yet decided on. Check this before proposing something similar, and when asked what is waiting on them.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },  { name: "get_morning_brief", description: "The full morning brief: health, cash, month metrics, overdue invoices, filings, recommendations.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), periodFrom: dateArg("Period start") }, required: ["asOf", "periodFrom"], additionalProperties: false } },
   { name: "screen_transactions", description: "Deterministic fraud/anomaly screening over the last 90 days of the ledger: duplicate payments (same narration + amount within a week) and expense charges far above the account's own median. Every finding names the exact journal entries and the rule that fired. Use for questions about fraud, suspicious activity, duplicates, or unusual spending.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date") }, required: ["asOf"], additionalProperties: false } },
   { name: "lookup_regulation", description: "Search Paisa's curated Indian tax & GST regulation knowledge base: GST rates and registration, ITC conditions and blocked credits, composition scheme, return due-date rules, e-invoicing, reverse charge, income-tax slabs, 44AD/44ADA presumptive schemes, 80C/80D deductions, TDS sections, advance tax. Returns cited passages with a verified-as-of date. Use for ANY question about what the law says — a rate, threshold, section, or eligibility — and never answer such questions from memory.", inputSchema: { type: "object", properties: { query: { type: "string", description: "The legal question or topic, e.g. 'GST rate on software services' or 'ITC on food'" } }, required: ["query"], additionalProperties: false } },
 ];

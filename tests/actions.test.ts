@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { EventBus } from "../src/events.js";
+import { Platform, parseINR } from "../src/index.js";
+import { TOOLS, TOOL_SPECS } from "../src/ai/tools.js";
 import { ActionQueue, ActionError } from "../src/actions.js";
 
 const store = (opts: { ttl?: number; clock?: () => Date } = {}) => {
@@ -120,5 +122,59 @@ describe("ActionQueue", () => {
       "proposal.created",
       "proposal.dismissed",
     ]);
+  });
+});
+
+describe("action tools", () => {
+  const agentOrg = () => {
+    const platform = new Platform();
+    const org = platform.createOrganization("org_act", "Act Co");
+    const inv = org.invoices.create(
+      { number: "INV-1", customer: "Meridian Retail", issueDate: "2026-05-01",
+        dueDate: "2026-05-15", lines: [{ description: "Services", amount: parseINR("5,31,000"), gstRatePct: 18 }] },
+      "adarsh",
+    );
+    org.invoices.send(inv.id, "adarsh");
+    return org;
+  };
+
+  it("drafts a reminder without sending anything", () => {
+    const org = agentOrg();
+    const before = org.actions.pending().length;
+    const out = TOOLS.propose_payment_reminder!(org, { asOf: "2026-07-02", invoiceNumber: "INV-1" });
+
+    expect(out).toContain("awaiting approval");
+    expect(out).toContain("nothing sent");
+    expect(org.actions.pending()).toHaveLength(before + 1);
+    // nothing recorded until approval
+    expect(org.bus.audit(org.orgId).some((e) => e.type === "invoice.reminder_drafted")).toBe(false);
+  });
+
+  it("records the reminder only once approved", () => {
+    const org = agentOrg();
+    TOOLS.propose_payment_reminder!(org, { asOf: "2026-07-02", invoiceNumber: "INV-1" });
+    const action = org.actions.pending()[0]!;
+
+    org.actions.approve(action.id, "adarsh");
+    expect(org.bus.audit(org.orgId).some((e) => e.type === "invoice.reminder_drafted")).toBe(true);
+  });
+
+  it("refuses to chase an invoice that is not overdue", () => {
+    const org = agentOrg();
+    expect(() => TOOLS.propose_payment_reminder!(org, { asOf: "2026-05-10", invoiceNumber: "INV-1" }))
+      .toThrow(/not overdue/);
+  });
+
+  it("lists what is waiting on the user", () => {
+    const org = agentOrg();
+    expect(TOOLS.list_pending_actions!(org, {})).toContain("pending_actions=0");
+    TOOLS.propose_payment_reminder!(org, { asOf: "2026-07-02", invoiceNumber: "INV-1" });
+    expect(TOOLS.list_pending_actions!(org, {})).toContain("pending_actions=1");
+  });
+
+  it("every tool the model can call has a schema, and vice versa", () => {
+    const tools = Object.keys(TOOLS).sort();
+    const specs = TOOL_SPECS.map((s) => s.name).sort();
+    expect(specs).toEqual(tools);
   });
 });

@@ -128,9 +128,12 @@ describe("orchestrator", () => {
     const orch = new Orchestrator(provider);
     const record = await orch.ask(cfoUser, org, "Categorise my pending bank lines");
     expect(record.toolsInvoked[0]!.result).toContain('reference="imps-9911"');
-    expect(record.toolsInvoked[1]!.result).toContain("proposal=categorize");
+    expect(record.toolsInvoked[1]!.result).toContain("kind=categorize");
     expect(record.toolsInvoked[1]!.result).toContain('account="Software"');
-    // The proposal must NOT have touched the ledger — the line still awaits review.
+    // The draft must NOT have touched the ledger — it is queued, and the line
+    // still awaits review until a human approves the queued action.
+    expect(record.toolsInvoked[1]!.result).toContain("nothing has posted");
+    expect(org.actions.pending()).toHaveLength(1);
     expect(org.banking.pendingReview().length).toBe(1);
   });
 

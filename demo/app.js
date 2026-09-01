@@ -1132,6 +1132,25 @@ export const handle = async (req, res) => {
       }
     }
 
+    if (path === "/api/actions") {
+      const { org: books } = await resolveBooks(req, res);
+      return send(200, { items: books.actions.pending() });
+    }
+
+    const actAction = /^\/api\/actions\/(prop_[\w]+)\/(approve|dismiss)$/.exec(path);
+    if (actAction && req.method === "POST") {
+      const [, id, decision] = actAction;
+      const { org: books } = await resolveBooks(req, res);
+      try {
+        const settled = decision === "approve"
+          ? books.actions.approve(id, ACTOR)
+          : books.actions.dismiss(id, ACTOR);
+        return send(200, { ok: true, id: settled.id, status: settled.status, result: settled.result ?? null });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
     const recAction = /^\/api\/recommendations\/(rec_[\w]+)\/(approve|dismiss)$/.exec(path);
     if (recAction && req.method === "POST") {
       const [, id, action] = recAction;
