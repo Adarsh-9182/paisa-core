@@ -31,6 +31,7 @@ import {
   Orchestrator,
   CfoPlanner,
   AnthropicProvider,
+  OpenAIProvider,
   FallbackProvider,
   hashPassword,
   verifyPassword,
@@ -96,10 +97,25 @@ const ready = boot(seedAll).then((b) => {
 /* AI CFO chat                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Provider chain, best available first, ending in something that always works.
+ *
+ * The planner is last and needs no key or network: it maps a question to
+ * tools by keyword and reads the results back. It is not a model and cannot
+ * follow a conversation, but it never invents a figure either, so an
+ * unattended deploy degrades to something honest rather than to an error.
+ *
+ * The middle rung is any OpenAI-compatible endpoint — Groq, Gemini's
+ * compatibility layer, an Ollama server on localhost — which is what makes
+ * running this without paying for tokens possible. Set OPENAI_BASE_URL,
+ * OPENAI_API_KEY and PAISA_OPENAI_MODEL to point it somewhere.
+ */
 const planner = new CfoPlanner({ asOf: AS_OF, periodFrom: PERIOD_FROM });
-const provider = process.env.ANTHROPIC_API_KEY
-  ? new FallbackProvider([new AnthropicProvider(), planner])
-  : planner;
+const chain = [];
+if (process.env.ANTHROPIC_API_KEY) chain.push(new AnthropicProvider());
+if (process.env.OPENAI_API_KEY) chain.push(new OpenAIProvider());
+chain.push(planner);
+const provider = chain.length > 1 ? new FallbackProvider(chain) : planner;
 const orchestrator = new Orchestrator(provider, 6);
 const aiUser = {
   userId: ACTOR,
