@@ -1,7 +1,7 @@
 /**
  * AnthropicProvider — real Claude behind the LanguageModelProvider interface.
  *
- * Default model is Claude Fable 5 (override with PAISA_AI_MODEL). Runs the
+ * Default model is Claude Sonnet 5 (override with PAISA_AI_MODEL). Runs the
  * native tool-use loop: Claude requests engine tools via tool_use blocks,
  * results go back as tool_result blocks, and the full assistant content
  * (including thinking blocks) is replayed each round as the API requires.
@@ -21,7 +21,20 @@ import { AgentContext, LanguageModelProvider } from "./provider.js";
 import { TOOL_SPECS } from "./tools.js";
 import { truncateDocumentText, UploadedDocument } from "./document.js";
 
-export const DEFAULT_AI_MODEL = "claude-fable-5";
+/**
+ * Sonnet 5 rather than a top-tier model, deliberately.
+ *
+ * The model's job here is narrow: pick the right tool and phrase what came
+ * back. It is not the source of any figure — the engines are — and
+ * verifyNarration rejects an answer that states one the tools did not
+ * produce. That safety net is structural, so paying five times as much for
+ * deeper reasoning buys very little on this particular task. Override with
+ * PAISA_AI_MODEL if tool selection starts going wrong.
+ */
+export const DEFAULT_AI_MODEL = "claude-sonnet-5";
+
+/** Models whose refusals can be retried server-side, and what they fall back to. */
+const SERVER_SIDE_FALLBACK = "claude-fable-5";
 export const FALLBACK_AI_MODEL = "claude-opus-4-8";
 
 /** Image media types Claude vision accepts (iOS converts HEIC→JPEG on upload). */
@@ -101,8 +114,10 @@ export class AnthropicProvider implements LanguageModelProvider {
       { role: "user", content: ctx.userQuery },
     ];
 
-    // On Fable 5, a safety-classifier decline retries on Opus 4.8 server-side.
-    const fallbacks = this.model === DEFAULT_AI_MODEL
+    // On Fable 5 a safety-classifier decline retries on Opus 4.8 inside the
+    // same call. Other models throw instead, and FallbackProvider drops to
+    // the offline planner — the outcome a caller sees is the same either way.
+    const fallbacks = this.model === SERVER_SIDE_FALLBACK
       ? { betas: ["server-side-fallback-2026-06-01"], fallbacks: [{ model: FALLBACK_AI_MODEL }] }
       : {};
 
