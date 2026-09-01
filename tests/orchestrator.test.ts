@@ -4,7 +4,7 @@ import {
   MockProvider, FallbackProvider, Orchestrator,
   NarrationError, PermissionError,
   verifyNarration, extractFigures,
-  AiUser,
+  AiUser, ChatTurn, AgentContext,
 } from "../src/index.js";
 
 const seededOrg = () => {
@@ -255,5 +255,53 @@ describe("verifyNarration — whole-number grounding", () => {
     const statement = ["date | amount\n2026-06-01 | RENT | 45,500\n2026-06-03 | SWIGGY | 2,315"];
     expect(() => verifyNarration("Rent was ₹45,500, Swiggy ₹2,315.", statement)).not.toThrow();
     expect(() => verifyNarration("Total ₹455002026.", statement)).toThrow(NarrationError);
+  });
+});
+
+describe("conversation memory", () => {
+  /** A provider that records the context it was handed. */
+  const spy = () => {
+    const seen: { history: readonly ChatTurn[]; query: string }[] = [];
+    return {
+      seen,
+      provider: {
+        name: "spy",
+        async run(ctx: AgentContext) {
+          seen.push({ history: ctx.history, query: ctx.userQuery });
+          return "Nothing to report.";
+        },
+      },
+    };
+  };
+
+  it("passes prior turns through to the provider", async () => {
+    const { seen, provider } = spy();
+    const orch = new Orchestrator(provider);
+    await orch.ask(cfoUser, seededOrg(), "and last month?", [
+      { role: "user", text: "what is my cash position?" },
+      { role: "assistant", text: "You have some cash." },
+    ]);
+
+    expect(seen[0]?.history).toHaveLength(2);
+    expect(seen[0]?.history[0]?.text).toBe("what is my cash position?");
+    expect(seen[0]?.query).toBe("and last month?");
+  });
+
+  it("defaults to no history rather than failing", async () => {
+    const { seen, provider } = spy();
+    await new Orchestrator(provider).ask(cfoUser, seededOrg(), "hello");
+    expect(seen[0]?.history).toEqual([]);
+  });
+
+  it("keeps the corrective retry's history separate from the caller's", async () => {
+    // The retry appends the rejected answer and a correction to whatever the
+    // caller passed; the caller's own array must not be mutated.
+    const caller: ChatTurn[] = [{ role: "user", text: "earlier question" }];
+    const provider = new MockProvider([
+      { kind: "final", text: "Cash is ₹9,99,999." }, // ungrounded
+      { kind: "final", text: "I could not verify that." },
+    ]);
+    await new Orchestrator(provider).ask(cfoUser, seededOrg(), "how much?", caller);
+    expect(caller).toHaveLength(1);
   });
 });

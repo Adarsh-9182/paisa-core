@@ -53,8 +53,25 @@ const ACTOR = "adarsh";
 
 const AUTH_USER = process.env.PAISA_USER ?? "adarsh";
 const SESSION_SECRET = resolveSessionSecret();
+
+/**
+ * The development password is a convenience for running this locally, and it
+ * is committed, so it must never be what guards a deployment. Production
+ * refuses to boot without a real one rather than quietly falling back — the
+ * same rule resolveSessionSecret() already applies to session signing.
+ */
+const resolvePassword = () => {
+  const password = process.env.PAISA_PASSWORD;
+  if (password && password.length >= 8) return password;
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL)
+    throw new Error(
+      "PAISA_PASSWORD must be set (at least 8 characters) — refusing to serve with the committed development password",
+    );
+  return "paisa123456";
+};
+
 let passwordHash;
-const authReady = hashPassword(process.env.PAISA_PASSWORD ?? "paisa123456").then((h) => {
+const authReady = hashPassword(resolvePassword()).then((h) => {
   passwordHash = h;
 });
 
@@ -789,6 +806,13 @@ function openThread() {
 }
 const scrollThread = () => { const t = $("thread"); t.scrollTop = t.scrollHeight; };
 
+/* The conversation so far. The handler is stateless, so the browser holds
+   this and returns it each turn — that is what lets "and last month?" mean
+   anything. Only completed turns go in: a failed request would otherwise
+   leave the model reading its own error message back as context. */
+const history = [];
+const HISTORY_TURNS = 12;
+
 async function sendChat(text) {
   openThread();
   const log = $("log");
@@ -796,9 +820,14 @@ async function sendChat(text) {
   log.insertAdjacentHTML("beforeend", '<div class="msg ai thinking" id="pending">Checking the ledger…</div>');
   scrollThread();
   try {
-    const res = await j("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text }) });
+    const res = await j("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, history: history.slice(-HISTORY_TURNS) }),
+    });
     const tools = res.tools && res.tools.length ? '<span class="tools">verified against: ' + res.tools.join(", ") + "</span>" : "";
     $("pending").outerHTML = '<div class="msg ai">' + md(res.answer) + tools + "</div>";
+    history.push({ role: "user", text }, { role: "assistant", text: res.answer });
   } catch {
     $("pending").outerHTML = '<div class="msg ai">Something went wrong reaching the engine — try again.</div>';
   }
@@ -815,6 +844,33 @@ loadBrief(); loadTiles(); loadChart(); loadUpcoming(); loadTx(); loadRecs();
 /* ------------------------------------------------------------------ */
 
 const jsonSafe = (v) => JSON.parse(JSON.stringify(v, (_k, val) => (typeof val === "bigint" ? val.toString() : val)));
+
+/* ------------------------------------------------------------------ */
+/* Conversation memory                                                  */
+/* ------------------------------------------------------------------ */
+
+/** Turns kept per request — enough to follow a thread, bounded for cost. */
+const HISTORY_TURNS = 12;
+/** Per-turn character cap, so one request cannot arrive enormous. */
+const HISTORY_CHARS = 4000;
+
+/**
+ * The browser holds the conversation and returns it each turn, because the
+ * handler is stateless. That means the history is caller-supplied and cannot
+ * be trusted, so it is bounded here rather than taken as given.
+ *
+ * It does not need to be trusted for correctness: verifyNarration only
+ * accepts figures traceable to tool outputs from the current turn, so a
+ * fabricated history still cannot put a number into an answer. What it can
+ * do is waste context and cost, which is what these caps are for.
+ */
+const sanitizeHistory = (raw) => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.text === "string")
+    .slice(-HISTORY_TURNS)
+    .map((t) => ({ role: t.role, text: t.text.slice(0, HISTORY_CHARS) }));
+};
 
 const readBody = (req) =>
   new Promise((resolve) => {
@@ -876,10 +932,10 @@ export const handle = async (req, res) => {
     }
 
     if (path === "/api/chat" && req.method === "POST") {
-      const { message } = JSON.parse((await readBody(req)) || "{}");
+      const { message, history } = JSON.parse((await readBody(req)) || "{}");
       if (!message) return send(400, { error: "message required" });
       try {
-        const record = await orchestrator.ask(aiUser, org, message);
+        const record = await orchestrator.ask(aiUser, org, message, sanitizeHistory(history));
         return send(200, { answer: record.finalAnswer, tools: record.toolsInvoked.map((t) => t.tool), verified: record.verified });
       } catch (err) {
         return send(200, {
