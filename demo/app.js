@@ -117,7 +117,7 @@ if (process.env.ANTHROPIC_API_KEY) chain.push(new AnthropicProvider());
 if (process.env.OPENAI_API_KEY) chain.push(new OpenAIProvider());
 chain.push(planner);
 const provider = chain.length > 1 ? new FallbackProvider(chain) : planner;
-const orchestrator = new Orchestrator(provider, 6);
+const orchestrator = new Orchestrator(provider, 6, { asOf: AS_OF, periodFrom: PERIOD_FROM });
 const aiUser = {
   userId: ACTOR,
   orgId: "org_nimbus",
