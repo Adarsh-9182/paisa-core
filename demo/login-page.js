@@ -54,8 +54,8 @@ export const loginPage = (error) => `<!doctype html>
     ${error ? `<div class="error">${error}</div>` : ""}
     <form id="f" method="POST" action="/api/login">
       <div>
-        <label for="username">Username</label>
-        <input id="username" name="username" autocomplete="username" required autofocus>
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" required autofocus>
       </div>
       <div>
         <label for="password">Password</label>
@@ -70,7 +70,7 @@ export const loginPage = (error) => `<!doctype html>
       const btn = e.target.querySelector("button");
       btn.disabled = true;
       const body = JSON.stringify({
-        username: document.getElementById("username").value,
+        email: document.getElementById("email").value,
         password: document.getElementById("password").value,
       });
       const res = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body });
