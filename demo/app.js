@@ -21,7 +21,7 @@ import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
 import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
          aboutPage, customersPage, contactPage, continuousClosePage, docsPage } from "./site/pages.js";
-import { robotsTxt, sitemapXml } from "./site/seo.js";
+import { canonicalRedirect, isCanonicalHost, robotsTxt, sitemapXml } from "./site/seo.js";
 import { boot, sync } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
 import { loginPage } from "./login-page.js";
@@ -981,6 +981,32 @@ export const handle = async (req, res) => {
     res.setHeader("Content-Type", `${type}; charset=utf-8`);
     res.end(type === "application/json" ? JSON.stringify(jsonSafe(body), null, 2) : body);
   };
+
+  /*
+   * One host, before anything else runs.
+   *
+   * The site answers on the apex, on www and on a vercel.app subdomain, all
+   * 200, all identical. Three copies of a page compete in an index and the
+   * canonical tag only suggests a winner; a 301 decides it. Path and query
+   * are preserved, because a redirect that drops them sends every deep link
+   * to the home page and discards the ranking it was meant to consolidate.
+   *
+   * Safe methods only: 301-ing a POST would turn a form submission into a
+   * GET and lose the body.
+   */
+  const host = req.headers["x-forwarded-host"] ?? req.headers.host;
+  if (req.method === "GET" || req.method === "HEAD") {
+    const target = canonicalRedirect(host, req.url);
+    if (target) {
+      res.statusCode = 301;
+      res.setHeader("Location", target);
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      return res.end();
+    }
+  }
+  // Belt as well as braces: a preview deployment or a host that has not been
+  // recrawled yet must not be indexed while the 301 propagates.
+  if (!isCanonicalHost(host)) res.setHeader("X-Robots-Tag", "noindex");
 
   try {
     if (path === "/login") {
