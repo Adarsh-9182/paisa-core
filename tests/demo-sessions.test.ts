@@ -23,10 +23,10 @@ describe("demo sessions", () => {
 
     a.org.recommendations.approve(target.id, "demo");
 
-    expect(a.org.recommendations.all().find((r) => r.id === target.id)?.status).toBe("approved");
+    expect(a.org.recommendations.all().find((r: { id: string }) => r.id === target.id)?.status).toBe("approved");
     // B's recommendations are its own objects with its own ids — A's approval
     // is not visible here in any form.
-    expect(b.org.recommendations.all().some((r) => r.id === target.id)).toBe(false);
+    expect(b.org.recommendations.all().some((r: { id: string }) => r.id === target.id)).toBe(false);
     expect(b.org.recommendations.pending().length).toBeGreaterThan(0);
   });
 

@@ -20,6 +20,7 @@ import { ForecastEngine } from "./forecast.js";
 import { RecommendationEngine } from "./recommendations.js";
 import { BriefComposer } from "./brief.js";
 import { PortfolioEngine } from "./portfolio.js";
+import { ActionQueue } from "./actions.js";
 
 export interface Organization {
   readonly orgId: string;
@@ -40,6 +41,8 @@ export interface Organization {
   readonly recommendations: RecommendationEngine;
   readonly brief: BriefComposer;
   readonly portfolio: PortfolioEngine;
+  /** Changes the AI CFO has proposed, none of which happen without approval. */
+  readonly actions: ActionQueue;
 }
 
 export class Platform {
@@ -63,10 +66,11 @@ export class Platform {
     const brief = new BriefComposer(statements, cashflow, health, invoices, gst, recommendations);
     const portfolio = new PortfolioEngine(orgId, journal, bus);
     const rules = new RulesEngine(orgId, bus);
+    const actions = new ActionQueue(orgId, bus);
     for (const r of standardRules(orgId)) rules.add(r);
     const org: Organization = {
       orgId, name, chart, journal, ledger, statements, cashflow, health, rules, bus,
-      invoices, gst, banking, recurring, forecast, recommendations, brief, portfolio,
+      invoices, gst, banking, recurring, forecast, recommendations, brief, portfolio, actions,
     };
     this.orgs.set(orgId, org);
     return org;
