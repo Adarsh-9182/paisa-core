@@ -106,6 +106,33 @@ export const extractFigures = (text: string): string[] => {
 const normalize = (s: string) => s.replace(/[,\s]/g, "");
 
 /**
+ * The numbers a tool actually printed, as whole tokens.
+ *
+ * Searching the corpus as one string was not enough, and it failed quietly:
+ * with `cash_on_hand=₹32,42,600.00` in the corpus, the claim "₹26" is a
+ * substring of it, so a wrong figure verified as correct. Whole-token
+ * matching closes that.
+ */
+const groundedNumbers = (toolOutputs: readonly string[]): ReadonlySet<string> => {
+  const found = new Set<string>();
+  for (const out of toolOutputs) {
+    // Match on the raw text, commas included, then strip them per token.
+    // Normalising the whole string first would delete the newlines too and
+    // weld the end of one line onto the start of the next.
+    for (const raw of out.match(/\d[\d,]*(?:\.\d+)?/g) ?? []) {
+      const token = raw.replace(/,/g, "");
+      found.add(token);
+      if (token.includes(".")) found.add(token.replace(/\.0+$/, ""));
+    }
+  }
+  return found;
+};
+
+/** ₹1,200 is grounded by a tool printing 1200.00, and the reverse. */
+const isGrounded = (digits: string, grounded: ReadonlySet<string>): boolean =>
+  grounded.has(digits) || grounded.has(`${digits}.00`) || grounded.has(digits.replace(/\.0+$/, ""));
+
+/**
  * Every figure in the narration must appear in some tool result.
  * Bare small integers (≤ 12) are allowed as ordinary language ("3 months").
  * A ₹-prefixed figure also passes on its bare numerals (spec 004): uploaded
@@ -113,15 +140,17 @@ const normalize = (s: string) => s.replace(/[,\s]/g, "");
  * ₹ is presentation.
  */
 export const verifyNarration = (narration: string, toolOutputs: readonly string[]): void => {
-  const corpus = toolOutputs.map(normalize).join("\n");
+  const grounded = groundedNumbers(toolOutputs);
   for (const fig of extractFigures(narration)) {
     const n = normalize(fig);
-    if (!fig.startsWith("₹") && !fig.endsWith("%")) {
-      const asNum = Number(n);
+    const hasRupee = n.startsWith("₹");
+    const digits = (hasRupee ? n.slice(1) : n).replace(/%$/, "");
+
+    if (!hasRupee && !fig.endsWith("%")) {
+      const asNum = Number(digits);
       if (Number.isInteger(asNum) && asNum >= 0 && asNum <= 12) continue;
     }
-    if (corpus.includes(n)) continue;
-    if (n.startsWith("₹") && corpus.includes(n.slice(1))) continue;
+    if (isGrounded(digits, grounded)) continue;
     throw new NarrationError(`Narration contains figure "${fig}" not traceable to any tool output`);
   }
 };

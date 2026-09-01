@@ -234,3 +234,26 @@ describe("orchestrator", () => {
     expect(record.finalAnswer).toContain("healthy");
   });
 });
+
+describe("verifyNarration — whole-number grounding", () => {
+  // Regression: the verifier searched the tool outputs as one string, so any
+  // figure whose digits appeared inside a larger number passed. With a real
+  // balance of ₹32,42,600.00, the claims "₹26" and "₹42,600.00" both verified
+  // as grounded — the Golden Rule silently not being enforced.
+  const cash = ["cash_on_hand=₹32,42,600.00 as_of=2026-07-02"];
+
+  it("rejects a figure that is only a substring of a real one", () => {
+    expect(() => verifyNarration("You have ₹26.", cash)).toThrow(NarrationError);
+    expect(() => verifyNarration("You have ₹42,600.00.", cash)).toThrow(NarrationError);
+  });
+
+  it("still accepts the figure the tool actually printed", () => {
+    expect(() => verifyNarration("You have ₹32,42,600.00.", cash)).not.toThrow();
+  });
+
+  it("grounds a figure sitting at the end of a line in multi-line output", () => {
+    const statement = ["date | amount\n2026-06-01 | RENT | 45,500\n2026-06-03 | SWIGGY | 2,315"];
+    expect(() => verifyNarration("Rent was ₹45,500, Swiggy ₹2,315.", statement)).not.toThrow();
+    expect(() => verifyNarration("Total ₹455002026.", statement)).toThrow(NarrationError);
+  });
+});
