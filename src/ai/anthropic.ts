@@ -99,13 +99,23 @@ export class AnthropicProvider implements LanguageModelProvider {
   }
 
   async run(ctx: AgentContext): Promise<string> {
-    const tools: Anthropic.Beta.BetaTool[] = TOOL_SPECS.filter((s) => ctx.availableTools.includes(s.name)).map(
-      (s) => ({
-        name: s.name,
-        description: s.description,
-        input_schema: s.inputSchema as Anthropic.Beta.BetaTool.InputSchema,
-      }),
-    );
+    /*
+     * The tool block is the single largest thing in every request.
+     *
+     * Measured against a live provider: one question is two model calls of
+     * ~3,600 tokens each, and 2,548 of those are the 23 tool schemas —
+     * byte-identical on every call, for every user, forever. The system
+     * prompt was already cached here; the far bigger block next to it was
+     * not. A cache_control breakpoint on the last tool covers the whole
+     * array, since caching is prefix-based.
+     */
+    const specs = TOOL_SPECS.filter((s) => ctx.availableTools.includes(s.name));
+    const tools: Anthropic.Beta.BetaTool[] = specs.map((s, i) => ({
+      name: s.name,
+      description: s.description,
+      input_schema: s.inputSchema as Anthropic.Beta.BetaTool.InputSchema,
+      ...(i === specs.length - 1 ? { cache_control: { type: "ephemeral" as const } } : {}),
+    }));
 
     const messages: Anthropic.Beta.BetaMessageParam[] = [
       ...ctx.history.map(
@@ -131,6 +141,17 @@ export class AnthropicProvider implements LanguageModelProvider {
         messages,
         ...fallbacks,
       });
+
+      // Reported per call, not per run: one question makes several, and the
+      // sum is the only number that answers "what did that cost".
+      if (response.usage) {
+        ctx.onUsage?.({
+          inputTokens: response.usage.input_tokens ?? 0,
+          outputTokens: response.usage.output_tokens ?? 0,
+          cachedInputTokens:
+            (response.usage.cache_read_input_tokens ?? 0) + (response.usage.cache_creation_input_tokens ?? 0),
+        });
+      }
 
       if (response.stop_reason === "refusal") {
         throw new Error("Model declined the request; falling back.");
