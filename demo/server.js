@@ -15,5 +15,10 @@ createServer(handle).listen(PORT, () => {
   console.log(`Paisa site        → http://localhost:${PORT}/site`);
   console.log(`Paisa AI CFO      → http://localhost:${PORT}/`);
   console.log(`Paisa ERP console → http://localhost:${PORT}/erp`);
-  console.log(`Chat provider: ${process.env.ANTHROPIC_API_KEY ? "Anthropic with offline fallback" : "offline CfoPlanner"}`);
+  const chatProvider = process.env.ANTHROPIC_API_KEY
+    ? `Anthropic (${process.env.PAISA_AI_MODEL ?? "claude-sonnet-5"})`
+    : process.env.OPENAI_API_KEY
+      ? `OpenAI-compatible (${process.env.PAISA_OPENAI_MODEL ?? "gpt-5.6"} @ ${process.env.OPENAI_BASE_URL ?? "api.openai.com"})`
+      : "offline CfoPlanner — no model configured";
+  console.log(`Chat provider: ${chatProvider}${process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY ? ", falling back to CfoPlanner" : ""}`);
 });
