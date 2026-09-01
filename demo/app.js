@@ -25,6 +25,7 @@ import { robotsTxt, sitemapXml } from "./site/seo.js";
 import { boot, sync } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
 import { loginPage } from "./login-page.js";
+import { demoRuntime, newDemoId, isDemoId, demoStats } from "./demo-sessions.js";
 import {
   parseINR,
   formatINR,
@@ -164,7 +165,7 @@ const pct = (cur, prev) => (prev !== 0n ? Number(((cur - prev) * 1000n) / prev) 
 // erpApi/erpActions are bound per request from the booted runtime, since
 // the runtime is only available after the action log has been replayed.
 
-const api = {
+const apiFor = (org) => ({
   brief() {
     org.recommendations.generate(AS_OF, PERIOD_FROM);
     const b = org.brief.compose(AS_OF, PERIOD_FROM);
@@ -308,7 +309,7 @@ const api = {
       aging: org.invoices.aging(AS_OF).buckets.map((b) => ({ label: b.label, count: b.count, amount: inr(b.amount) })),
     };
   },
-};
+});
 
 /* ------------------------------------------------------------------ */
 /* HTML                                                                 */
@@ -880,6 +881,30 @@ const HISTORY_CHARS = 4000;
  * fabricated history still cannot put a number into an answer. What it can
  * do is waste context and cost, which is what these caps are for.
  */
+/**
+ * Which books this request is about.
+ *
+ * A signed-in caller gets the real, shared runtime. Anyone else gets a demo
+ * runtime of their own, keyed by a cookie, so a visitor can approve, edit and
+ * categorise without changing what the next visitor sees. The cookie is set
+ * on first contact and is not a credential — it names a sandbox, nothing more.
+ */
+const DEMO_COOKIE = "paisa_demo";
+
+const resolveBooks = async (req, res) => {
+  if (currentSession(req)) return { org, erp, demo: false };
+
+  const cookies = parseCookies(req.headers.cookie);
+  let id = cookies[DEMO_COOKIE];
+  if (!isDemoId(id)) {
+    id = newDemoId();
+    res.setHeader("Set-Cookie",
+      `${DEMO_COOKIE}=${id}; Path=/; Max-Age=1800; SameSite=Lax; HttpOnly${isSecure(req) ? "; Secure" : ""}`);
+  }
+  const session = await demoRuntime(id);
+  return { org: session.org, erp: session.erp, demo: true };
+};
+
 const sanitizeHistory = (raw) => {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -951,7 +976,13 @@ export const handle = async (req, res) => {
       const { message, history } = JSON.parse((await readBody(req)) || "{}");
       if (!message) return send(400, { error: "message required" });
       try {
-        const record = await orchestrator.ask(aiUser, org, message, sanitizeHistory(history));
+        const books = await resolveBooks(req, res);
+        const record = await orchestrator.ask(
+          { ...aiUser, orgId: books.org.orgId },
+          books.org,
+          message,
+          sanitizeHistory(history),
+        );
         return send(200, { answer: record.finalAnswer, tools: record.toolsInvoked.map((t) => t.tool), verified: record.verified });
       } catch (err) {
         return send(200, {
@@ -961,6 +992,11 @@ export const handle = async (req, res) => {
           detail: err.message,
         });
       }
+    }
+
+    if (path === "/api/demo") {
+      const books = await resolveBooks(req, res);
+      return send(200, { demo: books.demo, orgId: books.org.orgId, ...demoStats() });
     }
 
     if (path === "/api/status") {
@@ -1085,12 +1121,17 @@ export const handle = async (req, res) => {
     const recAction = /^\/api\/recommendations\/(rec_[\w]+)\/(approve|dismiss)$/.exec(path);
     if (recAction && req.method === "POST") {
       const [, id, action] = recAction;
-      const rec = action === "approve" ? org.recommendations.approve(id, ACTOR) : org.recommendations.dismiss(id, ACTOR);
+      const { org: books } = await resolveBooks(req, res);
+      const rec = action === "approve" ? books.recommendations.approve(id, ACTOR) : books.recommendations.dismiss(id, ACTOR);
       return send(200, { ok: true, id: rec.id, status: rec.status });
     }
 
     const apiName = path.replace("/api/", "");
-    if (path.startsWith("/api/") && api[apiName]) return send(200, api[apiName]());
+    if (path.startsWith("/api/")) {
+      const books = await resolveBooks(req, res);
+      const routes = apiFor(books.org);
+      if (routes[apiName]) return send(200, routes[apiName]());
+    }
 
     // Raw engine views
     if (path === "/journal")
