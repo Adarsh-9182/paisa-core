@@ -4,11 +4,14 @@
   "outputDirectory": "public",
   "functions": {
     "api/index.js": {
-      "maxDuration": 30,
+      "maxDuration": 60,
       "memory": 1024
     }
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+    {
+      "source": "/(.*)",
+      "destination": "/api/index"
+    }
   ]
 }
