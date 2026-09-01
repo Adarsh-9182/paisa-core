@@ -17,6 +17,7 @@ export * from "./brief.js";
 export * from "./portfolio.js";
 export * from "./organization.js";
 export * from "./knowledge.js";
+export * from "./actions.js";
 export * from "./ai/provider.js";
 export * from "./ai/document.js";
 export * from "./ai/tools.js";
