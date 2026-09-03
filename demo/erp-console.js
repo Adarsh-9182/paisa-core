@@ -21,12 +21,29 @@ const lastDay = (period) => {
 
 const PERIOD = "2026-06";
 
+export { CONTROLLER, PERIOD as CLOSE_PERIOD };
+
+/**
+ * Reading the close is not running it.
+ *
+ * This route used to call `close.run`, which meant a GET mutated the books —
+ * and, once the period was locked, `run` refuses, so fetching the page threw
+ * and the ERP console stayed broken from the moment you closed the month. The
+ * last run is read here; running a new one is what the button is for.
+ */
 export const erpApi = (org, erp) => ({
   close() {
-    const run = erp.close.run(PERIOD, CONTROLLER);
+    const run = erp.close.status(PERIOD);
+    const periods = erp.periods.all().map((p) => ({ period: p.period, status: p.status, closedBy: p.closedBy }));
+    if (!run)
+      return {
+        period: PERIOD, periodStatus: erp.periods.status(PERIOD), hasRun: false,
+        passed: 0, blocked: 0, readyToClose: false, locked: false, tasks: [], periods,
+      };
     return {
       period: PERIOD,
       periodStatus: erp.periods.status(PERIOD),
+      hasRun: true,
       passed: run.passed,
       blocked: run.blocked,
       readyToClose: run.readyToClose,
@@ -36,7 +53,7 @@ export const erpApi = (org, erp) => ({
         detail: t.detail, blockers: t.blockers, automated: t.automated,
         waivedBy: t.waivedBy, waiverReason: t.waiverReason,
       })),
-      periods: erp.periods.all().map((p) => ({ period: p.period, status: p.status, closedBy: p.closedBy })),
+      periods,
     };
   },
 
@@ -115,9 +132,9 @@ export const erpApi = (org, erp) => ({
   },
 });
 
-export const erpActions = (erp) => ({
-  approveProposal: (id) => erp.agents.approve(id, CONTROLLER),
-  dismissProposal: (id, reason) => erp.agents.dismiss(id, CONTROLLER, reason || "not applicable"),
-  runClose: () => erp.close.run(PERIOD, CONTROLLER),
-  lockPeriod: () => erp.close.lock(PERIOD, CONTROLLER),
-});
+/**
+ * The read routes, by name. The router uses this to decide what a GET may
+ * reach, so a future write method on `erpApi` cannot become reachable by GET
+ * just by existing.
+ */
+export const ERP_READS = new Set(["close", "revenue", "contracts", "metrics", "agents", "subledgers"]);

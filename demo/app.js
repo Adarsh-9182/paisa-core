@@ -16,7 +16,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { erpApi, erpActions } from "./erp-console.js";
+import { erpApi, ERP_READS, CONTROLLER, CLOSE_PERIOD } from "./erp-console.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
 import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
@@ -24,7 +24,7 @@ import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
 import { canonicalRedirect, isCanonicalHost, robotsTxt, sitemapXml } from "./site/seo.js";
 import { boot, sync, ORG_ID, ORG_NAME } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
-import { loginPage } from "./login-page.js";
+import { loginPage, safeNext } from "./login-page.js";
 import { demoRuntime, newDemoId, isDemoId, demoStats } from "./demo-sessions.js";
 import {
   parseINR,
@@ -121,12 +121,10 @@ const currentSession = (req) => readSession(parseCookies(req.headers.cookie)[SES
 /* Boot: one runtime, durable when a database is configured            */
 /* ------------------------------------------------------------------ */
 
-let org, erp, erpRoutes, erpDo, persistence, runtime;
+let org, erp, persistence, runtime;
 
 const ready = boot(seedAll).then((b) => {
   ({ org, erp, persistence, runtime } = b);
-  erpRoutes = erpApi(org, erp);
-  erpDo = erpActions(erp);
   return b;
 });
 
@@ -223,8 +221,9 @@ const pct = (cur, prev) => (prev !== 0n ? Number(((cur - prev) * 1000n) / prev) 
 /* ERP suite — attached to the same org, its own routes and page       */
 /* ------------------------------------------------------------------ */
 
-// erpApi/erpActions are bound per request from the booted runtime, since
-// the runtime is only available after the action log has been replayed.
+// The ERP views are bound per request, against whichever books the caller is
+// entitled to: the real ones when signed in, their own demo runtime when not.
+// Binding them once at boot pointed every visitor at the real company.
 
 const apiFor = (org) => ({
   brief() {
@@ -1150,18 +1149,104 @@ const CHAT_DEADLINE_MS = 48_000;
  */
 const DEMO_COOKIE = "paisa_demo";
 
+const setDemoCookie = (req, res, id) => {
+  res.setHeader("Set-Cookie",
+    `${DEMO_COOKIE}=${id}; Path=/; Max-Age=1800; SameSite=Lax; HttpOnly${isSecure(req) ? "; Secure" : ""}`);
+};
+
+/**
+ * Name the visitor's sandbox on the page response, before the page's own
+ * fetches go out.
+ *
+ * A dashboard paints from half a dozen parallel requests. If the cookie is
+ * only set on whichever of them is served first, the others arrive without
+ * one and each mint a runtime of their own — six sets of books per visitor,
+ * five of them orphaned, and a write that may not land in the one the next
+ * read comes from.
+ */
+const RAW_VIEWS = new Set(["/journal", "/trial-balance", "/balance-sheet", "/profit-and-loss", "/audit"]);
+
+/**
+ * The dashboards are for customers, not for visitors.
+ *
+ * A finance product that shows a ledger to whoever types the URL has to
+ * explain that to every buyer who asks how their books are protected, and
+ * "those were fake books" is a worse answer than not having shown them. So
+ * `/app` and `/erp` are behind the session, and the marketing site sells the
+ * product rather than handing over a console.
+ *
+ * The demo runtime is deliberately left in place rather than deleted: it is
+ * still the cheapest way to seed a sandbox, and reopening the front door is
+ * one call site, not a rebuild. Returning `false` here is that switch.
+ */
+const requireSession = (req, res, path) => {
+  if (currentSession(req)) return false;
+  res.statusCode = 302;
+  // Come back to where they were headed once they are signed in, rather than
+  // dropping them on a dashboard they did not ask for.
+  res.setHeader("Location", `/login?next=${encodeURIComponent(path)}`);
+  res.end();
+  return true;
+};
+
+/**
+ * Who is calling, with their authority looked up rather than trusted.
+ *
+ * The session cookie says who you are and which workspace you are looking
+ * at; the role comes from the directory on every request. One answer, used
+ * by the read routes and by the write gate, so the two cannot disagree about
+ * what a caller is allowed to do.
+ */
+const authorizeRequest = (req) => {
+  const claims = currentSession(req);
+  if (!claims) return null;
+  const account = accounts.get(claims.userId);
+  if (!account) return null;
+  try {
+    return { account, access: members.authorize(claims.userId, claims.orgId) };
+  } catch {
+    return null;
+  }
+};
+
 const resolveBooks = async (req, res) => {
-  if (currentSession(req)) return { org, erp, demo: false };
+  const me = authorizeRequest(req);
+  if (me) {
+    const exec = async (type, payload, actor = ACTOR) => (await runtime.execute(type, payload, actor)).result;
+    return { org, erp, exec, access: me.access, demo: false };
+  }
 
   const cookies = parseCookies(req.headers.cookie);
   let id = cookies[DEMO_COOKIE];
   if (!isDemoId(id)) {
     id = newDemoId();
-    res.setHeader("Set-Cookie",
-      `${DEMO_COOKIE}=${id}; Path=/; Max-Age=1800; SameSite=Lax; HttpOnly${isSecure(req) ? "; Secure" : ""}`);
+    setDemoCookie(req, res, id);
   }
   const session = await demoRuntime(id);
-  return { org: session.org, erp: session.erp, demo: true };
+  // A visitor's sandbox travels the same command path as the real books, so
+  // a route cannot accidentally work one way signed in and another way out.
+  const exec = async (type, payload, actor = ACTOR) => (await session.runtime.execute(type, payload, actor)).result;
+  return { org: session.org, erp: session.erp, exec, access: null, demo: true };
+};
+
+/**
+ * The books a mutating route may write to, or the refusal it must send.
+ *
+ * Anonymous callers are not turned away — they get their own demo runtime, so
+ * the product stays fully clickable without an account — but nothing they do
+ * reaches the real books. A signed-in caller must actually hold the
+ * permission the route needs; holding a session is not authority.
+ */
+const booksForWrite = async (req, res, permission) => {
+  const books = await resolveBooks(req, res);
+  if (!books.demo && !books.access.permissions.has(permission))
+    return {
+      refusal: {
+        code: 403,
+        body: { ok: false, error: `Your role (${books.access.role}) cannot ${permission.replace(/_/g, " ")}` },
+      },
+    };
+  return { books };
 };
 
 const sanitizeHistory = (raw) => {
@@ -1218,12 +1303,15 @@ export const handle = async (req, res) => {
   try {
     if (path === "/login") {
       const query = new URLSearchParams((req.url ?? "").split("?")[1] ?? "");
+      const next = safeNext(query.get("next"));
       if (currentSession(req)) {
         res.statusCode = 302;
-        res.setHeader("Location", "/");
+        // Already signed in: go where they were headed, not to the marketing
+        // page they have plainly already read.
+        res.setHeader("Location", next);
         return res.end();
       }
-      return send(200, loginPage(query.get("error")), "text/html");
+      return send(200, loginPage(query.get("error"), next), "text/html");
     }
 
     if (path === "/api/login" && req.method === "POST") {
@@ -1269,17 +1357,7 @@ export const handle = async (req, res) => {
      * revoked member is locked out on their next call rather than at their
      * next login, and a role change takes effect immediately.
      */
-    const authed = () => {
-      const claims = currentSession(req);
-      if (!claims) return null;
-      const account = accounts.get(claims.userId);
-      if (!account) return null;
-      try {
-        return { account, access: members.authorize(claims.userId, claims.orgId) };
-      } catch {
-        return null;
-      }
-    };
+    const authed = () => authorizeRequest(req);
 
     if (path === "/api/me") {
       const me = authed();
@@ -1364,7 +1442,10 @@ export const handle = async (req, res) => {
     }
 
     if (path === "/") return send(200, sitePage(), "text/html");
-    if (path === "/app") return send(200, page(), "text/html");
+    if (path === "/app") {
+      if (requireSession(req, res, path)) return;
+      return send(200, page(), "text/html");
+    }
 
     if (path === "/robots.txt") return send(200, robotsTxt(), "text/plain");
     if (path === "/sitemap.xml") return send(200, sitemapXml(), "application/xml");
@@ -1481,17 +1562,29 @@ export const handle = async (req, res) => {
       "/site/docs": docsPage,
     };
     if (staticSite[path]) return send(200, staticSite[path](), "text/html");
-    if (path === "/erp") return send(200, erpPage(), "text/html");
+    if (path === "/erp") {
+      if (requireSession(req, res, path)) return;
+      return send(200, erpPage(), "text/html");
+    }
 
     const erpName = path.replace("/api/erp/", "");
-    if (path.startsWith("/api/erp/") && erpRoutes[erpName]) return send(200, erpRoutes[erpName]());
+    if (path.startsWith("/api/erp/") && req.method === "GET" && ERP_READS.has(erpName)) {
+      const { org: books, erp: suite } = await resolveBooks(req, res);
+      return send(200, erpApi(books, suite)[erpName]());
+    }
 
     const propAction = /^\/api\/erp\/proposals\/(prop_[\w]+)\/(approve|dismiss)$/.exec(path);
     if (propAction && req.method === "POST") {
       const [, id, action] = propAction;
+      // Approving a proposal posts a journal entry, so it takes the same
+      // permission as posting one by hand.
+      const { books, refusal } = await booksForWrite(req, res, "post_journal");
+      if (refusal) return send(refusal.code, refusal.body);
       try {
-        const p = action === "approve" ? erpDo.approveProposal(id) : erpDo.dismissProposal(id, "reviewed");
-        return send(200, { ok: true, id: p.id, status: p.status, entryId: p.resultingEntryId });
+        const p = action === "approve"
+          ? await books.exec("agents.approve", { proposalId: id }, CONTROLLER)
+          : await books.exec("agents.dismiss", { proposalId: id, reason: "reviewed" }, CONTROLLER);
+        return send(200, { ok: true, id: p.id, status: p.status, entryId: p.resultingEntryId ?? null });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
       }
@@ -1501,9 +1594,13 @@ export const handle = async (req, res) => {
        someone else's account by posting a key at this route. */
     if (path === "/api/connectors/stripe/sync" && req.method === "POST") {
       // A sync spends Stripe rate limit and writes to the review queue, so it
-      // needs a signed-in caller. The key is server-side either way, but an
-      // open endpoint lets anyone trigger the work.
-      if (!currentSession(req)) return send(401, { ok: false, error: "Sign in required" });
+      // needs a signed-in caller who runs the connectors. The key is
+      // server-side either way, but an open endpoint lets anyone trigger the
+      // work — and a viewer is not someone who should be able to.
+      const me = authorizeRequest(req);
+      if (!me) return send(401, { ok: false, error: "Sign in required" });
+      if (!me.access.permissions.has("manage_connectors"))
+        return send(403, { ok: false, error: `Your role (${me.access.role}) cannot manage connectors` });
 
       const secretKey = process.env.STRIPE_SECRET_KEY;
       if (!secretKey)
@@ -1577,31 +1674,38 @@ export const handle = async (req, res) => {
 
     if (path === "/api/banking/categorize" && req.method === "POST") {
       const { reference, accountId, learn } = JSON.parse((await readBody(req)) || "{}");
-      const { demo, org: books } = await resolveBooks(req, res);
+      const { books, refusal } = await booksForWrite(req, res, "categorize_transactions");
+      if (refusal) return send(refusal.code, refusal.body);
       try {
-        // A demo visitor's books are their own sandbox and are never logged;
-        // the real books go through the action log so a taught rule survives
-        // a restart and reaches every other instance.
-        if (demo) books.banking.categorize(String(reference ?? ""), String(accountId ?? ""), ACTOR, learn || undefined);
-        else
-          await runtime.execute(
-            "banking.categorize",
-            { reference: String(reference ?? ""), accountId: String(accountId ?? ""), ...(learn ? { learn } : {}) },
-            ACTOR,
-          );
-        return send(200, { ok: true, stats: books.banking.stats() });
+        // Both sets of books go through the action log, so a taught rule
+        // survives a restart of the real instance and behaves identically in
+        // a visitor's sandbox.
+        await books.exec("banking.categorize", {
+          reference: String(reference ?? ""),
+          accountId: String(accountId ?? ""),
+          ...(learn ? { learn } : {}),
+        });
+        return send(200, { ok: true, stats: books.org.banking.stats() });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
       }
     }
 
     if (path === "/api/erp/close/run" && req.method === "POST") {
-      const run = erpDo.runClose();
-      return send(200, { ok: true, passed: run.passed, blocked: run.blocked, readyToClose: run.readyToClose });
+      const { books, refusal } = await booksForWrite(req, res, "close_period");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        const run = await books.exec("close.run", { period: CLOSE_PERIOD }, CONTROLLER);
+        return send(200, { ok: true, passed: run.passed, blocked: run.blocked, readyToClose: run.readyToClose });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
     }
     if (path === "/api/erp/close/lock" && req.method === "POST") {
+      const { books, refusal } = await booksForWrite(req, res, "close_period");
+      if (refusal) return send(refusal.code, refusal.body);
       try {
-        const run = erpDo.lockPeriod();
+        const run = await books.exec("close.lock", { period: CLOSE_PERIOD }, CONTROLLER);
         return send(200, { ok: true, locked: run.locked, completedAt: run.completedAt });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
@@ -1616,7 +1720,12 @@ export const handle = async (req, res) => {
     const actAction = /^\/api\/actions\/(prop_[\w]+)\/(approve|dismiss)$/.exec(path);
     if (actAction && req.method === "POST") {
       const [, id, decision] = actAction;
-      const { org: books } = await resolveBooks(req, res);
+      // A drafted action runs a real effect on approval — an invoice, a
+      // posting, a payment — so it takes a deciding permission, not a
+      // recording one.
+      const { books: resolved, refusal } = await booksForWrite(req, res, "approve_payments");
+      if (refusal) return send(refusal.code, refusal.body);
+      const books = resolved.org;
       try {
         const settled = decision === "approve"
           ? books.actions.approve(id, ACTOR)
@@ -1630,9 +1739,14 @@ export const handle = async (req, res) => {
     const recAction = /^\/api\/recommendations\/(rec_[\w]+)\/(approve|dismiss)$/.exec(path);
     if (recAction && req.method === "POST") {
       const [, id, action] = recAction;
-      const { org: books } = await resolveBooks(req, res);
-      const rec = action === "approve" ? books.recommendations.approve(id, ACTOR) : books.recommendations.dismiss(id, ACTOR);
-      return send(200, { ok: true, id: rec.id, status: rec.status });
+      const { books, refusal } = await booksForWrite(req, res, "approve_payments");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        const rec = await books.exec(`recommendations.${action}`, { id });
+        return send(200, { ok: true, id: rec.id, status: rec.status });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
     }
 
     const apiName = path.replace("/api/", "");
@@ -1642,16 +1756,26 @@ export const handle = async (req, res) => {
       if (routes[apiName]) return send(200, routes[apiName]());
     }
 
-    // Raw engine views
-    if (path === "/journal")
-      return send(200, org.journal.all().map((e) => ({
-        id: e.id, date: e.date, narration: e.narration, source: e.sourceModule,
-        lines: e.lines.map((l) => ({ account: org.chart.get(l.accountId).name, side: l.side, amount: formatINR(l.amount) })),
-      })));
-    if (path === "/trial-balance") return send(200, org.ledger.trialBalance(AS_OF));
-    if (path === "/balance-sheet") return send(200, org.statements.balanceSheet(AS_OF));
-    if (path === "/profit-and-loss") return send(200, org.statements.profitAndLoss(PERIOD_FROM, AS_OF));
-    if (path === "/audit") return send(200, org.bus.audit(org.orgId));
+    /* ---- raw engine views ----
+     *
+     * These are the drill-down behind the dashboard, and they print the whole
+     * ledger: every entry, the trial balance, the audit trail. They used to
+     * read the module-level `org`, which meant the real company's books were
+     * one unauthenticated GET away. They now answer from whichever books the
+     * caller is entitled to, like every other read.
+     */
+    if (RAW_VIEWS.has(path)) {
+      const { org: books } = await resolveBooks(req, res);
+      if (path === "/journal")
+        return send(200, books.journal.all().map((e) => ({
+          id: e.id, date: e.date, narration: e.narration, source: e.sourceModule,
+          lines: e.lines.map((l) => ({ account: books.chart.get(l.accountId).name, side: l.side, amount: formatINR(l.amount) })),
+        })));
+      if (path === "/trial-balance") return send(200, books.ledger.trialBalance(AS_OF));
+      if (path === "/balance-sheet") return send(200, books.statements.balanceSheet(AS_OF));
+      if (path === "/profit-and-loss") return send(200, books.statements.profitAndLoss(PERIOD_FROM, AS_OF));
+      if (path === "/audit") return send(200, books.bus.audit(books.orgId));
+    }
 
     return send(404, { error: `Unknown route ${path}` });
   } catch (err) {

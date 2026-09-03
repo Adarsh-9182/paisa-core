@@ -6,7 +6,20 @@
  * state, so a page reload is always the source of truth.
  */
 
-export const loginPage = (error) => `<!doctype html>
+/**
+ * Where to land once the cookie is set.
+ *
+ * Only a path within this site is accepted. A `next` that carries a host —
+ * "//evil.test" and "https://evil.test" both do — would turn the login page
+ * into an open redirect, which is the standard way a convincing credential
+ * phish is built on top of a real sign-in URL.
+ */
+export const safeNext = (next, fallback = "/app") => {
+  if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//")) return fallback;
+  return next;
+};
+
+export const loginPage = (error, next) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -74,10 +87,11 @@ export const loginPage = (error) => `<!doctype html>
         password: document.getElementById("password").value,
       });
       const res = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body });
-      if (res.ok) return (location.href = "/");
+      if (res.ok) return (location.href = ${JSON.stringify(safeNext(next))});
       btn.disabled = false;
       const { error } = await res.json().catch(() => ({ error: "Sign in failed" }));
-      location.href = "/login?error=" + encodeURIComponent(error || "Sign in failed");
+      const back = new URLSearchParams({ error: error || "Sign in failed", next: ${JSON.stringify(safeNext(next))} });
+      location.href = "/login?" + back;
     });
   </script>
 </body>

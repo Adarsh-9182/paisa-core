@@ -166,11 +166,13 @@ const badge = (ok, okText, badText) =>
 async function loadClose() {
   const d = await get("close");
   $("period").textContent = d.period;
-  $("close-badge").innerHTML = d.locked
-    ? '<span class="pill ok">LOCKED</span>'
-    : d.readyToClose
-      ? '<span class="pill ok">READY TO CLOSE</span>'
-      : '<span class="pill bad">' + d.blocked + " BLOCKED</span>";
+  $("close-badge").innerHTML = !d.hasRun
+    ? '<span class="pill neutral">NOT RUN</span>'
+    : d.locked
+      ? '<span class="pill ok">LOCKED</span>'
+      : d.readyToClose
+        ? '<span class="pill ok">READY TO CLOSE</span>'
+        : '<span class="pill bad">' + d.blocked + " BLOCKED</span>";
   $("tasks").innerHTML = d.tasks
     .map((t) => {
       const cls = t.status === "PASSED" ? "p" : t.status === "WAIVED" ? "w" : "b";
@@ -292,11 +294,13 @@ $("proposals").addEventListener("click", async (e) => {
   if (!btn) return;
   const id = btn.closest(".prop").dataset.id;
   btn.disabled = true;
-  await fetch("/api/erp/proposals/" + id + "/" + btn.dataset.act, { method: "POST" });
+  const r = await fetch("/api/erp/proposals/" + id + "/" + btn.dataset.act, { method: "POST" }).then((x) => x.json());
+  if (r.error) alert(r.error);
   await loadAll();
 });
 $("rerun").addEventListener("click", async () => {
-  await fetch("/api/erp/close/run", { method: "POST" });
+  const r = await fetch("/api/erp/close/run", { method: "POST" }).then((x) => x.json());
+  if (r.error) alert(r.error);
   await loadAll();
 });
 $("lock").addEventListener("click", async () => {
