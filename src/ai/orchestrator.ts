@@ -54,6 +54,18 @@ export type AgentEvent =
 
 export class NarrationError extends Error {
   override name = "NarrationError";
+  /**
+   * The text that was rejected.
+   *
+   * Carried because the rejection alone cannot be acted on: "figure 30 is not
+   * traceable" is equally consistent with the model inventing a number and
+   * with the verifier misreading a day of the month, and those need opposite
+   * fixes. Without the draft, telling them apart means reproducing the run by
+   * hand and hoping it misbehaves the same way.
+   */
+  constructor(message: string, readonly narration?: string) {
+    super(message);
+  }
 }
 
 export class PermissionError extends Error {
@@ -66,6 +78,25 @@ export interface OrchestratorDates {
   /** Start of the current reporting period. */
   readonly periodFrom?: string;
 }
+
+/**
+ * Did the user put a money figure into the question?
+ *
+ * "Our revenue was about ₹40 lakh, right?" is the most dangerous shape a
+ * question takes: it supplies the answer and asks only for agreement, and a
+ * model that obliges has fabricated a figure while sounding careful. Measured
+ * on a small model, the prompt rule telling it to check was followed about
+ * one time in three — which is not a rule, it is a coin flip.
+ *
+ * So the reminder is attached deterministically, by looking at the question
+ * rather than by trusting the model to remember. Generous on purpose: a
+ * needless instruction to check a figure costs a sentence, while a missed one
+ * costs a confirmed invention.
+ */
+export const assertsAFigure = (question: string): boolean =>
+  /₹\s?\d/.test(question) ||
+  /\b\d[\d,]*(?:\.\d+)?\s*(lakh|lakhs|lac|crore|crores|k\b|cr\b)/i.test(question) ||
+  /\b\d[\d,]{3,}\b/.test(question);
 
 const systemPrompt = (dates: OrchestratorDates): string => {
   return [
@@ -148,9 +179,30 @@ const isGrounded = (digits: string, grounded: ReadonlySet<string>): boolean =>
  * documents often carry amounts without the symbol — digits are the fact,
  * ₹ is presentation.
  */
-export const verifyNarration = (narration: string, toolOutputs: readonly string[]): void => {
-  const grounded = groundedNumbers(toolOutputs);
-  for (const fig of extractFigures(narration)) {
+export const verifyNarration = (
+  narration: string,
+  toolOutputs: readonly string[],
+  /**
+   * The user's own message, when there is one.
+   *
+   * A figure the user typed is not one the model invented, and refusing to
+   * let it be repeated blocks the single most valuable thing the model can do
+   * with a wrong number: quote it back and say it is wrong. "Your revenue was
+   * ₹14,67,945.21, not ₹40 lakh" was being rejected over the ₹40 — the exact
+   * correction the verifier exists to make possible.
+   *
+   * This does not license agreeing with the figure. Whether the model checks
+   * before it answers is a question about the model, measured by the eval;
+   * the verifier's job is only to stop numbers appearing from nowhere.
+   */
+  userQuery = "",
+): void => {
+  const grounded = new Set([...groundedNumbers(toolOutputs), ...groundedNumbers([userQuery])]);
+  // Dates are not claims about money. An ISO date reads as the figures 2026,
+  // 06 and 30, and the last of those is outside the small-integer allowance,
+  // so "the period 2026-06-01 to 2026-06-30" failed on its final day.
+  const withoutDates = narration.replace(/\b\d{4}-\d{2}-\d{2}\b/g, " ");
+  for (const fig of extractFigures(withoutDates)) {
     const n = normalize(fig);
     const hasRupee = n.startsWith("₹");
     const digits = (hasRupee ? n.slice(1) : n).replace(/%$/, "");
@@ -173,7 +225,7 @@ export const verifyNarration = (narration: string, toolOutputs: readonly string[
       if (Number.isInteger(asNum) && asNum >= 1900 && asNum <= 2100 && !digits.includes(".")) continue;
     }
     if (isGrounded(digits, grounded)) continue;
-    throw new NarrationError(`Narration contains figure "${fig}" not traceable to any tool output`);
+    throw new NarrationError(`Narration contains figure "${fig}" not traceable to any tool output`, narration);
   }
 };
 
@@ -245,7 +297,11 @@ export class Orchestrator {
     }
 
     const baseCtx: Omit<AgentContext, "history"> = {
-      system: systemPrompt(this.dates),
+      system:
+        systemPrompt(this.dates) +
+        (assertsAFigure(query)
+          ? "\n\nTHIS TURN: the user's message contains a figure they supplied. Treat it as a claim to be checked, not as a fact. Call the tool that would settle it BEFORE you answer, then state the ledger's figure and say plainly whether theirs was right or wrong. Do not agree, disagree, or reason from their number without looking it up."
+          : ""),
       userQuery: effectiveQuery,
       // Routed on the user's question, not on effectiveQuery: an attached
       // document's text would match half the topics and route to everything,
@@ -258,7 +314,7 @@ export class Orchestrator {
 
     let answer = await this.provider.run({ ...baseCtx, history });
     try {
-      verifyNarration(answer, invoked.map((i) => i.result));
+      verifyNarration(answer, invoked.map((i) => i.result), query);
     } catch (err) {
       if (!(err instanceof NarrationError)) throw err;
       emit({ type: "retry", reason: err.message });
@@ -273,7 +329,7 @@ export class Orchestrator {
         },
       ];
       answer = await this.provider.run({ ...baseCtx, history: correction });
-      verifyNarration(answer, invoked.map((i) => i.result));
+      verifyNarration(answer, invoked.map((i) => i.result), query);
     }
 
     const record: AiAuditRecord = {

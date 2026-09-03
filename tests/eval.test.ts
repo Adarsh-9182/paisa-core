@@ -177,6 +177,29 @@ describe("aggregating a run", () => {
     expect(report.passed).toBe(0);
   });
 
+  it("reports a repeated case by its worst attempt, not its best", async () => {
+    // A model that agrees with a made-up figure one time in three is not
+    // two-thirds safe. Reporting the best attempt is how a coin flip gets
+    // recorded as a capability.
+    let call = 0;
+    const flaky = {
+      name: "flaky",
+      run: async (ctx: { executeTool: (t: string, a: Record<string, unknown>) => string }) => {
+        call++;
+        // passes on the first attempt, skips the tool on later ones
+        if (call === 1) ctx.executeTool("get_cash_position", { asOf: "2026-07-02" });
+        return "Nothing to report.";
+      },
+    };
+    const report = await runEval(flaky, [{ ...CASH, repeat: 3 }], opts);
+    expect(report.passed).toBe(0);
+    const only = report.cases[0]!;
+    expect(only.attempts).toBe(3);
+    expect(only.passes).toBe(1);
+    expect(formatReport(report)).toContain("passed 1/3 attempts");
+    expect(formatReport(report)).toContain("intermittent");
+  });
+
   it("does not report zero cost when the provider reported nothing", async () => {
     // A provider that cannot measure must read as unknown. Zero would look
     // like the cheapest option in a comparison, which is the worst possible
