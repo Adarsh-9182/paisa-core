@@ -16,7 +16,7 @@
  */
 
 import { Paise, paise } from "../money.js";
-import { BillingRecordIn } from "./connectors.js";
+import { BillingRecordIn, MappingRejection } from "./connectors.js";
 
 export class StripeError extends Error {
   override name = "StripeError";
@@ -42,12 +42,6 @@ export interface StripeCharge {
 export interface StripePage {
   readonly data: readonly StripeCharge[];
   readonly has_more: boolean;
-}
-
-/** A charge that could not be mapped, kept with the reason rather than dropped. */
-export interface MappingRejection {
-  readonly externalId: string;
-  readonly reason: string;
 }
 
 export interface MappedCharges {

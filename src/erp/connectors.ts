@@ -28,6 +28,16 @@ export class ConnectorError extends Error {
   override name = "ConnectorError";
 }
 
+/**
+ * A record a connector could not map, kept with the reason rather than
+ * dropped. Shared by every billing connector so the two cannot drift into
+ * describing the same failure in two different shapes.
+ */
+export interface MappingRejection {
+  readonly externalId: string;
+  readonly reason: string;
+}
+
 export interface SyncOutcome<T> {
   readonly source: string;
   readonly received: number;

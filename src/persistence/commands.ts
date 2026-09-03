@@ -20,6 +20,8 @@
 import { Paise } from "../money.js";
 import { Organization } from "../organization.js";
 import { ErpSuite } from "../erp/suite.js";
+import { standardHandlers } from "../erp/flow-handlers.js";
+import type { FlowRun } from "../erp/flows.js";
 
 export interface CommandContext {
   readonly org: Organization;
@@ -45,6 +47,77 @@ const p = <T>(payload: Record<string, unknown>, key: string): T => {
 
 const opt = <T>(payload: Record<string, unknown>, key: string, fallback: T): T =>
   key in payload && payload[key] !== undefined ? (payload[key] as T) : fallback;
+
+/**
+ * Execute one named occurrence and record it.
+ *
+ * Kept out of the table because it is longer than a line, and because the two
+ * refusals in it are worth reading. A flow handler that returned a promise
+ * would apply after `apply()` had already returned, so replay would record a
+ * run whose postings had not happened yet — the persisted path therefore
+ * requires synchronous handlers rather than silently accepting a race.
+ */
+const runFlowOccurrence = (ctx: CommandContext, pl: Record<string, unknown>, actor: string): FlowRun => {
+  const flowId = p<string>(pl, "flowId");
+  const flow = ctx.erp.flows.get(flowId);
+  const occurrence = {
+    key: p<string>(pl, "occurrenceKey"),
+    scheduledFor: p<string>(pl, "scheduledFor"),
+    period: p<string>(pl, "period"),
+  };
+  const startedAt = new Date().toISOString();
+  const base = { flowId, occurrenceKey: occurrence.key, scheduledFor: occurrence.scheduledFor, startedAt };
+
+  const finish = (run: FlowRun): FlowRun => {
+    ctx.erp.flows.record(run);
+    return run;
+  };
+
+  if (opt<string>(pl, "action", "run") === "skip")
+    return finish({
+      ...base,
+      status: "skipped",
+      summary: opt(pl, "reason", "skipped"),
+      proposalIds: [],
+      finishedAt: new Date().toISOString(),
+    });
+
+  const handler = standardHandlers({ org: ctx.org, erp: ctx.erp, actor }).get(flow.task);
+  if (!handler)
+    return finish({
+      ...base,
+      status: "failed",
+      summary: `No handler registered for task "${flow.task}"`,
+      error: `unknown task: ${flow.task}`,
+      proposalIds: [],
+      finishedAt: new Date().toISOString(),
+    });
+
+  try {
+    const outcome = handler({ flow, occurrence, now: startedAt });
+    if (outcome instanceof Promise)
+      throw new CommandError(
+        `Flow "${flow.task}" returned a promise. A persisted flow must be synchronous, ` +
+          "or replay records a run whose postings have not happened yet.",
+      );
+    return finish({
+      ...base,
+      status: "ok",
+      summary: outcome.summary,
+      proposalIds: outcome.proposalIds ?? [],
+      finishedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    return finish({
+      ...base,
+      status: "failed",
+      summary: `${flow.name} failed`,
+      error: err instanceof Error ? err.message : String(err),
+      proposalIds: [],
+      finishedAt: new Date().toISOString(),
+    });
+  }
+};
 
 /**
  * Every mutating operation the runtime will accept. Anything not here
@@ -172,6 +245,31 @@ export const COMMANDS: Record<string, CommandHandler> = {
   "agents.approve": (ctx, pl, actor) => ctx.erp.agents.approve(p(pl, "proposalId"), actor),
   "agents.dismiss": (ctx, pl, actor) =>
     ctx.erp.agents.dismiss(p(pl, "proposalId"), actor, p(pl, "reason")),
+
+  /* ---------------- flows ---------------- */
+
+  "flows.enable": (ctx, pl, actor) =>
+    ctx.erp.flows.setEnabled(p(pl, "flowId"), p<boolean>(pl, "enabled"), actor),
+
+  "flows.reschedule": (ctx, pl, actor) =>
+    ctx.erp.flows.setStartDate(p(pl, "flowId"), p(pl, "startDate"), actor),
+
+  /**
+   * One occurrence of one flow.
+   *
+   * The occurrence is named in the payload rather than derived from a clock,
+   * which is what makes this replayable: re-deriving "what was due" a year
+   * later would produce a different set and rebuild a state that never
+   * existed. `sweepFlows` does the time-dependent reasoning once and emits
+   * these; replay applies exactly what was decided then.
+   *
+   * The handler is re-executed on replay rather than its result being
+   * restored, so a posting flow's entries are rebuilt through the same engine
+   * path as the original — which is the same rule every other command follows.
+   * That is safe because the engines are idempotent per period and the
+   * handlers are deterministic.
+   */
+  "flows.run": (ctx, pl, actor) => runFlowOccurrence(ctx, pl, actor),
 
   /* ---------------- bank feed ---------------- */
 

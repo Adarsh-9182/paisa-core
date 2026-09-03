@@ -24,6 +24,7 @@ import { MetricsEngine } from "./metrics.js";
 import { CloseEngine, CloseContext } from "./close.js";
 import { AgentEngine } from "./agents.js";
 import { ConnectorHub } from "./connectors.js";
+import { FlowEngine } from "./flow-engine.js";
 
 export interface SubledgerTieOut {
   readonly asOf: string;
@@ -45,6 +46,7 @@ export interface ErpSuite {
   readonly close: CloseEngine;
   readonly agents: AgentEngine;
   readonly connectors: ConnectorHub;
+  readonly flows: FlowEngine;
   /**
    * AR and AP as they stood on a date, against their GL control accounts.
    * The close checklist and any reporting surface must share this one
@@ -81,6 +83,7 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
   const fx = new FxEngine(org.orgId, opts.functionalCurrency ?? "INR", org.journal, org.bus);
   const reconciliation = new ReconciliationEngine(org.orgId, org.bus);
   const metrics = new MetricsEngine(contracts, revrec);
+  const flows = new FlowEngine(org.orgId, org.bus);
 
   const cashAccounts = opts.cashAccounts ?? [{ accountId: "acc_bank", name: "Bank" }];
 
@@ -247,5 +250,5 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
 
   const connectors = new ConnectorHub(org.orgId, contracts, org.bus);
 
-  return { periods, contracts, revrec, bills, schedules, fx, reconciliation, metrics, close, agents, connectors, tieOut };
+  return { periods, contracts, revrec, bills, schedules, fx, reconciliation, metrics, close, agents, connectors, flows, tieOut };
 };
