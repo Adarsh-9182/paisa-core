@@ -35,6 +35,19 @@ export const CLOSE_MODULES: ReadonlySet<string> = new Set([
   "fx",
   "consolidation",
   "manual",
+  /**
+   * Clearing the bank review queue.
+   *
+   * Distinct from "banking", which is the feed auto-posting itself and stays
+   * frozen — a statement imported after the freeze is new subledger activity
+   * and belongs in the next period. This is the opposite case: the line
+   * arrived before the freeze, the close checklist refuses to complete until
+   * it is booked, and without this the checklist demands work the freeze has
+   * made impossible. The close blocks on a line that cannot be cleared, and
+   * the only way out is reopening the period — an audit event, for what is
+   * routine categorisation.
+   */
+  "banking_review",
 ]);
 
 export const periodOf = (dateISO: string): PeriodKey => dateISO.slice(0, 7);

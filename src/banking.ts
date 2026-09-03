@@ -168,7 +168,11 @@ export class BankFeedEngine {
               { accountId: bankAccountId, side: "DEBIT", amount },
               { accountId, side: "CREDIT", amount },
             ],
-      sourceModule: "banking",
+      // Not "banking": that is the feed posting itself, and it stays frozen
+      // during a soft close. A human clearing a line the close is waiting on
+      // is close work, and is allowed to land in the period being closed —
+      // otherwise the checklist demands something the freeze forbids.
+      sourceModule: "banking_review",
       referenceId: line.reference,
       createdBy: actor,
     });

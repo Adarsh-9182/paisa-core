@@ -147,6 +147,7 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
     },
 
     cashAccounts,
+    unreviewedBankLines: (asOf) => org.banking.pendingReview().filter((l) => l.date <= asOf),
     reconciliationComplete: (accountId, asOf) => {
       const latest = reconciliation.latestCompleted(accountId);
       return latest !== null && latest.asOf >= asOf;
@@ -213,6 +214,7 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
       // agent explains the movements; it does not get its own opinion about
       // which ones matter.
       materialFlux: (period) => close.flux(period),
+      unreviewedBankLines: (asOf) => org.banking.pendingReview().filter((l) => l.date <= asOf),
     },
     org.bus,
   );

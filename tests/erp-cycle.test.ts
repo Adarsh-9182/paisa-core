@@ -323,6 +323,88 @@ describe("continuous agents", () => {
     });
   });
 
+  describe("bank lines nobody has booked", () => {
+    const queue = (org: ReturnType<typeof company>["org"], date: string, description: string, amount: string) =>
+      org.banking.importStatement(
+        [{ date, description, amount: parseINR(amount), reference: `utr-${date}-${amount}` }],
+        ACTOR,
+      );
+
+    it("blocks the close, because the money is not in the books at all", () => {
+      const { org, erp } = company();
+      queue(org, "2026-06-14", "UPI transfer to Rahul", "-3,400");
+      expect(org.banking.pendingReview().length).toBe(1);
+
+      const run = erp.close.run("2026-06", ACTOR);
+      const task = run.tasks.find((t) => t.id === "bank_lines_categorised")!;
+      expect(task.status).toBe("BLOCKED");
+      expect(task.blockers[0]).toContain("UPI transfer to Rahul");
+      expect(run.readyToClose).toBe(false);
+    });
+
+    it("clears once the line is booked", () => {
+      const { org, erp } = company();
+      queue(org, "2026-06-14", "UPI transfer to Rahul", "-3,400");
+      org.banking.categorize("utr-2026-06-14--3,400", "acc_travel", ACTOR);
+
+      const task = erp.close.run("2026-06", ACTOR).tasks.find((t) => t.id === "bank_lines_categorised")!;
+      expect(task.status).toBe("PASSED");
+    });
+
+    it("does not let next month's line block this month's close", () => {
+      const { org, erp } = company();
+      queue(org, "2026-07-03", "UPI transfer to Rahul", "-3,400");
+      const task = erp.close.run("2026-06", ACTOR).tasks.find((t) => t.id === "bank_lines_categorised")!;
+      expect(task.status).toBe("PASSED");
+    });
+
+    it("can still be cleared after the close has frozen the period", () => {
+      // The close soft-closes the period as its first act, then refuses to
+      // complete until the queue is empty. If that freeze also blocked the
+      // categorisation, the checklist would demand work it had just made
+      // impossible and the close could never finish.
+      const { org, erp } = company();
+      queue(org, "2026-06-14", "UPI transfer to Rahul", "-3,400");
+      erp.close.run("2026-06", ACTOR);
+      expect(erp.periods.status("2026-06")).toBe("SOFT_CLOSED");
+
+      expect(() => org.banking.categorize("utr-2026-06-14--3,400", "acc_travel", ACTOR)).not.toThrow();
+      const task = erp.close.run("2026-06", ACTOR).tasks.find((t) => t.id === "bank_lines_categorised")!;
+      expect(task.status).toBe("PASSED");
+    });
+
+    it("still refuses a statement imported after the freeze", () => {
+      // The exemption is for finishing work already in flight, not for
+      // letting new subledger activity into a period being closed.
+      const { org, erp } = company();
+      erp.close.run("2026-06", ACTOR);
+      expect(() => queue(org, "2026-06-20", "AWS subscription", "-8,000")).toThrow(/soft-closed/);
+    });
+
+    it("raises one finding for the queue, not one per line", () => {
+      const { org, erp } = company();
+      queue(org, "2026-06-10", "IMPS 4032 Chai Point", "-1,250");
+      queue(org, "2026-06-14", "UPI transfer to Rahul", "-3,400");
+      queue(org, "2026-06-20", "NEFT unknown sender", "5,000");
+
+      const found = erp.agents.scan("2026-06", ACTOR).filter((p) => p.kind === "UNCATEGORIZED_SPEND");
+      expect(found.length).toBe(1);
+      const p = found[0]!;
+      expect(p.severity).toBe("HIGH");
+      expect(p.title).toContain("3 bank lines");
+      expect(p.amount).toBe(parseINR("9,650")); // magnitudes, both directions
+      expect(p.rationale).toContain("Chai Point"); // the oldest, named
+      expect(p.evidence.length).toBe(3);
+      // The engine cannot know the account — that is why the line is queued.
+      expect(p.proposedEntry).toBeNull();
+    });
+
+    it("says nothing when the queue is empty", () => {
+      const { erp } = company();
+      expect(erp.agents.scan("2026-06", ACTOR).filter((p) => p.kind === "UNCATEGORIZED_SPEND")).toEqual([]);
+    });
+  });
+
   it("flags unrecognised revenue before the close", () => {
     const { erp } = company();
     const raised = erp.agents.scan("2026-02", ACTOR);

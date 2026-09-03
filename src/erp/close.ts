@@ -99,6 +99,16 @@ export interface CloseContext {
   readonly deferredTiesToLedger: (period: PeriodKey) => { ties: boolean; detail: string };
   /** Cash accounts that must carry a completed reconciliation. */
   readonly cashAccounts: readonly { accountId: string; name: string }[];
+  /**
+   * Bank lines dated on or before `asOf` that are still awaiting a human's
+   * categorisation — money that moved and has not been booked anywhere.
+   */
+  readonly unreviewedBankLines: (asOf: string) => readonly {
+    readonly reference: string;
+    readonly date: string;
+    readonly description: string;
+    readonly amount: Paise;
+  }[];
   readonly reconciliationComplete: (accountId: string, asOf: string) => boolean;
   /** Automated runs — each returns the amount posted (zero if nothing due). */
   readonly runRevenueRecognition: (period: PeriodKey, actor: string) => Paise;
@@ -139,6 +149,37 @@ export class CloseEngine {
             passed: status !== "OPEN",
             detail: `Period ${period} is ${status}`,
             blockers: status === "OPEN" ? ["Period is still open to subledger postings"] : [],
+          };
+        },
+      },
+      {
+        /**
+         * Before reconciliation on purpose.
+         *
+         * A queued line has not been posted at all — it is money that moved
+         * through the bank and is absent from the ledger. Every downstream
+         * check inherits that hole: the bank will not reconcile, the P&L
+         * understates whatever the line was, and flux compares against a
+         * period that was missing it too. Reconciling first would mean
+         * explaining a difference whose cause is sitting in a queue.
+         */
+        id: "bank_lines_categorised",
+        name: "Bank feed fully categorised",
+        category: "RECONCILIATION",
+        automated: false,
+        run: (period) => {
+          // Only lines that belong to this period or earlier. A line dated
+          // into next month is not this close's problem.
+          const waiting = c.unreviewedBankLines(periodEnd(period));
+          return {
+            passed: waiting.length === 0,
+            detail:
+              waiting.length === 0
+                ? "Every bank line is booked"
+                : `${waiting.length} line${waiting.length === 1 ? "" : "s"} still awaiting categorisation`,
+            blockers: waiting.map(
+              (l) => `${l.date} ${l.description} (${formatINR(l.amount)}) is not booked to any account`,
+            ),
           };
         },
       },

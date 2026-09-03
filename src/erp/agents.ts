@@ -83,6 +83,13 @@ export interface AgentContextIn {
   }[];
   /** Contracts whose schedule shows revenue due in a period, unrecognised. */
   readonly unrecognizedRevenue: (period: PeriodKey) => Paise;
+  /** Bank lines up to a date that are still waiting to be booked. */
+  readonly unreviewedBankLines: (asOf: string) => readonly {
+    readonly reference: string;
+    readonly date: string;
+    readonly description: string;
+    readonly amount: Paise;
+  }[];
   /**
    * Material P&L movements for a period, as the close engine judges them.
    *
@@ -133,6 +140,7 @@ export class AgentEngine {
       ...this.staleReceivables(period),
       ...this.missingRecognition(period),
       ...this.fluxVariance(period),
+      ...this.uncategorizedSpend(period),
     ];
     const raised: Proposal[] = [];
     for (const p of found) {
@@ -387,6 +395,45 @@ export class AgentEngine {
       );
     }
     return out;
+  }
+
+  /**
+   * Bank lines nobody has booked yet.
+   *
+   * Raised as one finding rather than one per line: a queue of forty lines is
+   * a single piece of work, and forty proposals is a queue nobody opens. The
+   * severity is the point — this is not a judgement call like an accrual, it
+   * is money that moved through the bank and appears nowhere in the books, so
+   * every figure derived from the period is understated until it is cleared.
+   *
+   * No proposed entry, deliberately. The engine cannot know which account a
+   * line belongs to — that is exactly why it is in the queue — and guessing
+   * here would put the categoriser's job into an Approve button.
+   */
+  private uncategorizedSpend(period: PeriodKey): Proposal[] {
+    const waiting = this.ctx.unreviewedBankLines(periodEnd(period));
+    if (waiting.length === 0) return [];
+
+    const total = sum(waiting.map((l) => abs(l.amount)));
+    const oldest = waiting.reduce((a, b) => (a.date <= b.date ? a : b));
+    return [
+      this.propose({
+        kind: "UNCATEGORIZED_SPEND",
+        severity: "HIGH",
+        period,
+        title: `${waiting.length} bank line${waiting.length === 1 ? "" : "s"} not booked (${formatINR(total)})`,
+        rationale:
+          `${waiting.length} line${waiting.length === 1 ? " has" : "s have"} moved through the bank up to ` +
+          `${periodEnd(period)} and ${waiting.length === 1 ? "has" : "have"} not been booked to any account, ` +
+          `totalling ${formatINR(total)}. The oldest is "${oldest.description}" from ${oldest.date}. ` +
+          `Until they are categorised the profit and loss understates whatever they were, the bank will not ` +
+          `reconcile, and the close cannot complete. Clear them in the review queue — categorising one can ` +
+          `teach a rule, so the same payee does not come back next month.`,
+        amount: total,
+        evidence: waiting.map((l) => l.reference),
+        proposedEntry: null,
+      }),
+    ];
   }
 
   /**
