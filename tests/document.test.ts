@@ -46,6 +46,24 @@ describe("parseCsvDocument", () => {
   });
 });
 
+describe("verifyNarration — a year is a date, not a figure", () => {
+  it("allows a bare year when nothing was looked up", () => {
+    // The case this exists for: a question the ledger cannot answer, where
+    // there is no tool output to ground anything against. Rejecting the
+    // refusal turns an honest "I can't forecast that" into "I couldn't
+    // verify every figure", which reads as a malfunction.
+    expect(() => verifyNarration("I can't project revenue for 2035 from the ledger.", [])).not.toThrow();
+    expect(() => verifyNarration("As of 2026-07-02 I have no basis for that.", [])).not.toThrow();
+  });
+
+  it("still refuses an ungrounded money figure of its own", () => {
+    expect(() => verifyNarration("Revenue was ₹2026.", [])).toThrow(NarrationError);
+    expect(() => verifyNarration("Revenue was ₹40,00,000.", [])).toThrow(NarrationError);
+    // outside any plausible year, so still a claim about a quantity
+    expect(() => verifyNarration("We have 45000 in the bank.", [])).toThrow(NarrationError);
+  });
+});
+
 describe("verifyNarration — ₹ fallback (spec 004)", () => {
   it("accepts a ₹-prefixed figure whose bare numerals appear in a tool output", () => {
     expect(() =>

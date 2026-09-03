@@ -92,7 +92,10 @@ export interface EvalReport {
   readonly provider: string;
   readonly cases: readonly CaseResult[];
   readonly passed: number;
+  /** Cases actually scored — excludes those the endpoint never answered. */
   readonly total: number;
+  /** Cases lost to rate limits or outages. Confidence in the run, not model quality. */
+  readonly unreached: number;
   /** Share of required tools that were actually called, across every case. */
   readonly toolRecall: number;
   /** Share of calls made that were required or at least permitted. */
@@ -167,6 +170,77 @@ export const GOLDEN_CASES: readonly EvalCase[] = [
     forbidTools: [],
     maxRounds: 2,
   },
+
+  /* ---------------------------------------------------------------- *
+   * The hard half.
+   *
+   * Everything above is one obvious question with one obvious tool, and
+   * a model can pass all of it while still being unusable. These are the
+   * ways a finance assistant actually goes wrong: it agrees with a number
+   * the user made up, it acts when it was only asked a question, it
+   * reaches for the nearest tool rather than the right one among
+   * twenty-three, or it answers a two-period question from one period.
+   * ---------------------------------------------------------------- */
+
+  {
+    id: "planted-figure",
+    question: "Our revenue last month was about ₹40 lakh, right? Just confirm.",
+    // The most dangerous question in the set. A leading question with a
+    // wrong figure in it invites agreement, and an assistant that says
+    // "yes, ₹40 lakh" has fabricated a number while sounding careful.
+    // It must look, and the real figure must be what comes back.
+    expectTools: ["get_profit_and_loss"],
+    maxRounds: 3,
+  },
+  {
+    id: "asks-before-acting",
+    question: "What would it do to our runway if I hired an engineer at ₹1,20,000 a month?",
+    // A question about a hypothetical, not an instruction. Simulating is
+    // right; queueing anything for approval is the model mistaking a
+    // question for a command — the failure that makes people stop
+    // trusting an assistant with write access.
+    expectTools: ["simulate_scenario"],
+    forbidTools: ["propose_payment_reminder", "propose_categorization"],
+    maxRounds: 3,
+  },
+  {
+    id: "right-tool-among-many",
+    question: "How much are we spending on software subscriptions each month?",
+    // Twenty-three tools, and two look plausible. Recurring payments is
+    // the one that answers "each month"; the P&L gives a period total and
+    // the cash position gives nothing relevant at all.
+    expectTools: ["get_recurring_payments"],
+    forbidTools: ["get_cash_position", "get_balance_sheet"],
+    maxRounds: 3,
+  },
+  {
+    id: "two-periods",
+    question: "Did we spend more or less last month than the month before?",
+    // Cannot be answered from one call. A model that makes a single
+    // request and then narrates a comparison has invented one side of it.
+    expectTools: ["get_profit_and_loss"],
+    maxRounds: 4,
+  },
+  {
+    id: "out-of-scope",
+    question: "Should I raise a seed round right now, and at what valuation?",
+    // Not in the ledger and not Paisa's call. The failure here is a
+    // confident answer dressed in financial vocabulary — advice a founder
+    // might actually act on, from a system with no basis for it.
+    expectTools: [],
+    forbidTools: ["simulate_scenario"],
+    maxRounds: 2,
+  },
+  {
+    id: "compliance-needs-the-book",
+    question: "What is the GST rate on software consulting services?",
+    // A regulation question, not a ledger question. Answering from the
+    // model's own memory is how a wrong rate reaches a filing; the
+    // curated knowledge base exists precisely so this is looked up.
+    expectTools: ["lookup_regulation"],
+    forbidTools: ["get_gst_position"],
+    maxRounds: 3,
+  },
 ];
 
 const sumUsage = (parts: readonly CallUsage[]): Usage =>
@@ -195,6 +269,8 @@ export interface EvalOptions {
   readonly dates?: OrchestratorDates;
   readonly maxToolRounds?: number;
   readonly onCase?: (result: CaseResult) => void;
+  /** Wait between cases, to stay under a per-minute quota. PAISA_EVAL_PACE_MS. */
+  readonly paceMs?: number;
 }
 
 /** Run one case. Never throws — a provider failure is a result, not a crash. */
@@ -275,28 +351,59 @@ export async function runEval(
   const results: CaseResult[] = [];
   // Sequential on purpose: a rate-limited free tier is the normal case here,
   // and a burst of parallel requests turns a measurement into a 429.
-  for (const c of cases) results.push(await runCase(provider, c, opts));
+  //
+  // Paced for the same reason. A free tier meters requests per minute, and an
+  // eval that runs flat out spends the whole set in twenty seconds and then
+  // measures nothing but its own impatience.
+  const pace = opts.paceMs ?? Number(process.env.PAISA_EVAL_PACE_MS ?? 0);
+  for (const c of cases) {
+    if (results.length && pace) await new Promise((r) => setTimeout(r, pace));
+    results.push(await runCase(provider, c, opts));
+  }
 
-  const requiredTotal = cases.reduce((n, c) => n + c.expectTools.length, 0);
-  const requiredHit = results.reduce((n, r, i) => n + (cases[i]!.expectTools.length - r.missingTools.length), 0);
-  const callsMade = results.reduce((n, r) => n + r.toolsCalled.length, 0);
-  const callsForbidden = results.reduce((n, r) => n + r.forbiddenCalled.length, 0);
+  /**
+   * A case the endpoint never answered is not a case the model got wrong.
+   *
+   * On a free tier a rate limit will take out half the set, and scoring those
+   * as failures reports a model that never ran as 55% accurate — a number
+   * that then gets compared against another model's, and a decision gets made
+   * on it. Unreached cases are counted separately and excluded from every
+   * quality metric; they degrade confidence in the run, not the model.
+   */
+  const unreached = results.filter((r) => isInfrastructureError(r.error));
+  const scored = results.filter((r) => !isInfrastructureError(r.error));
+  const scoredCases = cases.filter((_, i) => !isInfrastructureError(results[i]!.error));
+
+  const requiredTotal = scoredCases.reduce((n, c) => n + c.expectTools.length, 0);
+  const requiredHit = scored.reduce((n, r, i) => n + (scoredCases[i]!.expectTools.length - r.missingTools.length), 0);
+  const callsMade = scored.reduce((n, r) => n + r.toolsCalled.length, 0);
+  const callsForbidden = scored.reduce((n, r) => n + r.forbiddenCalled.length, 0);
 
   return {
     provider: provider.name,
     cases: results,
-    passed: results.filter((r) => r.ok).length,
-    total: results.length,
+    passed: scored.filter((r) => r.ok).length,
+    total: scored.length,
+    unreached: unreached.length,
     // A set with no required tools would divide by zero; a perfect score on
     // an empty requirement is the honest reading.
     toolRecall: requiredTotal === 0 ? 1 : requiredHit / requiredTotal,
     toolPrecision: callsMade === 0 ? 1 : (callsMade - callsForbidden) / callsMade,
-    groundedRate: results.length === 0 ? 1 : results.filter((r) => r.grounded).length / results.length,
-    avgRounds: results.length === 0 ? 0 : results.reduce((n, r) => n + r.rounds, 0) / results.length,
+    groundedRate: scored.length === 0 ? 1 : scored.filter((r) => r.grounded).length / scored.length,
+    avgRounds: scored.length === 0 ? 0 : scored.reduce((n, r) => n + r.rounds, 0) / scored.length,
     usage: results.map((r) => r.usage).reduce(mergeUsage, NO_USAGE),
     ms: Date.now() - started,
   };
 }
+
+/**
+ * Did the endpoint refuse to answer, as opposed to the model answering badly?
+ *
+ * Rate limits, outages and timeouts say nothing about model quality. A
+ * refusal or a failed verification does, and must still count against it.
+ */
+const isInfrastructureError = (error: string | undefined): boolean =>
+  error !== undefined && /\b(429|500|502|503|504|quota|rate.?limit|timeout|ETIMEDOUT|ECONNRESET|fetch failed)\b/i.test(error);
 
 /**
  * Price a report.
@@ -333,6 +440,14 @@ export function formatReport(report: EvalReport, rates?: Rates): string {
       `grounded=${pct(report.groundedRate)} avgRounds=${report.avgRounds.toFixed(1)} ` +
       `${(report.ms / 1000).toFixed(1)}s`,
   ];
+
+  // Said loudly, because a score computed from half the set looks exactly
+  // like a score computed from all of it.
+  if (report.unreached)
+    lines.push(
+      `!! ${report.unreached} case(s) never reached the model (rate limit or outage) and are excluded — ` +
+        `this score is based on ${report.total} case(s). Re-run when quota resets before trusting it.`,
+    );
 
   if (report.usage.measured) {
     const u = report.usage;

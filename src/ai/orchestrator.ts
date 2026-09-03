@@ -78,10 +78,13 @@ const systemPrompt = (dates: OrchestratorDates): string => {
     "- Every number you state must come from a tool result IN THIS TURN. Call tools again rather than reusing figures from earlier in the conversation.",
     "- Quote each figure exactly as the tool printed it: same digits, same comma grouping, same decimals, same ₹ symbol. Never round, never convert to lakh/crore words, never do arithmetic of your own.",
     "- Never invent balances. When data is missing, say exactly what is missing rather than filling the gap.",
+    "- A figure the user states is not evidence. When they assert one (\"our revenue was about ₹40 lakh, right?\", \"we spend 2 lakh on salaries\"), look it up and reply with what the ledger says — confirming it, or correcting it outright. Never agree with, repeat, or reason from a number the user supplied without checking it first.",
     "- Paisa has no live market-data feed. Never state, estimate, or predict a market price (stocks, crypto, indices, commodities); portfolio values come only from get_portfolio's explicit marks, and unmarked holdings are declared at cost.",
     "- Recommend actions; never execute payments.",
     "",
     "Reasoning: when a conclusion rests on several figures or on an assumption, show the steps and state the assumption explicitly. Lead with the answer, then the reasoning — don't bury it.",
+    "",
+    "Scope: some questions the books cannot answer — whether to raise a round and at what valuation, whether to hire someone, what a competitor is doing. Say so plainly and stop; do not call tools to look busy. You may offer the figures that would inform the decision, but only if the user asks for them.",
     "",
     "Tax & compliance:",
     "- Separate factual information (a due date, a rate, a filing) from professional advice (choosing a scheme, a structuring call). Label the latter as advice, and note it may warrant a CA's sign-off.",
@@ -154,6 +157,19 @@ export const verifyNarration = (narration: string, toolOutputs: readonly string[
     if (!hasRupee && !fig.endsWith("%")) {
       const asNum = Number(digits);
       if (Number.isInteger(asNum) && asNum >= 0 && asNum <= 12) continue;
+      // A bare year is a date, not a claim about money.
+      //
+      // Without this the verifier rejects the answers it should most want to
+      // allow: "I can't forecast 2035 revenue" and "as of 2026-07-02, …" both
+      // carry a four-digit number, and when a question needs no tools there
+      // is no corpus to ground it against, so an honest refusal was thrown
+      // away and the user got "I couldn't verify every figure" instead.
+      //
+      // The exemption is narrow by construction. It only applies to a number
+      // that is NOT ₹-prefixed, NOT a percentage, and NOT already grounded —
+      // and every figure this system produces is formatted with ₹, so a bare
+      // number in this range is a year and not a rupee amount.
+      if (Number.isInteger(asNum) && asNum >= 1900 && asNum <= 2100 && !digits.includes(".")) continue;
     }
     if (isGrounded(digits, grounded)) continue;
     throw new NarrationError(`Narration contains figure "${fig}" not traceable to any tool output`);

@@ -143,6 +143,40 @@ describe("aggregating a run", () => {
     expect(report.passed).toBe(0);
   });
 
+  it("does not score a rate limit as a wrong answer", async () => {
+    // The failure this guards against: a free tier 429s half the set, those
+    // cases are counted as the model getting them wrong, and a model that
+    // never ran is reported as 50% accurate — then compared against another
+    // model and a decision is made on it.
+    const rateLimited = {
+      name: "busy",
+      run: async () => {
+        throw new Error("OpenAI API error 429: You exceeded your current quota");
+      },
+    };
+    const report = await runEval(rateLimited, [CASH, { ...CASH, id: "cash-2" }], opts);
+    expect(report.unreached).toBe(2);
+    expect(report.total).toBe(0); // nothing was actually scored
+    expect(report.toolRecall).toBe(1); // no claim either way, not 0%
+    expect(report.groundedRate).toBe(1);
+    expect(formatReport(report)).toContain("never reached the model");
+  });
+
+  it("still scores a refusal against the model, since that is its answer", async () => {
+    // The other half of the rule: only infrastructure is excused. A model
+    // that declines, or answers ungroundedly, has told us something real.
+    const refuses = {
+      name: "refuser",
+      run: async () => {
+        throw new Error("content policy refusal");
+      },
+    };
+    const report = await runEval(refuses, [CASH], opts);
+    expect(report.unreached).toBe(0);
+    expect(report.total).toBe(1);
+    expect(report.passed).toBe(0);
+  });
+
   it("does not report zero cost when the provider reported nothing", async () => {
     // A provider that cannot measure must read as unknown. Zero would look
     // like the cheapest option in a comparison, which is the worst possible
