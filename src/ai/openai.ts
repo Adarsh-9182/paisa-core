@@ -52,8 +52,20 @@ export class OpenAIProvider implements LanguageModelProvider {
     this.fetchFn = opts.fetchFn ?? (fetch as unknown as FetchFn);
   }
 
+  /**
+   * A key is proof of identity to a hosted API, and meaningless to a server
+   * running on this machine. Ollama, llama.cpp and mlx_lm all speak this
+   * protocol and none of them authenticate, so demanding a key would rule out
+   * every free way to run Paisa's narrator — which is the difference between
+   * a product that needs a budget and one that does not.
+   */
+  private get isLocal(): boolean {
+    return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|\/|$)/i.test(this.baseUrl);
+  }
+
   async run(ctx: AgentContext): Promise<string> {
-    if (!this.apiKey) throw new Error("OPENAI_API_KEY is not set; falling back.");
+    if (!this.apiKey && !this.isLocal)
+      throw new Error("OPENAI_API_KEY is not set; falling back.");
 
     const tools = TOOL_SPECS.filter((s) => ctx.availableTools.includes(s.name)).map((s) => ({
       type: "function" as const,
@@ -71,7 +83,9 @@ export class OpenAIProvider implements LanguageModelProvider {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
+          // Omitted entirely rather than sent empty: a local server that does
+          // check the header should see no credential, not a blank one.
+          ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
         },
         body: JSON.stringify({ model: this.model, messages, tools }),
       });

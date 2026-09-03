@@ -181,6 +181,38 @@ describe("OpenAIProvider (GPT-5.6)", () => {
     expect(record.toolsInvoked[0]!.tool).toBe("get_cash_position");
   });
 
+  it("runs against a keyless local server, and sends no Authorization header", async () => {
+    // Ollama / llama.cpp / mlx_lm speak this protocol and none authenticate.
+    // Requiring a key would rule out every free way to run the narrator.
+    const seen: Record<string, string>[] = [];
+    const queue = [
+      { choices: [{ message: { tool_calls: [{ id: "c1", function: { name: "get_cash_position", arguments: `{"asOf":"${AS_OF}"}` } }] } }] },
+      { choices: [{ message: { content: "Cash on hand is **₹30,00,000.00** as of today." } }] },
+    ];
+    const provider = new OpenAIProvider({
+      baseUrl: "http://localhost:11434/v1",
+      model: "qwen3:14b",
+      fetchFn: async (_url, init) => {
+        seen.push(init.headers);
+        return { ok: true, status: 200, text: async () => "", json: async () => queue.shift() };
+      },
+    });
+    const record = await new Orchestrator(provider).ask(cfoUser, baseOrg(), "How much cash do we have?");
+    expect(record.verified).toBe(true);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((h) => !("Authorization" in h))).toBe(true);
+  });
+
+  it("still demands a key for a hosted endpoint", async () => {
+    const provider = new OpenAIProvider({ apiKey: "", baseUrl: "https://api.openai.com/v1" });
+    await expect(
+      provider.run({
+        system: "s", history: [], userQuery: "q", availableTools: [],
+        executeTool: () => "", maxRounds: 1,
+      }),
+    ).rejects.toThrow(/OPENAI_API_KEY is not set/);
+  });
+
   it("throws without an API key so the fallback chain can take over — and the fallback names who answered", async () => {
     const provider = new OpenAIProvider({ apiKey: "" });
     const planner = new CfoPlanner({ asOf: AS_OF, periodFrom: "2026-01-01" });
