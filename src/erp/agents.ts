@@ -18,6 +18,7 @@ import { Paise, ZERO, add, sub, abs, cmp, sum, mulRatio, formatINR } from "../mo
 import { JournalEngine, JournalEntry } from "../journal.js";
 import { EventBus } from "../events.js";
 import { ChartOfAccounts } from "../accounts.js";
+import { daysBetween } from "../invoices.js";
 import { PeriodKey, periodOf, periodEnd, prevPeriod, periodRange } from "./periods.js";
 
 export type ProposalKind =
@@ -28,6 +29,8 @@ export type ProposalKind =
   | "MISSING_RECOGNITION"
   | "STALE_RECEIVABLE"
   | "FLUX_VARIANCE"
+  | "RECONCILIATION_EXCEPTION"
+  | "UNCLEARED_ITEM"
   | "BUDGET_VARIANCE";
 
 export type ProposalStatus = "OPEN" | "APPROVED" | "DISMISSED";
@@ -91,6 +94,23 @@ export interface AgentContextIn {
     readonly amount: Paise;
   }[];
   /**
+   * The most recent reconciliation per cash account, whatever its status.
+   *
+   * Drafts included on purpose: a reconciliation that was started, did not
+   * balance, and was abandoned is the one most worth raising. Only completed
+   * ones would report silence exactly where someone gave up.
+   */
+  readonly latestReconciliations: () => readonly {
+    readonly accountId: string;
+    readonly accountName: string;
+    readonly asOf: string;
+    readonly difference: Paise;
+    readonly reconciled: boolean;
+    readonly status: "DRAFT" | "COMPLETED";
+    readonly unmatchedStatement: readonly { reference: string; date: string; description: string; amount: Paise }[];
+    readonly unmatchedBook: readonly { entryId: string; date: string; narration: string; amount: Paise }[];
+  }[];
+  /**
    * Material P&L movements for a period, as the close engine judges them.
    *
    * Supplied rather than recomputed. "Is this movement material?" is a policy
@@ -125,6 +145,8 @@ export class AgentEngine {
       /** Ignore anything below this — noise, not signal. */
       floor: 500000n as Paise, // ₹5,000
       staleReceivableDays: 45,
+      /** Past this, a booked item that never reached the bank is not "in transit". */
+      unclearedDays: 30,
     },
   ) {}
 
@@ -141,6 +163,7 @@ export class AgentEngine {
       ...this.missingRecognition(period),
       ...this.fluxVariance(period),
       ...this.uncategorizedSpend(period),
+      ...this.reconciliationExceptions(period),
     ];
     const raised: Proposal[] = [];
     for (const p of found) {
@@ -434,6 +457,82 @@ export class AgentEngine {
         proposedEntry: null,
       }),
     ];
+  }
+
+  /**
+   * What a reconciliation exposed — not whether one was done.
+   *
+   * The close checklist already asks whether each cash account carries a
+   * completed reconciliation; asking again here would be a second opinion on
+   * the same question. What is missing is the content: a reconciliation can
+   * be completed and still be carrying an unexplained difference, and an item
+   * that has sat uncleared for weeks is a different problem from one that
+   * cleared yesterday.
+   *
+   * Two findings, because they mean different things:
+   *
+   * A difference is a straight exception — the bank and the books disagree
+   * about how much money exists, and one of them is wrong.
+   *
+   * An aged uncleared item is usually worse than it looks. A payment booked
+   * six weeks ago that has never appeared on a statement is not "in transit";
+   * it is a cheque nobody banked, a duplicate that was reversed at the bank
+   * and not in the books, or a payment that never actually went out. Cash is
+   * overstated until it is resolved either way.
+   */
+  private reconciliationExceptions(period: PeriodKey): Proposal[] {
+    const asOf = periodEnd(period);
+    const out: Proposal[] = [];
+
+    for (const rec of this.ctx.latestReconciliations()) {
+      if (rec.difference !== ZERO) {
+        out.push(
+          this.propose({
+            kind: "RECONCILIATION_EXCEPTION",
+            severity: "HIGH",
+            period,
+            title: `${rec.accountName} is out by ${formatINR(abs(rec.difference))} at ${rec.asOf}`,
+            rationale:
+              `The ${rec.status === "DRAFT" ? "draft " : ""}reconciliation for ${rec.accountName} at ${rec.asOf} ` +
+              `leaves ${formatINR(abs(rec.difference))} unexplained: the bank and the books disagree about how ` +
+              `much money exists, and one of them is wrong. ` +
+              (rec.unmatchedStatement.length
+                ? `${rec.unmatchedStatement.length} statement line${rec.unmatchedStatement.length === 1 ? "" : "s"} ` +
+                  `are not in the books — bank charges and interest are the usual cause, and they still need booking. `
+                : "") +
+              `A cash balance nobody can tie out is the figure every other number in the close rests on.`,
+            amount: abs(rec.difference),
+            evidence: rec.unmatchedStatement.map((l) => l.reference),
+            proposedEntry: null,
+          }),
+        );
+      }
+
+      // Aged items only. Something booked last week has not had time to clear.
+      const stale = rec.unmatchedBook.filter((e) => daysBetween(e.date, asOf) >= this.thresholds.unclearedDays);
+      if (stale.length === 0) continue;
+
+      const total = sum(stale.map((e) => abs(e.amount)));
+      const oldest = stale.reduce((a, b) => (a.date <= b.date ? a : b));
+      out.push(
+        this.propose({
+          kind: "UNCLEARED_ITEM",
+          severity: daysBetween(oldest.date, asOf) >= this.thresholds.unclearedDays * 2 ? "HIGH" : "MEDIUM",
+          period,
+          title: `${rec.accountName}: ${stale.length} item${stale.length === 1 ? "" : "s"} uncleared over ${this.thresholds.unclearedDays} days (${formatINR(total)})`,
+          rationale:
+            `${stale.length} entr${stale.length === 1 ? "y has" : "ies have"} been booked against ${rec.accountName} ` +
+            `and never appeared on a statement, totalling ${formatINR(total)}. The oldest is "${oldest.narration}" ` +
+            `from ${oldest.date}, ${daysBetween(oldest.date, asOf)} days ago. Past a few weeks this is rarely still ` +
+            `in transit — it is usually a payment that never went out, a cheque nobody banked, or a reversal the ` +
+            `bank made and the books did not. Cash is overstated until each one is either cleared or written back.`,
+          amount: total,
+          evidence: stale.map((e) => e.entryId),
+          proposedEntry: null,
+        }),
+      );
+    }
+    return out;
   }
 
   /**

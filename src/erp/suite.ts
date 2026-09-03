@@ -215,6 +215,32 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
       // which ones matter.
       materialFlux: (period) => close.flux(period),
       unreviewedBankLines: (asOf) => org.banking.pendingReview().filter((l) => l.date <= asOf),
+      latestReconciliations: () =>
+        cashAccounts
+          .map(({ accountId, name }) => {
+            // Latest of any status: a draft that would not balance and was
+            // abandoned is the one most worth raising.
+            const rec = reconciliation
+              .all()
+              .filter((r) => r.accountId === accountId)
+              .sort((a, b) => b.asOf.localeCompare(a.asOf))[0];
+            return rec ? { rec, name } : null;
+          })
+          .filter((x): x is { rec: ReturnType<typeof reconciliation.all>[number]; name: string } => x !== null)
+          .map(({ rec, name }) => ({
+            accountId: rec.accountId,
+            accountName: name,
+            asOf: rec.asOf,
+            difference: rec.difference,
+            reconciled: rec.reconciled,
+            status: rec.status,
+            unmatchedStatement: rec.unmatchedStatement.map((l) => ({
+              reference: l.reference, date: l.date, description: l.description, amount: l.amount,
+            })),
+            unmatchedBook: rec.unmatchedBook.map((e) => ({
+              entryId: e.entryId, date: e.date, narration: e.narration, amount: e.amount,
+            })),
+          })),
     },
     org.bus,
   );

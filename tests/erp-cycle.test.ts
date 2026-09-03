@@ -405,6 +405,78 @@ describe("continuous agents", () => {
     });
   });
 
+  describe("what a reconciliation exposed", () => {
+    /** A reconciliation where the statement and the books disagree. */
+    const outOfBalance = (erp: ReturnType<typeof company>["erp"]) =>
+      erp.reconciliation.reconcile({
+        accountId: "acc_bank",
+        asOf: "2026-06-30",
+        statementClosingBalance: parseINR("10,00,000"),
+        bookBalance: parseINR("9,55,000"),
+        statementLines: [
+          { reference: "chg-1", date: "2026-06-28", description: "Bank charges", amount: parseINR("-45,000") },
+        ],
+        bookEntries: [],
+      });
+
+    it("raises the difference, not the absence of a reconciliation", () => {
+      const { erp } = company();
+      outOfBalance(erp);
+      const found = erp.agents.scan("2026-06", ACTOR).filter((p) => p.kind === "RECONCILIATION_EXCEPTION");
+      expect(found.length).toBe(1);
+      expect(found[0]!.severity).toBe("HIGH");
+      expect(found[0]!.title).toContain("₹45,000.00");
+      expect(found[0]!.rationale).toContain("statement line");
+      expect(found[0]!.proposedEntry).toBeNull();
+    });
+
+    it("says nothing when the account ties out", () => {
+      const { erp } = company();
+      erp.reconciliation.reconcile({
+        accountId: "acc_bank",
+        asOf: "2026-06-30",
+        statementClosingBalance: parseINR("10,00,000"),
+        bookBalance: parseINR("10,00,000"),
+        statementLines: [],
+        bookEntries: [],
+      });
+      expect(erp.agents.scan("2026-06", ACTOR).filter((p) => p.kind === "RECONCILIATION_EXCEPTION")).toEqual([]);
+    });
+
+    it("ignores an item that has not had time to clear", () => {
+      const { erp } = company();
+      erp.reconciliation.reconcile({
+        accountId: "acc_bank", asOf: "2026-06-30",
+        statementClosingBalance: parseINR("10,00,000"), bookBalance: parseINR("10,00,000"),
+        statementLines: [],
+        // booked four days before period end — genuinely in transit
+        bookEntries: [{ entryId: "je_x", date: "2026-06-26", narration: "Vendor payment", amount: parseINR("-20,000") }],
+      });
+      expect(erp.agents.scan("2026-06", ACTOR).filter((p) => p.kind === "UNCLEARED_ITEM")).toEqual([]);
+    });
+
+    it("raises an item that has sat uncleared for weeks", () => {
+      const { erp } = company();
+      erp.reconciliation.reconcile({
+        accountId: "acc_bank", asOf: "2026-06-30",
+        statementClosingBalance: parseINR("10,00,000"), bookBalance: parseINR("10,00,000"),
+        statementLines: [],
+        bookEntries: [
+          { entryId: "je_old", date: "2026-04-02", narration: "Cheque to Sharma & Co", amount: parseINR("-80,000") },
+          { entryId: "je_recent", date: "2026-06-28", narration: "Vendor payment", amount: parseINR("-20,000") },
+        ],
+      });
+      const found = erp.agents.scan("2026-06", ACTOR).filter((p) => p.kind === "UNCLEARED_ITEM");
+      expect(found.length).toBe(1);
+      // only the aged one counts toward the total
+      expect(found[0]!.amount).toBe(parseINR("80,000"));
+      expect(found[0]!.evidence).toEqual(["je_old"]);
+      expect(found[0]!.rationale).toContain("Cheque to Sharma & Co");
+      // 89 days is well past twice the threshold
+      expect(found[0]!.severity).toBe("HIGH");
+    });
+  });
+
   it("flags unrecognised revenue before the close", () => {
     const { erp } = company();
     const raised = erp.agents.scan("2026-02", ACTOR);
