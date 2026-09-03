@@ -22,7 +22,7 @@ import { sitePage } from "./site.js";
 import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
          aboutPage, customersPage, contactPage, continuousClosePage, docsPage } from "./site/pages.js";
 import { canonicalRedirect, isCanonicalHost, robotsTxt, sitemapXml } from "./site/seo.js";
-import { boot, sync } from "./boot.js";
+import { boot, sync, ORG_ID, ORG_NAME } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
 import { loginPage } from "./login-page.js";
 import { demoRuntime, newDemoId, isDemoId, demoStats } from "./demo-sessions.js";
@@ -45,6 +45,7 @@ import {
   SESSION_COOKIE,
   fetchBillingRecords,
   toBankLines,
+  suggestKeyword,
   AccountDirectory,
   MemberDirectory,
   AccessError,
@@ -101,6 +102,16 @@ const resolvePassword = () => {
 
 const OWNER_EMAIL = normalizeEmail(process.env.PAISA_OWNER_EMAIL ?? "owner@paisa.local");
 
+/**
+ * A workspace's display name.
+ *
+ * There is no organization directory yet — memberships carry an orgId and
+ * nothing else — so the one set of books this instance serves is named from
+ * boot, and anything else falls back to its id rather than inventing a name
+ * the user never chose.
+ */
+const workspaceName = (orgId) => (orgId === ORG_ID ? ORG_NAME : orgId);
+
 
 const isSecure = (req) => req.headers["x-forwarded-proto"] === "https" || !!process.env.VERCEL;
 
@@ -110,10 +121,10 @@ const currentSession = (req) => readSession(parseCookies(req.headers.cookie)[SES
 /* Boot: one runtime, durable when a database is configured            */
 /* ------------------------------------------------------------------ */
 
-let org, erp, erpRoutes, erpDo, persistence;
+let org, erp, erpRoutes, erpDo, persistence, runtime;
 
 const ready = boot(seedAll).then((b) => {
-  ({ org, erp, persistence } = b);
+  ({ org, erp, persistence, runtime } = b);
   erpRoutes = erpApi(org, erp);
   erpDo = erpActions(erp);
   return b;
@@ -435,9 +446,17 @@ const page = () => `<!doctype html>
   .health-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
   .health-bar > div { height: 100%; border-radius: 3px; background: var(--green); }
   .profile { display: flex; gap: 10px; align-items: center; padding: 6px 8px; }
-  .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--green-soft); color: var(--green); font-weight: 700; font-size: 12.5px; display: grid; place-items: center; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--green-soft); color: var(--green); font-weight: 700; font-size: 12.5px; display: grid; place-items: center; flex-shrink: 0; }
+  .avatar.guest { background: var(--surface-2); color: var(--ink-3); }
   .profile b { display: block; font-size: 13px; }
-  .profile span { font-size: 11.5px; color: var(--ink-3); }
+  .profile span { display: block; font-size: 11.5px; color: var(--ink-3); }
+  /* the signed-out card is the way in, so the whole row is the target */
+  .profile.guest { padding: 0; }
+  .profile.guest a { display: flex; gap: 10px; align-items: center; width: 100%;
+    padding: 6px 8px; border-radius: 11px; text-decoration: none; color: inherit; }
+  .profile.guest a:hover { background: var(--surface-2); }
+  .profile .who { min-width: 0; }
+  .profile .who b, .profile .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* ---------- dashboard rail ---------- */
   .main { grid-area: 1 / 2; overflow-y: auto; padding: 22px 20px 30px; border-left: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 55%, transparent); }
@@ -586,7 +605,7 @@ const page = () => `<!doctype html>
     <div class="landing" id="landing">
       <div class="landing-inner">
         <div class="date-line" id="dateline"></div>
-        <h1>Good morning, Adarsh</h1>
+        <h1 id="greeting">Good morning</h1>
 
         <section class="brief">
           <div class="brief-top"><span class="tag">YOUR AI CFO</span><span class="when">Updated 6:00 AM</span></div>
@@ -678,7 +697,7 @@ $("navmenu").innerHTML =
     '<div class="health-row"><span class="health-score" id="hscore">–</span><span class="health-grade" id="hgrade"></span></div>' +
     '<div class="health-bar"><div id="hbar" style="width:0%"></div></div>' +
   "</div>" +
-  '<div class="profile"><div class="avatar">AK</div><div><b>Adarsh Kumar</b><span>Nimbus Labs Pvt Ltd</span></div></div>';
+  '<div class="profile" id="profile"></div>';
 
 const navLinks = [...$("navmenu").querySelectorAll("a")];
 const closeMenu = () => { $("navmenu").classList.remove("open"); $("menubtn").setAttribute("aria-expanded", "false"); };
@@ -704,6 +723,33 @@ navLinks.forEach((a, i) => {
 $("dateline").textContent = new Date("${AS_OF}T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
 const j = (url, opts) => fetch(url, opts).then((r) => r.json());
+
+/* ---- who is looking ----
+
+   The page renders for two kinds of visitor: a signed-in member, who sees
+   their own name and workspace, and everyone else, who is looking at demo
+   books and is offered a way in. The cookie decides which — never the client,
+   which is why this asks the server rather than reading anything local. */
+const initials = (name) =>
+  name.trim().split(/\\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+
+async function loadIdentity() {
+  const res = await fetch("/api/me");
+  if (!res.ok) {
+    $("profile").className = "profile guest";
+    $("profile").innerHTML =
+      '<a href="/login"><div class="avatar guest">→</div>' +
+      '<div class="who"><b>Sign in</b><span>You are viewing demo books</span></div></a>';
+    return;
+  }
+  const me = await res.json();
+  const name = me.user.displayName || me.user.email;
+  $("profile").className = "profile";
+  $("profile").innerHTML =
+    '<div class="avatar">' + esc(initials(name)) + "</div>" +
+    '<div class="who"><b>' + esc(name) + "</b><span>" + esc(me.workspace) + "</span></div>";
+  $("greeting").textContent = "Good morning, " + name.split(/\\s+/)[0];
+}
 
 /* ---- brief + health ---- */
 async function loadBrief() {
@@ -942,7 +988,7 @@ async function sendChat(text) {
   scrollThread();
 }
 
-loadBrief(); loadTiles(); loadChart(); loadUpcoming(); loadTx(); loadRecs();
+loadIdentity(); loadBrief(); loadTiles(); loadChart(); loadUpcoming(); loadTx(); loadRecs();
 </script>
 </body>
 </html>`;
@@ -1121,9 +1167,12 @@ export const handle = async (req, res) => {
       return send(200, {
         user: me.account,
         orgId: me.access.orgId,
+        workspace: workspaceName(me.access.orgId),
         role: me.access.role,
         permissions: [...me.access.permissions].sort(),
-        workspaces: members.listUser(me.account.userId).map((m) => ({ orgId: m.orgId, role: m.role })),
+        workspaces: members
+          .listUser(me.account.userId)
+          .map((m) => ({ orgId: m.orgId, name: workspaceName(m.orgId), role: m.role })),
       });
     }
 
@@ -1365,6 +1414,54 @@ export const handle = async (req, res) => {
           withheld,
           status: erp.connectors.status("stripe"),
         });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
+    /* ---- bank feed review: the queue, and the way out of it ---- */
+
+    /**
+     * What the categorizer could not book, and the rate at which it books.
+     *
+     * The suggestion is the keyword a rule would be taught from, offered so a
+     * reviewer confirms a word rather than composing one — but it is only ever
+     * a default in a field, never applied on its own.
+     */
+    if (path === "/api/banking/review") {
+      const { org: books } = await resolveBooks(req, res);
+      return send(200, {
+        stats: books.banking.stats(),
+        accounts: books.chart
+          .all()
+          .filter((a) => a.active && (a.type === "EXPENSE" || a.type === "REVENUE"))
+          .map((a) => ({ id: a.id, name: a.name, type: a.type })),
+        items: books.banking.pendingReview().map((l) => ({
+          reference: l.reference,
+          date: l.date,
+          description: l.description,
+          amount: formatINR(l.amount),
+          direction: l.amount < 0n ? "out" : "in",
+          suggestedKeyword: suggestKeyword(l.description),
+        })),
+      });
+    }
+
+    if (path === "/api/banking/categorize" && req.method === "POST") {
+      const { reference, accountId, learn } = JSON.parse((await readBody(req)) || "{}");
+      const { demo, org: books } = await resolveBooks(req, res);
+      try {
+        // A demo visitor's books are their own sandbox and are never logged;
+        // the real books go through the action log so a taught rule survives
+        // a restart and reaches every other instance.
+        if (demo) books.banking.categorize(String(reference ?? ""), String(accountId ?? ""), ACTOR, learn || undefined);
+        else
+          await runtime.execute(
+            "banking.categorize",
+            { reference: String(reference ?? ""), accountId: String(accountId ?? ""), ...(learn ? { learn } : {}) },
+            ACTOR,
+          );
+        return send(200, { ok: true, stats: books.banking.stats() });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
       }
