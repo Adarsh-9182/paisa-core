@@ -56,6 +56,48 @@ describe("journal engine — double entry", () => {
     expect(org.ledger.balance("acc_capital", "2026-04-01")).toBe(parseINR("10,00,000"));
   });
 
+  it("rejects a date the reports could never find again", () => {
+    const { org } = setup();
+    const entry = (date: string) => () =>
+      org.journal.post({
+        date,
+        narration: "Test",
+        lines: [
+          { accountId: "acc_bank", side: "DEBIT", amount: parseINR("1,000") },
+          { accountId: "acc_capital", side: "CREDIT", amount: parseINR("1,000") },
+        ],
+        sourceModule: "manual",
+        createdBy: "adarsh",
+      });
+
+    // A balanced entry with a junk date used to post happily and then vanish
+    // from every date-ranged report — no error, and books that disagree with
+    // their own statements.
+    expect(entry("not-a-date")).toThrow(/expected YYYY-MM-DD/);
+    expect(entry("2026-4-1")).toThrow(/expected YYYY-MM-DD/);
+    expect(entry("01-04-2026")).toThrow(/expected YYYY-MM-DD/);
+    // right shape, not a real day — Date would have rolled these into March
+    expect(entry("2026-02-30")).toThrow(/not a real calendar date/);
+    expect(entry("2026-13-01")).toThrow(/not a real calendar date/);
+    // and the valid one still posts
+    expect(entry("2026-02-28")).not.toThrow();
+  });
+
+  it("rejects a reversal dated onto nothing", () => {
+    const { org } = setup();
+    const e = org.journal.post({
+      date: "2026-04-01",
+      narration: "Original",
+      lines: [
+        { accountId: "acc_bank", side: "DEBIT", amount: parseINR("1,000") },
+        { accountId: "acc_capital", side: "CREDIT", amount: parseINR("1,000") },
+      ],
+      sourceModule: "manual",
+      createdBy: "adarsh",
+    });
+    expect(() => org.journal.reverse(e.id, "adarsh", "wrong", "nonsense")).toThrow(/reversal date/);
+  });
+
   it("rejects unbalanced entries", () => {
     const { org } = setup();
     expect(() =>

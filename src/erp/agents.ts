@@ -27,6 +27,7 @@ export type ProposalKind =
   | "UNCATEGORIZED_SPEND"
   | "MISSING_RECOGNITION"
   | "STALE_RECEIVABLE"
+  | "FLUX_VARIANCE"
   | "BUDGET_VARIANCE";
 
 export type ProposalStatus = "OPEN" | "APPROVED" | "DISMISSED";
@@ -98,6 +99,9 @@ export class AgentEngine {
       /** Ignore anything below this — noise, not signal. */
       floor: 500000n as Paise, // ₹5,000
       staleReceivableDays: 45,
+      /** A flux must move at least this much AND this far — see fluxVariance. */
+      fluxPct: 30,
+      fluxFloor: 2500000n as Paise, // ₹25,000
     },
   ) {}
 
@@ -112,6 +116,7 @@ export class AgentEngine {
       ...this.duplicateEntries(period),
       ...this.staleReceivables(period),
       ...this.missingRecognition(period),
+      ...this.fluxVariance(period),
     ];
     const raised: Proposal[] = [];
     for (const p of found) {
@@ -292,6 +297,108 @@ export class AgentEngine {
         proposedEntry: null,
       }),
     ];
+  }
+
+  /**
+   * Flux analysis — what moved against last month, and what moved it.
+   *
+   * This is the question a controller is asked first at every close and the
+   * one a reviewer cannot answer from a trial balance: not "what is the
+   * balance" but "why is it different". A flux that only flags the swing is
+   * half the job, so each finding names the entries that caused it — an
+   * explanation to confirm, rather than a variance to go hunting for.
+   *
+   * Materiality is deliberately two-sided. A percentage alone reports every
+   * small account that doubled; an absolute alone reports every large account
+   * that drifted. A finding has to clear both, so what surfaces is what a
+   * human would actually have asked about.
+   *
+   * Nothing here proposes an entry. A variance is a question about work
+   * already booked — the answer is usually an explanation, sometimes a
+   * correction, and an agent is not entitled to guess which.
+   */
+  private fluxVariance(period: PeriodKey): Proposal[] {
+    const prior = prevPeriod(period);
+    const now = this.movement(period);
+    const before = this.movement(prior);
+
+    const out: Proposal[] = [];
+    for (const accountId of new Set([...now.keys(), ...before.keys()])) {
+      const account = this.ctx.chart.get(accountId);
+      const then = before.get(accountId)?.total ?? ZERO;
+      const current = now.get(accountId)?.total ?? ZERO;
+      const delta = sub(current, then);
+      const magnitude = abs(delta);
+
+      if (cmp(magnitude, this.thresholds.fluxFloor) < 0) continue;
+      // A line that did not exist last month has no base to be a percentage
+      // of. It is judged on size alone, and said out loud as "new".
+      const isNew = then === ZERO;
+      const pct = isNew ? null : (Number(magnitude) / Number(abs(then))) * 100;
+      if (pct !== null && pct < this.thresholds.fluxPct) continue;
+
+      const grew = cmp(delta, ZERO) > 0;
+      // For revenue, up is good news and down is the alarming direction; for
+      // expenses it is the other way round. Severity follows the surprise.
+      const worrying = account.type === "REVENUE" ? !grew : grew;
+      const drivers = (now.get(accountId)?.drivers ?? [])
+        .slice()
+        .sort((a, b) => cmp(abs(b.amount), abs(a.amount)))
+        .slice(0, 3);
+
+      const movement = isNew
+        ? `${formatINR(magnitude)} in ${period} against nothing in ${prior}`
+        : `${formatINR(then)} → ${formatINR(current)} (${grew ? "+" : "−"}${formatINR(magnitude)}, ${Math.round(pct!)}%)`;
+
+      out.push(
+        this.propose({
+          kind: "FLUX_VARIANCE",
+          severity: worrying && (isNew || pct! >= this.thresholds.fluxPct * 2) ? "HIGH" : "MEDIUM",
+          period,
+          title: `${account.name}: ${movement}`,
+          rationale:
+            `${account.name} moved ${movement} between ${prior} and ${period}. ` +
+            (drivers.length
+              ? `The largest entries behind it are ${drivers
+                  .map((d) => `"${d.narration}" (${formatINR(abs(d.amount))})`)
+                  .join(", ")}. `
+              : "") +
+            `Confirm this is expected, or that it belongs in a different period — a swing this size is ` +
+            `the kind a reviewer will ask about after the books are closed, when it is expensive to answer.`,
+          amount: magnitude,
+          evidence: drivers.map((d) => d.entryId),
+          proposedEntry: null,
+        }),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * Net P&L movement per account for a period, with the entries that made it.
+   *
+   * Unlike the outlier agent this counts reversals, because a reversal really
+   * does change the period's P&L: dropping it while keeping the entry it
+   * reverses would report a movement the books do not show.
+   */
+  private movement(period: PeriodKey): Map<string, { total: Paise; drivers: { entryId: string; narration: string; amount: Paise }[] }> {
+    const out = new Map<string, { total: Paise; drivers: { entryId: string; narration: string; amount: Paise }[] }>();
+    for (const e of this.ctx.journal.all()) {
+      if (periodOf(e.date) !== period) continue;
+      for (const l of e.lines) {
+        const type = this.ctx.chart.get(l.accountId).type;
+        if (type !== "EXPENSE" && type !== "REVENUE") continue;
+        // Each account is measured in the direction it naturally grows, so a
+        // positive movement always means "more of this account".
+        const increases = type === "EXPENSE" ? l.side === "DEBIT" : l.side === "CREDIT";
+        const signed = (increases ? l.amount : mulRatio(l.amount, -1n, 1n)) as Paise;
+        const bucket = out.get(l.accountId) ?? { total: ZERO as Paise, drivers: [] };
+        bucket.total = add(bucket.total, signed);
+        bucket.drivers.push({ entryId: e.id, narration: e.narration, amount: signed });
+        out.set(l.accountId, bucket);
+      }
+    }
+    return out;
   }
 
   /* -------------------------------------------------------------- */

@@ -233,6 +233,86 @@ describe("continuous agents", () => {
     expect(org.ledger.balance("acc_accrued_liabilities", "2026-04-30")).toBe(parseINR("80,000"));
   });
 
+  describe("flux analysis", () => {
+    // Two months of the same expense, so a change is a change against a base.
+    const spend = (org: ReturnType<typeof company>["org"], date: string, amount: string, narration = "Cloud") =>
+      org.journal.post({
+        date,
+        narration,
+        lines: [
+          { accountId: "acc_software", side: "DEBIT", amount: parseINR(amount) },
+          { accountId: "acc_bank", side: "CREDIT", amount: parseINR(amount) },
+        ],
+        sourceModule: "manual",
+        createdBy: ACTOR,
+      });
+
+    it("flags a material swing and names what caused it", () => {
+      const { org, erp } = company();
+      spend(org, "2026-05-04", "1,00,000");
+      spend(org, "2026-06-04", "1,00,000");
+      spend(org, "2026-06-20", "2,00,000", "Annual licence true-up");
+
+      const flux = erp.agents.scan("2026-06", ACTOR).filter((p) => p.kind === "FLUX_VARIANCE");
+      const software = flux.find((p) => p.title.startsWith("Software"))!;
+      expect(software).toBeDefined();
+      // ₹1,00,000 → ₹3,00,000 is +200%, well past both thresholds
+      expect(software.amount).toBe(parseINR("2,00,000"));
+      expect(software.title).toContain("200%");
+      // the point of flux: it explains rather than merely flagging
+      expect(software.rationale).toContain("Annual licence true-up");
+      expect(software.evidence.length).toBeGreaterThan(0);
+      // a variance is a question about booked work, never an entry to post
+      expect(software.proposedEntry).toBeNull();
+    });
+
+    it("ignores a big percentage on an immaterial amount", () => {
+      const { org, erp } = company();
+      spend(org, "2026-05-04", "1,000");
+      spend(org, "2026-06-04", "9,000"); // +800%, but only ₹8,000 of movement
+
+      const flux = erp.agents.scan("2026-06", ACTOR).filter((p) => p.kind === "FLUX_VARIANCE");
+      expect(flux.find((p) => p.title.startsWith("Software"))).toBeUndefined();
+    });
+
+    it("ignores a large amount that barely moved", () => {
+      const { org, erp } = company();
+      spend(org, "2026-05-04", "10,00,000");
+      spend(org, "2026-06-04", "10,30,000"); // ₹30,000 clears the floor, 3% does not
+
+      const flux = erp.agents.scan("2026-06", ACTOR).filter((p) => p.kind === "FLUX_VARIANCE");
+      expect(flux.find((p) => p.title.startsWith("Software"))).toBeUndefined();
+    });
+
+    it("treats an account with no prior period as new rather than infinite", () => {
+      const { org, erp } = company();
+      spend(org, "2026-06-04", "5,00,000");
+
+      const software = erp.agents
+        .scan("2026-06", ACTOR)
+        .find((p) => p.kind === "FLUX_VARIANCE" && p.title.startsWith("Software"))!;
+      expect(software.title).toContain("against nothing");
+      expect(software.severity).toBe("HIGH");
+      expect(software.title).not.toContain("Infinity");
+      expect(software.title).not.toContain("NaN");
+    });
+
+    it("counts a reversal, because the period's P&L does", () => {
+      const { org, erp } = company();
+      spend(org, "2026-05-04", "4,00,000");
+      const wrong = spend(org, "2026-06-04", "4,00,000");
+      // reversed in the same period: June's software spend is really nil
+      org.journal.reverse(wrong.id, ACTOR, "Booked twice", "2026-06-05");
+
+      const flux = erp.agents
+        .scan("2026-06", ACTOR)
+        .find((p) => p.kind === "FLUX_VARIANCE" && p.title.startsWith("Software"))!;
+      // ₹4,00,000 → nil is a 100% fall, not "no change"
+      expect(flux).toBeDefined();
+      expect(flux.amount).toBe(parseINR("4,00,000"));
+    });
+  });
+
   it("flags unrecognised revenue before the close", () => {
     const { erp } = company();
     const raised = erp.agents.scan("2026-02", ACTOR);
