@@ -83,6 +83,25 @@ export interface AgentContextIn {
   }[];
   /** Contracts whose schedule shows revenue due in a period, unrecognised. */
   readonly unrecognizedRevenue: (period: PeriodKey) => Paise;
+  /**
+   * Material P&L movements for a period, as the close engine judges them.
+   *
+   * Supplied rather than recomputed. "Is this movement material?" is a policy
+   * question with one answer per company, and the close checklist already
+   * owns it — a second implementation here meant a ₹60,000 swing at 25% could
+   * block the close while the agent said nothing about it, which is a product
+   * that disagrees with itself about its own books.
+   */
+  readonly materialFlux: (period: PeriodKey) => readonly {
+    readonly accountId: string;
+    readonly name: string;
+    readonly current: Paise;
+    readonly prior: Paise;
+    readonly delta: Paise;
+    readonly changeBps: number | null;
+    readonly explanation: string | null;
+    readonly needsExplanation: boolean;
+  }[];
 }
 
 export class AgentEngine {
@@ -99,9 +118,6 @@ export class AgentEngine {
       /** Ignore anything below this — noise, not signal. */
       floor: 500000n as Paise, // ₹5,000
       staleReceivableDays: 45,
-      /** A flux must move at least this much AND this far — see fluxVariance. */
-      fluxPct: 30,
-      fluxFloor: 2500000n as Paise, // ₹25,000
     },
   ) {}
 
@@ -308,10 +324,16 @@ export class AgentEngine {
    * half the job, so each finding names the entries that caused it — an
    * explanation to confirm, rather than a variance to go hunting for.
    *
-   * Materiality is deliberately two-sided. A percentage alone reports every
-   * small account that doubled; an absolute alone reports every large account
-   * that drifted. A finding has to clear both, so what surfaces is what a
-   * human would actually have asked about.
+   * Materiality is not decided here. The close checklist already owns that
+   * policy, and this reads its verdict — otherwise the same swing is material
+   * to one half of the product and invisible to the other. What this adds is
+   * the part flux is actually for: naming the entries that caused the
+   * movement, so a finding is an explanation to confirm rather than a
+   * variance to go hunting for.
+   *
+   * Movements that already carry an explanation are skipped: the question has
+   * been answered, and raising it again is how a review queue trains people
+   * to ignore it.
    *
    * Nothing here proposes an entry. A variance is a question about work
    * already booked — the answer is usually an explanation, sometimes a
@@ -320,51 +342,44 @@ export class AgentEngine {
   private fluxVariance(period: PeriodKey): Proposal[] {
     const prior = prevPeriod(period);
     const now = this.movement(period);
-    const before = this.movement(prior);
 
     const out: Proposal[] = [];
-    for (const accountId of new Set([...now.keys(), ...before.keys()])) {
-      const account = this.ctx.chart.get(accountId);
-      const then = before.get(accountId)?.total ?? ZERO;
-      const current = now.get(accountId)?.total ?? ZERO;
-      const delta = sub(current, then);
-      const magnitude = abs(delta);
+    for (const line of this.ctx.materialFlux(period)) {
+      if (!line.needsExplanation || line.explanation) continue;
 
-      if (cmp(magnitude, this.thresholds.fluxFloor) < 0) continue;
-      // A line that did not exist last month has no base to be a percentage
-      // of. It is judged on size alone, and said out loud as "new".
-      const isNew = then === ZERO;
-      const pct = isNew ? null : (Number(magnitude) / Number(abs(then))) * 100;
-      if (pct !== null && pct < this.thresholds.fluxPct) continue;
-
-      const grew = cmp(delta, ZERO) > 0;
+      const magnitude = abs(line.delta);
+      const grew = cmp(line.delta, ZERO) > 0;
+      const isNew = line.prior === ZERO;
+      const account = this.ctx.chart.get(line.accountId);
       // For revenue, up is good news and down is the alarming direction; for
       // expenses it is the other way round. Severity follows the surprise.
       const worrying = account.type === "REVENUE" ? !grew : grew;
-      const drivers = (now.get(accountId)?.drivers ?? [])
+      const drivers = (now.get(line.accountId)?.drivers ?? [])
         .slice()
         .sort((a, b) => cmp(abs(b.amount), abs(a.amount)))
         .slice(0, 3);
 
       const movement = isNew
         ? `${formatINR(magnitude)} in ${period} against nothing in ${prior}`
-        : `${formatINR(then)} → ${formatINR(current)} (${grew ? "+" : "−"}${formatINR(magnitude)}, ${Math.round(pct!)}%)`;
+        : `${formatINR(line.prior)} → ${formatINR(line.current)} (${grew ? "+" : "−"}${formatINR(magnitude)}` +
+          (line.changeBps === null ? "" : `, ${Math.round(line.changeBps / 100)}%`) +
+          ")";
 
       out.push(
         this.propose({
           kind: "FLUX_VARIANCE",
-          severity: worrying && (isNew || pct! >= this.thresholds.fluxPct * 2) ? "HIGH" : "MEDIUM",
+          severity: worrying && (isNew || (line.changeBps ?? 0) >= 5000) ? "HIGH" : "MEDIUM",
           period,
-          title: `${account.name}: ${movement}`,
+          title: `${line.name}: ${movement}`,
           rationale:
-            `${account.name} moved ${movement} between ${prior} and ${period}. ` +
+            `${line.name} moved ${movement} between ${prior} and ${period}. ` +
             (drivers.length
               ? `The largest entries behind it are ${drivers
                   .map((d) => `"${d.narration}" (${formatINR(abs(d.amount))})`)
                   .join(", ")}. `
               : "") +
-            `Confirm this is expected, or that it belongs in a different period — a swing this size is ` +
-            `the kind a reviewer will ask about after the books are closed, when it is expensive to answer.`,
+            `Confirm this is expected, or that it belongs in a different period — the close cannot ` +
+            `complete until this movement carries an explanation.`,
           amount: magnitude,
           evidence: drivers.map((d) => d.entryId),
           proposedEntry: null,

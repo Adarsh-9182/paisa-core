@@ -293,7 +293,28 @@ export class CloseEngine {
     // control. Flux analysis begins once there is a prior period to vary from.
     const hasPrior = priorAccounts.some((a) => a.amount !== ZERO);
     const prior = new Map(priorAccounts.map((a) => [a.accountId, a.amount]));
-    return current
+
+    /**
+     * Both periods, not just this one.
+     *
+     * Walking only the current period made a line that stopped invisible: a
+     * cost centre running at ₹4,00,000 a month that books nothing at all this
+     * month produced no flux line, because there was no current row to hang
+     * it on. That is the wrong way round — an expense line going quiet
+     * usually means an invoice that has not arrived or a posting that went
+     * somewhere else, and revenue going quiet is worse. Falling to zero is a
+     * 100% movement and belongs in front of whoever signs the close.
+     */
+    const names = new Map(current.map((a) => [a.accountId, a.name]));
+    for (const a of priorAccounts) if (!names.has(a.accountId)) names.set(a.accountId, a.name);
+    const currentAmounts = new Map(current.map((a) => [a.accountId, a.amount]));
+    const union = [...names].map(([accountId, name]) => ({
+      accountId,
+      name,
+      amount: currentAmounts.get(accountId) ?? (ZERO as Paise),
+    }));
+
+    return union
       .map((a) => {
         const priorAmount = prior.get(a.accountId) ?? ZERO;
         const delta = sub(a.amount, priorAmount);

@@ -235,12 +235,18 @@ describe("continuous agents", () => {
 
   describe("flux analysis", () => {
     // Two months of the same expense, so a change is a change against a base.
-    const spend = (org: ReturnType<typeof company>["org"], date: string, amount: string, narration = "Cloud") =>
+    const spend = (
+      org: ReturnType<typeof company>["org"],
+      date: string,
+      amount: string,
+      narration = "Cloud",
+      accountId = "acc_software",
+    ) =>
       org.journal.post({
         date,
         narration,
         lines: [
-          { accountId: "acc_software", side: "DEBIT", amount: parseINR(amount) },
+          { accountId, side: "DEBIT", amount: parseINR(amount) },
           { accountId: "acc_bank", side: "CREDIT", amount: parseINR(amount) },
         ],
         sourceModule: "manual",
@@ -286,6 +292,10 @@ describe("continuous agents", () => {
 
     it("treats an account with no prior period as new rather than infinite", () => {
       const { org, erp } = company();
+      // Flux needs a prior period to vary from — with none at all, the close
+      // engine correctly declines to call every line "new". Give it one, on a
+      // different account, so Software is genuinely the new arrival.
+      spend(org, "2026-05-04", "2,00,000", "Rent", "acc_rent");
       spend(org, "2026-06-04", "5,00,000");
 
       const software = erp.agents

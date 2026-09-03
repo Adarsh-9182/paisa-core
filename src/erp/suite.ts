@@ -209,6 +209,10 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
           })),
       unrecognizedRevenue: (period) =>
         sum(revrec.waterfall(period, 1).map((w) => w.amount)),
+      // One definition of materiality, owned by the close checklist. The
+      // agent explains the movements; it does not get its own opinion about
+      // which ones matter.
+      materialFlux: (period) => close.flux(period),
     },
     org.bus,
   );
