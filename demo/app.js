@@ -166,7 +166,9 @@ const authReady = (async () => {
 const planner = new CfoPlanner({ asOf: AS_OF, periodFrom: PERIOD_FROM });
 const chain = [];
 if (process.env.ANTHROPIC_API_KEY) chain.push(new AnthropicProvider());
-if (process.env.OPENAI_API_KEY) chain.push(new OpenAIProvider());
+// A base URL on its own is enough: a server on localhost has no key to set,
+// and requiring one here would leave the free path permanently unreachable.
+if (process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL) chain.push(new OpenAIProvider());
 chain.push(planner);
 const provider = chain.length > 1 ? new FallbackProvider(chain) : planner;
 const orchestrator = new Orchestrator(provider, 6, { asOf: AS_OF, periodFrom: PERIOD_FROM });

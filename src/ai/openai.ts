@@ -48,7 +48,11 @@ export class OpenAIProvider implements LanguageModelProvider {
     this.apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY;
     // OPENAI_BASE_URL lets any OpenAI-compatible server stand in — including
     // a locally served fine-tuned Paisa narrator (lab/, mlx_lm.server).
-    this.baseUrl = opts.baseUrl ?? process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
+    // Trailing slash stripped because the routes below carry their own. Google
+    // documents its compatibility endpoint WITH one (the OpenAI SDK appends a
+    // bare "chat/completions"), so pasting the documented URL here would
+    // otherwise request "//chat/completions" and 404 on a correct key.
+    this.baseUrl = (opts.baseUrl ?? process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/+$/, "");
     this.fetchFn = opts.fetchFn ?? (fetch as unknown as FetchFn);
   }
 

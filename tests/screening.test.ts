@@ -203,6 +203,24 @@ describe("OpenAIProvider (GPT-5.6)", () => {
     expect(seen.every((h) => !("Authorization" in h))).toBe(true);
   });
 
+  it("tolerates a base URL with a trailing slash, as Google documents it", async () => {
+    const urls: string[] = [];
+    const provider = new OpenAIProvider({
+      apiKey: "k",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      fetchFn: async (url) => {
+        urls.push(url);
+        return { ok: true, status: 200, text: async () => "", json: async () => ({ choices: [{ message: { content: "ok" } }] }) };
+      },
+    });
+    await provider.run({
+      system: "s", history: [], userQuery: "q", availableTools: [],
+      executeTool: () => "", maxRounds: 1,
+    });
+    expect(urls[0]).toBe("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions");
+    expect(urls[0]).not.toContain("//chat");
+  });
+
   it("still demands a key for a hosted endpoint", async () => {
     const provider = new OpenAIProvider({ apiKey: "", baseUrl: "https://api.openai.com/v1" });
     await expect(
