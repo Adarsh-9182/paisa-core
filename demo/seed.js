@@ -97,11 +97,13 @@ export const seedAll = async (exec, rt) => {
   await invoice("INV-2026-07A", "Kite Analytics", "2026-07-01", "2026-07-31", "3,20,000", null);
   await invoice("INV-2026-07B", "BlueOrbit Systems", "2026-07-01", "2026-07-31", "2,80,000", null);
 
-  // Two lines the categoriser cannot place — they wait for a human.
+  // Two lines the categoriser cannot place — they wait for a human. Dated into
+  // the open period on purpose: June is soft-closed, and a review queue whose
+  // entries can never be posted is a demonstration of the wrong thing.
   await exec("banking.importStatement", {
     lines: [
-      { date: "2026-06-28", description: "IMPS 4032 Chai Point", amount: parseINR("-1,250"), reference: "imps-4032" },
-      { date: "2026-06-30", description: "UPI transfer to Rahul", amount: parseINR("-3,400"), reference: "upi-rahul" },
+      { date: "2026-07-01", description: "IMPS 4032 Chai Point", amount: parseINR("-1,250"), reference: "imps-4032" },
+      { date: "2026-07-02", description: "UPI transfer to Rahul", amount: parseINR("-3,400"), reference: "upi-rahul" },
     ],
   });
 

@@ -533,6 +533,29 @@ const page = () => `<!doctype html>
   .up-right { text-align: right; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
   .badge-due { display: inline-block; font-size: 10.5px; font-weight: 700; color: var(--orange-deep); background: var(--orange-soft); border-radius: 99px; padding: 2px 8px; margin-top: 2px; }
 
+  /* ---------- bank feed review ---------- */
+  .rate { font-size: 11.5px; font-weight: 700; border-radius: 99px; padding: 3px 10px;
+    color: var(--orange-deep); background: var(--orange-soft); font-variant-numeric: tabular-nums; }
+  .rvw { border-top: 1px solid var(--line); padding: 12px 0; }
+  .rvw:first-child { border-top: 0; }
+  .rvw-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .rvw-desc { font-weight: 600; font-size: 13px; word-break: break-word; }
+  .rvw-when { font-size: 11.5px; color: var(--ink-3); }
+  .rvw-amt { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rvw-amt.in { color: var(--green); }
+  .rvw-form { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; align-items: center; }
+  .rvw-form select, .rvw-form input {
+    border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; font-size: 12.5px;
+    font-family: inherit; background: var(--surface); color: var(--ink); outline: none; min-width: 0; }
+  .rvw-form select { flex: 1 1 140px; }
+  .rvw-form input { flex: 1 1 110px; }
+  .rvw-form select:focus, .rvw-form input:focus { border-color: var(--orange); }
+  .rvw-learn { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--ink-2);
+    white-space: nowrap; cursor: pointer; }
+  .rvw-learn input { flex: none; min-width: 0; width: 14px; height: 14px; accent-color: var(--orange); }
+  .rvw-err { color: var(--red); font-size: 11.5px; margin-top: 6px; }
+  .rvw-empty { color: var(--ink-3); font-size: 12.5px; padding: 6px 0; }
+
   table.tx { width: 100%; border-collapse: collapse; }
   table.tx td { padding: 9px 4px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
   table.tx tr:last-child td { border-bottom: 0; }
@@ -653,6 +676,12 @@ const page = () => `<!doctype html>
         <div class="card-sub">Compliance & committed payments</div>
         <div id="upcoming"></div>
       </div>
+    </section>
+
+    <section class="card" id="review-card" style="margin-bottom:16px">
+      <div class="card-head"><h2>Needs your review</h2><span class="rate" id="review-rate"></span></div>
+      <div class="card-sub" id="review-sub">Lines the categoriser would not guess an account for</div>
+      <div id="review-list"></div>
     </section>
 
     <section class="card">
@@ -892,6 +921,88 @@ $("recs").addEventListener("click", async (e) => {
   await Promise.all([loadRecs(), loadBrief()]);
 });
 
+/* ---- bank feed review ----
+
+   The queue is where the auto-book rate is actually earned: every line
+   resolved here can leave a rule behind, so the same payee never asks again.
+   The rate is shown beside it because that is the whole point of the work —
+   a reviewer should watch the queue get quieter. */
+async function loadReview() {
+  const d = await j("/api/banking/review");
+  const pct = d.stats.autoBookedPct;
+  $("review-rate").textContent = pct === null ? "no feed yet" : pct + "% booked automatically";
+
+  if (!d.items.length) {
+    $("review-sub").textContent = "Every line in the feed booked itself";
+    $("review-list").innerHTML = '<div class="rvw-empty">Nothing waiting — the categoriser placed all of it.</div>';
+    return;
+  }
+
+  $("review-sub").textContent =
+    d.items.length + (d.items.length === 1 ? " line" : " lines") + " the categoriser would not guess an account for";
+
+  const options = d.accounts
+    .map((a) => '<option value="' + esc(a.id) + '">' + esc(a.name) + "</option>")
+    .join("");
+
+  $("review-list").innerHTML = d.items.map((it) => {
+    const kw = it.suggestedKeyword;
+    // Learning is offered pre-ticked only when there is something to learn;
+    // the keyword stays editable because the reviewer, not the heuristic, is
+    // the one vouching for it.
+    const learn = kw
+      ? '<input type="text" value="' + esc(kw) + '" data-kw aria-label="Keyword to remember">' +
+        '<label class="rvw-learn"><input type="checkbox" data-learn checked>remember</label>'
+      : "";
+    return (
+      '<div class="rvw" data-ref="' + esc(it.reference) + '">' +
+        '<div class="rvw-head">' +
+          '<div><div class="rvw-desc">' + esc(it.description) + "</div>" +
+          '<div class="rvw-when">' + esc(it.date) + "</div></div>" +
+          '<div class="rvw-amt' + (it.direction === "in" ? " in" : "") + '">' + esc(it.amount) + "</div>" +
+        "</div>" +
+        '<div class="rvw-form">' +
+          "<select data-acc>" + options + "</select>" + learn +
+          '<button class="btn btn-quiet" data-book>Book</button>' +
+        "</div>" +
+        '<div class="rvw-err" hidden></div>' +
+      "</div>"
+    );
+  }).join("");
+}
+
+$("review-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-book]");
+  if (!btn) return;
+  const row = btn.closest(".rvw");
+  const err = row.querySelector(".rvw-err");
+  const learnBox = row.querySelector("[data-learn]");
+  const kwField = row.querySelector("[data-kw]");
+
+  btn.disabled = true;
+  err.hidden = true;
+  const res = await j("/api/banking/categorize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      reference: row.dataset.ref,
+      accountId: row.querySelector("[data-acc]").value,
+      ...(learnBox && learnBox.checked && kwField.value.trim() ? { learn: kwField.value.trim() } : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    // The rejection is the useful part — a keyword that is not in the line
+    // would have become a rule that fires on somebody else's payments.
+    btn.disabled = false;
+    err.textContent = res.error;
+    err.hidden = false;
+    return;
+  }
+  // The books moved, so anything derived from them is now stale.
+  await Promise.all([loadReview(), loadTx(), loadTiles(), loadBrief()]);
+});
+
 /* ---- chat ---- */
 const SUGGESTIONS = [
   "How long can we survive?",
@@ -988,7 +1099,7 @@ async function sendChat(text) {
   scrollThread();
 }
 
-loadIdentity(); loadBrief(); loadTiles(); loadChart(); loadUpcoming(); loadTx(); loadRecs();
+loadIdentity(); loadBrief(); loadTiles(); loadChart(); loadUpcoming(); loadTx(); loadRecs(); loadReview();
 </script>
 </body>
 </html>`;
