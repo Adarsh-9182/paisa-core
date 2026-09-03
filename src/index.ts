@@ -25,6 +25,7 @@ export * from "./actions.js";
 export * from "./ai/provider.js";
 export * from "./ai/document.js";
 export * from "./ai/tools.js";
+export * from "./ai/routing.js";
 export * from "./ai/orchestrator.js";
 export * from "./ai/planner.js";
 export * from "./ai/anthropic.js";

@@ -16,15 +16,15 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { erpApi, erpActions } from "./erp-console.js";
+import { erpApi, ERP_READS, CONTROLLER, CLOSE_PERIOD } from "./erp-console.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
 import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
          aboutPage, customersPage, contactPage, continuousClosePage, docsPage } from "./site/pages.js";
 import { canonicalRedirect, isCanonicalHost, robotsTxt, sitemapXml } from "./site/seo.js";
-import { boot, sync } from "./boot.js";
+import { boot, sync, ORG_ID, ORG_NAME } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
-import { loginPage } from "./login-page.js";
+import { loginPage, safeNext } from "./login-page.js";
 import { demoRuntime, newDemoId, isDemoId, demoStats } from "./demo-sessions.js";
 import {
   parseINR,
@@ -45,6 +45,7 @@ import {
   SESSION_COOKIE,
   fetchBillingRecords,
   toBankLines,
+  suggestKeyword,
   AccountDirectory,
   MemberDirectory,
   AccessError,
@@ -101,6 +102,16 @@ const resolvePassword = () => {
 
 const OWNER_EMAIL = normalizeEmail(process.env.PAISA_OWNER_EMAIL ?? "owner@paisa.local");
 
+/**
+ * A workspace's display name.
+ *
+ * There is no organization directory yet — memberships carry an orgId and
+ * nothing else — so the one set of books this instance serves is named from
+ * boot, and anything else falls back to its id rather than inventing a name
+ * the user never chose.
+ */
+const workspaceName = (orgId) => (orgId === ORG_ID ? ORG_NAME : orgId);
+
 
 const isSecure = (req) => req.headers["x-forwarded-proto"] === "https" || !!process.env.VERCEL;
 
@@ -110,12 +121,10 @@ const currentSession = (req) => readSession(parseCookies(req.headers.cookie)[SES
 /* Boot: one runtime, durable when a database is configured            */
 /* ------------------------------------------------------------------ */
 
-let org, erp, erpRoutes, erpDo, persistence;
+let org, erp, persistence, runtime;
 
 const ready = boot(seedAll).then((b) => {
-  ({ org, erp, persistence } = b);
-  erpRoutes = erpApi(org, erp);
-  erpDo = erpActions(erp);
+  ({ org, erp, persistence, runtime } = b);
   return b;
 });
 
@@ -155,7 +164,16 @@ const authReady = (async () => {
 const planner = new CfoPlanner({ asOf: AS_OF, periodFrom: PERIOD_FROM });
 const chain = [];
 if (process.env.ANTHROPIC_API_KEY) chain.push(new AnthropicProvider());
-if (process.env.OPENAI_API_KEY) chain.push(new OpenAIProvider());
+// A base URL on its own is enough: a server on localhost has no key to set,
+// and requiring one here would leave the free path permanently unreachable.
+if (process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL) chain.push(new OpenAIProvider());
+// A second model on the same endpoint, tried when the first is rate-limited.
+// On a free tier the binding constraint is quota, not capability: the newest
+// model is the busiest, so the rung that matters is another model rather than
+// another provider. Dropping to the planner should be the last resort, not
+// the response to a 429.
+if (process.env.PAISA_OPENAI_MODEL_FALLBACK)
+  chain.push(new OpenAIProvider({ model: process.env.PAISA_OPENAI_MODEL_FALLBACK }));
 chain.push(planner);
 const provider = chain.length > 1 ? new FallbackProvider(chain) : planner;
 const orchestrator = new Orchestrator(provider, 6, { asOf: AS_OF, periodFrom: PERIOD_FROM });
@@ -203,8 +221,9 @@ const pct = (cur, prev) => (prev !== 0n ? Number(((cur - prev) * 1000n) / prev) 
 /* ERP suite — attached to the same org, its own routes and page       */
 /* ------------------------------------------------------------------ */
 
-// erpApi/erpActions are bound per request from the booted runtime, since
-// the runtime is only available after the action log has been replayed.
+// The ERP views are bound per request, against whichever books the caller is
+// entitled to: the real ones when signed in, their own demo runtime when not.
+// Binding them once at boot pointed every visitor at the real company.
 
 const apiFor = (org) => ({
   brief() {
@@ -435,9 +454,17 @@ const page = () => `<!doctype html>
   .health-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
   .health-bar > div { height: 100%; border-radius: 3px; background: var(--green); }
   .profile { display: flex; gap: 10px; align-items: center; padding: 6px 8px; }
-  .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--green-soft); color: var(--green); font-weight: 700; font-size: 12.5px; display: grid; place-items: center; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--green-soft); color: var(--green); font-weight: 700; font-size: 12.5px; display: grid; place-items: center; flex-shrink: 0; }
+  .avatar.guest { background: var(--surface-2); color: var(--ink-3); }
   .profile b { display: block; font-size: 13px; }
-  .profile span { font-size: 11.5px; color: var(--ink-3); }
+  .profile span { display: block; font-size: 11.5px; color: var(--ink-3); }
+  /* the signed-out card is the way in, so the whole row is the target */
+  .profile.guest { padding: 0; }
+  .profile.guest a { display: flex; gap: 10px; align-items: center; width: 100%;
+    padding: 6px 8px; border-radius: 11px; text-decoration: none; color: inherit; }
+  .profile.guest a:hover { background: var(--surface-2); }
+  .profile .who { min-width: 0; }
+  .profile .who b, .profile .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* ---------- dashboard rail ---------- */
   .main { grid-area: 1 / 2; overflow-y: auto; padding: 22px 20px 30px; border-left: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 55%, transparent); }
@@ -514,6 +541,29 @@ const page = () => `<!doctype html>
   .up-right { text-align: right; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
   .badge-due { display: inline-block; font-size: 10.5px; font-weight: 700; color: var(--orange-deep); background: var(--orange-soft); border-radius: 99px; padding: 2px 8px; margin-top: 2px; }
 
+  /* ---------- bank feed review ---------- */
+  .rate { font-size: 11.5px; font-weight: 700; border-radius: 99px; padding: 3px 10px;
+    color: var(--orange-deep); background: var(--orange-soft); font-variant-numeric: tabular-nums; }
+  .rvw { border-top: 1px solid var(--line); padding: 12px 0; }
+  .rvw:first-child { border-top: 0; }
+  .rvw-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .rvw-desc { font-weight: 600; font-size: 13px; word-break: break-word; }
+  .rvw-when { font-size: 11.5px; color: var(--ink-3); }
+  .rvw-amt { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rvw-amt.in { color: var(--green); }
+  .rvw-form { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; align-items: center; }
+  .rvw-form select, .rvw-form input {
+    border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; font-size: 12.5px;
+    font-family: inherit; background: var(--surface); color: var(--ink); outline: none; min-width: 0; }
+  .rvw-form select { flex: 1 1 140px; }
+  .rvw-form input { flex: 1 1 110px; }
+  .rvw-form select:focus, .rvw-form input:focus { border-color: var(--orange); }
+  .rvw-learn { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--ink-2);
+    white-space: nowrap; cursor: pointer; }
+  .rvw-learn input { flex: none; min-width: 0; width: 14px; height: 14px; accent-color: var(--orange); }
+  .rvw-err { color: var(--red); font-size: 11.5px; margin-top: 6px; }
+  .rvw-empty { color: var(--ink-3); font-size: 12.5px; padding: 6px 0; }
+
   table.tx { width: 100%; border-collapse: collapse; }
   table.tx td { padding: 9px 4px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
   table.tx tr:last-child td { border-bottom: 0; }
@@ -586,7 +636,7 @@ const page = () => `<!doctype html>
     <div class="landing" id="landing">
       <div class="landing-inner">
         <div class="date-line" id="dateline"></div>
-        <h1>Good morning, Adarsh</h1>
+        <h1 id="greeting">Good morning</h1>
 
         <section class="brief">
           <div class="brief-top"><span class="tag">YOUR AI CFO</span><span class="when">Updated 6:00 AM</span></div>
@@ -636,6 +686,12 @@ const page = () => `<!doctype html>
       </div>
     </section>
 
+    <section class="card" id="review-card" style="margin-bottom:16px">
+      <div class="card-head"><h2>Needs your review</h2><span class="rate" id="review-rate"></span></div>
+      <div class="card-sub" id="review-sub">Lines the categoriser would not guess an account for</div>
+      <div id="review-list"></div>
+    </section>
+
     <section class="card">
       <div class="card-head"><h2>Recent transactions</h2><a class="link" href="/journal" target="_blank">View all</a></div>
       <div class="card-sub" id="tx-sub">Auto-categorised by AI</div>
@@ -678,7 +734,7 @@ $("navmenu").innerHTML =
     '<div class="health-row"><span class="health-score" id="hscore">–</span><span class="health-grade" id="hgrade"></span></div>' +
     '<div class="health-bar"><div id="hbar" style="width:0%"></div></div>' +
   "</div>" +
-  '<div class="profile"><div class="avatar">AK</div><div><b>Adarsh Kumar</b><span>Nimbus Labs Pvt Ltd</span></div></div>';
+  '<div class="profile" id="profile"></div>';
 
 const navLinks = [...$("navmenu").querySelectorAll("a")];
 const closeMenu = () => { $("navmenu").classList.remove("open"); $("menubtn").setAttribute("aria-expanded", "false"); };
@@ -704,6 +760,33 @@ navLinks.forEach((a, i) => {
 $("dateline").textContent = new Date("${AS_OF}T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
 const j = (url, opts) => fetch(url, opts).then((r) => r.json());
+
+/* ---- who is looking ----
+
+   The page renders for two kinds of visitor: a signed-in member, who sees
+   their own name and workspace, and everyone else, who is looking at demo
+   books and is offered a way in. The cookie decides which — never the client,
+   which is why this asks the server rather than reading anything local. */
+const initials = (name) =>
+  name.trim().split(/\\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+
+async function loadIdentity() {
+  const res = await fetch("/api/me");
+  if (!res.ok) {
+    $("profile").className = "profile guest";
+    $("profile").innerHTML =
+      '<a href="/login"><div class="avatar guest">→</div>' +
+      '<div class="who"><b>Sign in</b><span>You are viewing demo books</span></div></a>';
+    return;
+  }
+  const me = await res.json();
+  const name = me.user.displayName || me.user.email;
+  $("profile").className = "profile";
+  $("profile").innerHTML =
+    '<div class="avatar">' + esc(initials(name)) + "</div>" +
+    '<div class="who"><b>' + esc(name) + "</b><span>" + esc(me.workspace) + "</span></div>";
+  $("greeting").textContent = "Good morning, " + name.split(/\\s+/)[0];
+}
 
 /* ---- brief + health ---- */
 async function loadBrief() {
@@ -846,6 +929,88 @@ $("recs").addEventListener("click", async (e) => {
   await Promise.all([loadRecs(), loadBrief()]);
 });
 
+/* ---- bank feed review ----
+
+   The queue is where the auto-book rate is actually earned: every line
+   resolved here can leave a rule behind, so the same payee never asks again.
+   The rate is shown beside it because that is the whole point of the work —
+   a reviewer should watch the queue get quieter. */
+async function loadReview() {
+  const d = await j("/api/banking/review");
+  const pct = d.stats.autoBookedPct;
+  $("review-rate").textContent = pct === null ? "no feed yet" : pct + "% booked automatically";
+
+  if (!d.items.length) {
+    $("review-sub").textContent = "Every line in the feed booked itself";
+    $("review-list").innerHTML = '<div class="rvw-empty">Nothing waiting — the categoriser placed all of it.</div>';
+    return;
+  }
+
+  $("review-sub").textContent =
+    d.items.length + (d.items.length === 1 ? " line" : " lines") + " the categoriser would not guess an account for";
+
+  const options = d.accounts
+    .map((a) => '<option value="' + esc(a.id) + '">' + esc(a.name) + "</option>")
+    .join("");
+
+  $("review-list").innerHTML = d.items.map((it) => {
+    const kw = it.suggestedKeyword;
+    // Learning is offered pre-ticked only when there is something to learn;
+    // the keyword stays editable because the reviewer, not the heuristic, is
+    // the one vouching for it.
+    const learn = kw
+      ? '<input type="text" value="' + esc(kw) + '" data-kw aria-label="Keyword to remember">' +
+        '<label class="rvw-learn"><input type="checkbox" data-learn checked>remember</label>'
+      : "";
+    return (
+      '<div class="rvw" data-ref="' + esc(it.reference) + '">' +
+        '<div class="rvw-head">' +
+          '<div><div class="rvw-desc">' + esc(it.description) + "</div>" +
+          '<div class="rvw-when">' + esc(it.date) + "</div></div>" +
+          '<div class="rvw-amt' + (it.direction === "in" ? " in" : "") + '">' + esc(it.amount) + "</div>" +
+        "</div>" +
+        '<div class="rvw-form">' +
+          "<select data-acc>" + options + "</select>" + learn +
+          '<button class="btn btn-quiet" data-book>Book</button>' +
+        "</div>" +
+        '<div class="rvw-err" hidden></div>' +
+      "</div>"
+    );
+  }).join("");
+}
+
+$("review-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-book]");
+  if (!btn) return;
+  const row = btn.closest(".rvw");
+  const err = row.querySelector(".rvw-err");
+  const learnBox = row.querySelector("[data-learn]");
+  const kwField = row.querySelector("[data-kw]");
+
+  btn.disabled = true;
+  err.hidden = true;
+  const res = await j("/api/banking/categorize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      reference: row.dataset.ref,
+      accountId: row.querySelector("[data-acc]").value,
+      ...(learnBox && learnBox.checked && kwField.value.trim() ? { learn: kwField.value.trim() } : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    // The rejection is the useful part — a keyword that is not in the line
+    // would have become a rule that fires on somebody else's payments.
+    btn.disabled = false;
+    err.textContent = res.error;
+    err.hidden = false;
+    return;
+  }
+  // The books moved, so anything derived from them is now stale.
+  await Promise.all([loadReview(), loadTx(), loadTiles(), loadBrief()]);
+});
+
 /* ---- chat ---- */
 const SUGGESTIONS = [
   "How long can we survive?",
@@ -942,7 +1107,7 @@ async function sendChat(text) {
   scrollThread();
 }
 
-loadBrief(); loadTiles(); loadChart(); loadUpcoming(); loadTx(); loadRecs();
+loadIdentity(); loadBrief(); loadTiles(); loadChart(); loadUpcoming(); loadTx(); loadRecs(); loadReview();
 </script>
 </body>
 </html>`;
@@ -984,18 +1149,104 @@ const CHAT_DEADLINE_MS = 48_000;
  */
 const DEMO_COOKIE = "paisa_demo";
 
+const setDemoCookie = (req, res, id) => {
+  res.setHeader("Set-Cookie",
+    `${DEMO_COOKIE}=${id}; Path=/; Max-Age=1800; SameSite=Lax; HttpOnly${isSecure(req) ? "; Secure" : ""}`);
+};
+
+/**
+ * Name the visitor's sandbox on the page response, before the page's own
+ * fetches go out.
+ *
+ * A dashboard paints from half a dozen parallel requests. If the cookie is
+ * only set on whichever of them is served first, the others arrive without
+ * one and each mint a runtime of their own — six sets of books per visitor,
+ * five of them orphaned, and a write that may not land in the one the next
+ * read comes from.
+ */
+const RAW_VIEWS = new Set(["/journal", "/trial-balance", "/balance-sheet", "/profit-and-loss", "/audit"]);
+
+/**
+ * The dashboards are for customers, not for visitors.
+ *
+ * A finance product that shows a ledger to whoever types the URL has to
+ * explain that to every buyer who asks how their books are protected, and
+ * "those were fake books" is a worse answer than not having shown them. So
+ * `/app` and `/erp` are behind the session, and the marketing site sells the
+ * product rather than handing over a console.
+ *
+ * The demo runtime is deliberately left in place rather than deleted: it is
+ * still the cheapest way to seed a sandbox, and reopening the front door is
+ * one call site, not a rebuild. Returning `false` here is that switch.
+ */
+const requireSession = (req, res, path) => {
+  if (currentSession(req)) return false;
+  res.statusCode = 302;
+  // Come back to where they were headed once they are signed in, rather than
+  // dropping them on a dashboard they did not ask for.
+  res.setHeader("Location", `/login?next=${encodeURIComponent(path)}`);
+  res.end();
+  return true;
+};
+
+/**
+ * Who is calling, with their authority looked up rather than trusted.
+ *
+ * The session cookie says who you are and which workspace you are looking
+ * at; the role comes from the directory on every request. One answer, used
+ * by the read routes and by the write gate, so the two cannot disagree about
+ * what a caller is allowed to do.
+ */
+const authorizeRequest = (req) => {
+  const claims = currentSession(req);
+  if (!claims) return null;
+  const account = accounts.get(claims.userId);
+  if (!account) return null;
+  try {
+    return { account, access: members.authorize(claims.userId, claims.orgId) };
+  } catch {
+    return null;
+  }
+};
+
 const resolveBooks = async (req, res) => {
-  if (currentSession(req)) return { org, erp, demo: false };
+  const me = authorizeRequest(req);
+  if (me) {
+    const exec = async (type, payload, actor = ACTOR) => (await runtime.execute(type, payload, actor)).result;
+    return { org, erp, exec, access: me.access, demo: false };
+  }
 
   const cookies = parseCookies(req.headers.cookie);
   let id = cookies[DEMO_COOKIE];
   if (!isDemoId(id)) {
     id = newDemoId();
-    res.setHeader("Set-Cookie",
-      `${DEMO_COOKIE}=${id}; Path=/; Max-Age=1800; SameSite=Lax; HttpOnly${isSecure(req) ? "; Secure" : ""}`);
+    setDemoCookie(req, res, id);
   }
   const session = await demoRuntime(id);
-  return { org: session.org, erp: session.erp, demo: true };
+  // A visitor's sandbox travels the same command path as the real books, so
+  // a route cannot accidentally work one way signed in and another way out.
+  const exec = async (type, payload, actor = ACTOR) => (await session.runtime.execute(type, payload, actor)).result;
+  return { org: session.org, erp: session.erp, exec, access: null, demo: true };
+};
+
+/**
+ * The books a mutating route may write to, or the refusal it must send.
+ *
+ * Anonymous callers are not turned away — they get their own demo runtime, so
+ * the product stays fully clickable without an account — but nothing they do
+ * reaches the real books. A signed-in caller must actually hold the
+ * permission the route needs; holding a session is not authority.
+ */
+const booksForWrite = async (req, res, permission) => {
+  const books = await resolveBooks(req, res);
+  if (!books.demo && !books.access.permissions.has(permission))
+    return {
+      refusal: {
+        code: 403,
+        body: { ok: false, error: `Your role (${books.access.role}) cannot ${permission.replace(/_/g, " ")}` },
+      },
+    };
+  return { books };
 };
 
 const sanitizeHistory = (raw) => {
@@ -1052,12 +1303,15 @@ export const handle = async (req, res) => {
   try {
     if (path === "/login") {
       const query = new URLSearchParams((req.url ?? "").split("?")[1] ?? "");
+      const next = safeNext(query.get("next"));
       if (currentSession(req)) {
         res.statusCode = 302;
-        res.setHeader("Location", "/");
+        // Already signed in: go where they were headed, not to the marketing
+        // page they have plainly already read.
+        res.setHeader("Location", next);
         return res.end();
       }
-      return send(200, loginPage(query.get("error")), "text/html");
+      return send(200, loginPage(query.get("error"), next), "text/html");
     }
 
     if (path === "/api/login" && req.method === "POST") {
@@ -1103,17 +1357,7 @@ export const handle = async (req, res) => {
      * revoked member is locked out on their next call rather than at their
      * next login, and a role change takes effect immediately.
      */
-    const authed = () => {
-      const claims = currentSession(req);
-      if (!claims) return null;
-      const account = accounts.get(claims.userId);
-      if (!account) return null;
-      try {
-        return { account, access: members.authorize(claims.userId, claims.orgId) };
-      } catch {
-        return null;
-      }
-    };
+    const authed = () => authorizeRequest(req);
 
     if (path === "/api/me") {
       const me = authed();
@@ -1121,9 +1365,12 @@ export const handle = async (req, res) => {
       return send(200, {
         user: me.account,
         orgId: me.access.orgId,
+        workspace: workspaceName(me.access.orgId),
         role: me.access.role,
         permissions: [...me.access.permissions].sort(),
-        workspaces: members.listUser(me.account.userId).map((m) => ({ orgId: m.orgId, role: m.role })),
+        workspaces: members
+          .listUser(me.account.userId)
+          .map((m) => ({ orgId: m.orgId, name: workspaceName(m.orgId), role: m.role })),
       });
     }
 
@@ -1195,7 +1442,10 @@ export const handle = async (req, res) => {
     }
 
     if (path === "/") return send(200, sitePage(), "text/html");
-    if (path === "/app") return send(200, page(), "text/html");
+    if (path === "/app") {
+      if (requireSession(req, res, path)) return;
+      return send(200, page(), "text/html");
+    }
 
     if (path === "/robots.txt") return send(200, robotsTxt(), "text/plain");
     if (path === "/sitemap.xml") return send(200, sitemapXml(), "application/xml");
@@ -1236,6 +1486,10 @@ export const handle = async (req, res) => {
             setTimeout(() => reject(new Error("agent deadline exceeded")), CHAT_DEADLINE_MS),
           ),
         ]);
+        // Logged even when the answer succeeded, because a good answer from a
+        // lower rung is exactly the case that otherwise leaves no trace.
+        if (provider instanceof FallbackProvider)
+          for (const f of provider.lastFailures) console.warn(`[paisa] ${f.name} declined: ${f.error}`);
         const drafted = books.org.actions
           .pending()
           .filter((a) => !before.has(a.id))
@@ -1245,6 +1499,10 @@ export const handle = async (req, res) => {
           tools: record.toolsInvoked.map((t) => t.tool),
           verified: record.verified,
           actions: drafted,
+          // Which rung of the chain actually answered. Without this a model
+          // outage reads as "the AI got worse today" — the planner's answer
+          // is correct but plainer, and nothing on the page said why.
+          answeredBy: provider instanceof FallbackProvider ? provider.lastUsedName : provider.name,
         });
       } catch (err) {
         const timedOut = err.message === "agent deadline exceeded";
@@ -1304,17 +1562,29 @@ export const handle = async (req, res) => {
       "/site/docs": docsPage,
     };
     if (staticSite[path]) return send(200, staticSite[path](), "text/html");
-    if (path === "/erp") return send(200, erpPage(), "text/html");
+    if (path === "/erp") {
+      if (requireSession(req, res, path)) return;
+      return send(200, erpPage(), "text/html");
+    }
 
     const erpName = path.replace("/api/erp/", "");
-    if (path.startsWith("/api/erp/") && erpRoutes[erpName]) return send(200, erpRoutes[erpName]());
+    if (path.startsWith("/api/erp/") && req.method === "GET" && ERP_READS.has(erpName)) {
+      const { org: books, erp: suite } = await resolveBooks(req, res);
+      return send(200, erpApi(books, suite)[erpName]());
+    }
 
     const propAction = /^\/api\/erp\/proposals\/(prop_[\w]+)\/(approve|dismiss)$/.exec(path);
     if (propAction && req.method === "POST") {
       const [, id, action] = propAction;
+      // Approving a proposal posts a journal entry, so it takes the same
+      // permission as posting one by hand.
+      const { books, refusal } = await booksForWrite(req, res, "post_journal");
+      if (refusal) return send(refusal.code, refusal.body);
       try {
-        const p = action === "approve" ? erpDo.approveProposal(id) : erpDo.dismissProposal(id, "reviewed");
-        return send(200, { ok: true, id: p.id, status: p.status, entryId: p.resultingEntryId });
+        const p = action === "approve"
+          ? await books.exec("agents.approve", { proposalId: id }, CONTROLLER)
+          : await books.exec("agents.dismiss", { proposalId: id, reason: "reviewed" }, CONTROLLER);
+        return send(200, { ok: true, id: p.id, status: p.status, entryId: p.resultingEntryId ?? null });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
       }
@@ -1324,9 +1594,13 @@ export const handle = async (req, res) => {
        someone else's account by posting a key at this route. */
     if (path === "/api/connectors/stripe/sync" && req.method === "POST") {
       // A sync spends Stripe rate limit and writes to the review queue, so it
-      // needs a signed-in caller. The key is server-side either way, but an
-      // open endpoint lets anyone trigger the work.
-      if (!currentSession(req)) return send(401, { ok: false, error: "Sign in required" });
+      // needs a signed-in caller who runs the connectors. The key is
+      // server-side either way, but an open endpoint lets anyone trigger the
+      // work — and a viewer is not someone who should be able to.
+      const me = authorizeRequest(req);
+      if (!me) return send(401, { ok: false, error: "Sign in required" });
+      if (!me.access.permissions.has("manage_connectors"))
+        return send(403, { ok: false, error: `Your role (${me.access.role}) cannot manage connectors` });
 
       const secretKey = process.env.STRIPE_SECRET_KEY;
       if (!secretKey)
@@ -1370,13 +1644,68 @@ export const handle = async (req, res) => {
       }
     }
 
+    /* ---- bank feed review: the queue, and the way out of it ---- */
+
+    /**
+     * What the categorizer could not book, and the rate at which it books.
+     *
+     * The suggestion is the keyword a rule would be taught from, offered so a
+     * reviewer confirms a word rather than composing one — but it is only ever
+     * a default in a field, never applied on its own.
+     */
+    if (path === "/api/banking/review") {
+      const { org: books } = await resolveBooks(req, res);
+      return send(200, {
+        stats: books.banking.stats(),
+        accounts: books.chart
+          .all()
+          .filter((a) => a.active && (a.type === "EXPENSE" || a.type === "REVENUE"))
+          .map((a) => ({ id: a.id, name: a.name, type: a.type })),
+        items: books.banking.pendingReview().map((l) => ({
+          reference: l.reference,
+          date: l.date,
+          description: l.description,
+          amount: formatINR(l.amount),
+          direction: l.amount < 0n ? "out" : "in",
+          suggestedKeyword: suggestKeyword(l.description),
+        })),
+      });
+    }
+
+    if (path === "/api/banking/categorize" && req.method === "POST") {
+      const { reference, accountId, learn } = JSON.parse((await readBody(req)) || "{}");
+      const { books, refusal } = await booksForWrite(req, res, "categorize_transactions");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        // Both sets of books go through the action log, so a taught rule
+        // survives a restart of the real instance and behaves identically in
+        // a visitor's sandbox.
+        await books.exec("banking.categorize", {
+          reference: String(reference ?? ""),
+          accountId: String(accountId ?? ""),
+          ...(learn ? { learn } : {}),
+        });
+        return send(200, { ok: true, stats: books.org.banking.stats() });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
     if (path === "/api/erp/close/run" && req.method === "POST") {
-      const run = erpDo.runClose();
-      return send(200, { ok: true, passed: run.passed, blocked: run.blocked, readyToClose: run.readyToClose });
+      const { books, refusal } = await booksForWrite(req, res, "close_period");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        const run = await books.exec("close.run", { period: CLOSE_PERIOD }, CONTROLLER);
+        return send(200, { ok: true, passed: run.passed, blocked: run.blocked, readyToClose: run.readyToClose });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
     }
     if (path === "/api/erp/close/lock" && req.method === "POST") {
+      const { books, refusal } = await booksForWrite(req, res, "close_period");
+      if (refusal) return send(refusal.code, refusal.body);
       try {
-        const run = erpDo.lockPeriod();
+        const run = await books.exec("close.lock", { period: CLOSE_PERIOD }, CONTROLLER);
         return send(200, { ok: true, locked: run.locked, completedAt: run.completedAt });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
@@ -1391,7 +1720,12 @@ export const handle = async (req, res) => {
     const actAction = /^\/api\/actions\/(prop_[\w]+)\/(approve|dismiss)$/.exec(path);
     if (actAction && req.method === "POST") {
       const [, id, decision] = actAction;
-      const { org: books } = await resolveBooks(req, res);
+      // A drafted action runs a real effect on approval — an invoice, a
+      // posting, a payment — so it takes a deciding permission, not a
+      // recording one.
+      const { books: resolved, refusal } = await booksForWrite(req, res, "approve_payments");
+      if (refusal) return send(refusal.code, refusal.body);
+      const books = resolved.org;
       try {
         const settled = decision === "approve"
           ? books.actions.approve(id, ACTOR)
@@ -1405,9 +1739,14 @@ export const handle = async (req, res) => {
     const recAction = /^\/api\/recommendations\/(rec_[\w]+)\/(approve|dismiss)$/.exec(path);
     if (recAction && req.method === "POST") {
       const [, id, action] = recAction;
-      const { org: books } = await resolveBooks(req, res);
-      const rec = action === "approve" ? books.recommendations.approve(id, ACTOR) : books.recommendations.dismiss(id, ACTOR);
-      return send(200, { ok: true, id: rec.id, status: rec.status });
+      const { books, refusal } = await booksForWrite(req, res, "approve_payments");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        const rec = await books.exec(`recommendations.${action}`, { id });
+        return send(200, { ok: true, id: rec.id, status: rec.status });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
     }
 
     const apiName = path.replace("/api/", "");
@@ -1417,16 +1756,26 @@ export const handle = async (req, res) => {
       if (routes[apiName]) return send(200, routes[apiName]());
     }
 
-    // Raw engine views
-    if (path === "/journal")
-      return send(200, org.journal.all().map((e) => ({
-        id: e.id, date: e.date, narration: e.narration, source: e.sourceModule,
-        lines: e.lines.map((l) => ({ account: org.chart.get(l.accountId).name, side: l.side, amount: formatINR(l.amount) })),
-      })));
-    if (path === "/trial-balance") return send(200, org.ledger.trialBalance(AS_OF));
-    if (path === "/balance-sheet") return send(200, org.statements.balanceSheet(AS_OF));
-    if (path === "/profit-and-loss") return send(200, org.statements.profitAndLoss(PERIOD_FROM, AS_OF));
-    if (path === "/audit") return send(200, org.bus.audit(org.orgId));
+    /* ---- raw engine views ----
+     *
+     * These are the drill-down behind the dashboard, and they print the whole
+     * ledger: every entry, the trial balance, the audit trail. They used to
+     * read the module-level `org`, which meant the real company's books were
+     * one unauthenticated GET away. They now answer from whichever books the
+     * caller is entitled to, like every other read.
+     */
+    if (RAW_VIEWS.has(path)) {
+      const { org: books } = await resolveBooks(req, res);
+      if (path === "/journal")
+        return send(200, books.journal.all().map((e) => ({
+          id: e.id, date: e.date, narration: e.narration, source: e.sourceModule,
+          lines: e.lines.map((l) => ({ account: books.chart.get(l.accountId).name, side: l.side, amount: formatINR(l.amount) })),
+        })));
+      if (path === "/trial-balance") return send(200, books.ledger.trialBalance(AS_OF));
+      if (path === "/balance-sheet") return send(200, books.statements.balanceSheet(AS_OF));
+      if (path === "/profit-and-loss") return send(200, books.statements.profitAndLoss(PERIOD_FROM, AS_OF));
+      if (path === "/audit") return send(200, books.bus.audit(books.orgId));
+    }
 
     return send(404, { error: `Unknown route ${path}` });
   } catch (err) {

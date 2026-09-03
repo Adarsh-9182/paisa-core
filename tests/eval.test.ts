@@ -143,6 +143,87 @@ describe("aggregating a run", () => {
     expect(report.passed).toBe(0);
   });
 
+  it("does not score a rate limit as a wrong answer", async () => {
+    // The failure this guards against: a free tier 429s half the set, those
+    // cases are counted as the model getting them wrong, and a model that
+    // never ran is reported as 50% accurate — then compared against another
+    // model and a decision is made on it.
+    const rateLimited = {
+      name: "busy",
+      run: async () => {
+        throw new Error("OpenAI API error 429: You exceeded your current quota");
+      },
+    };
+    const report = await runEval(rateLimited, [CASH, { ...CASH, id: "cash-2" }], opts);
+    expect(report.unreached).toBe(2);
+    expect(report.total).toBe(0); // nothing was actually scored
+    expect(report.toolRecall).toBe(1); // no claim either way, not 0%
+    expect(report.groundedRate).toBe(1);
+    expect(formatReport(report)).toContain("never reached the model");
+  });
+
+  it("still scores a refusal against the model, since that is its answer", async () => {
+    // The other half of the rule: only infrastructure is excused. A model
+    // that declines, or answers ungroundedly, has told us something real.
+    const refuses = {
+      name: "refuser",
+      run: async () => {
+        throw new Error("content policy refusal");
+      },
+    };
+    const report = await runEval(refuses, [CASH], opts);
+    expect(report.unreached).toBe(0);
+    expect(report.total).toBe(1);
+    expect(report.passed).toBe(0);
+  });
+
+  it("separates a right answer that cost too much from a wrong one", async () => {
+    // Correctness and cost were being answered by one number. A model whose
+    // figures are all grounded but which takes four trips where two would do
+    // is expensive, not wrong, and the fixes are different.
+    const chatty = new MockProvider([
+      { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-07-02" } }] },
+      { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-07-02" } }] },
+      { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-07-02" } }] },
+      { kind: "final", text: "Plenty." },
+    ]);
+    const report = await runEval(chatty, [{ ...CASH, maxRounds: 1 }], opts);
+    expect(report.passed).toBe(0); // it did break the round budget
+    expect(report.correct).toBe(1); // but it got the answer right
+    expect(report.cases[0]!.overRoundsOnly).toBe(true);
+    expect(formatReport(report)).toContain("costs quota, not correctness");
+  });
+
+  it("does not call a wrong answer merely expensive", async () => {
+    const wrong = new MockProvider([{ kind: "final", text: "No idea." }]);
+    const report = await runEval(wrong, [{ ...CASH, maxRounds: 1 }], opts);
+    expect(report.correct).toBe(0);
+    expect(report.cases[0]!.overRoundsOnly).toBe(false);
+  });
+
+  it("reports a repeated case by its worst attempt, not its best", async () => {
+    // A model that agrees with a made-up figure one time in three is not
+    // two-thirds safe. Reporting the best attempt is how a coin flip gets
+    // recorded as a capability.
+    let call = 0;
+    const flaky = {
+      name: "flaky",
+      run: async (ctx: { executeTool: (t: string, a: Record<string, unknown>) => string }) => {
+        call++;
+        // passes on the first attempt, skips the tool on later ones
+        if (call === 1) ctx.executeTool("get_cash_position", { asOf: "2026-07-02" });
+        return "Nothing to report.";
+      },
+    };
+    const report = await runEval(flaky, [{ ...CASH, repeat: 3 }], opts);
+    expect(report.passed).toBe(0);
+    const only = report.cases[0]!;
+    expect(only.attempts).toBe(3);
+    expect(only.passes).toBe(1);
+    expect(formatReport(report)).toContain("passed 1/3 attempts");
+    expect(formatReport(report)).toContain("intermittent");
+  });
+
   it("does not report zero cost when the provider reported nothing", async () => {
     // A provider that cannot measure must read as unknown. Zero would look
     // like the cheapest option in a comparison, which is the worst possible

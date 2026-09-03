@@ -181,6 +181,102 @@ describe("OpenAIProvider (GPT-5.6)", () => {
     expect(record.toolsInvoked[0]!.tool).toBe("get_cash_position");
   });
 
+  it("runs against a keyless local server, and sends no Authorization header", async () => {
+    // Ollama / llama.cpp / mlx_lm speak this protocol and none authenticate.
+    // Requiring a key would rule out every free way to run the narrator.
+    const seen: Record<string, string>[] = [];
+    const queue = [
+      { choices: [{ message: { tool_calls: [{ id: "c1", function: { name: "get_cash_position", arguments: `{"asOf":"${AS_OF}"}` } }] } }] },
+      { choices: [{ message: { content: "Cash on hand is **₹30,00,000.00** as of today." } }] },
+    ];
+    const provider = new OpenAIProvider({
+      baseUrl: "http://localhost:11434/v1",
+      model: "qwen3:14b",
+      fetchFn: async (_url, init) => {
+        seen.push(init.headers);
+        return { ok: true, status: 200, text: async () => "", json: async () => queue.shift() };
+      },
+    });
+    const record = await new Orchestrator(provider).ask(cfoUser, baseOrg(), "How much cash do we have?");
+    expect(record.verified).toBe(true);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((h) => !("Authorization" in h))).toBe(true);
+  });
+
+  it("tolerates a base URL with a trailing slash, as Google documents it", async () => {
+    const urls: string[] = [];
+    const provider = new OpenAIProvider({
+      apiKey: "k",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+      fetchFn: async (url) => {
+        urls.push(url);
+        return { ok: true, status: 200, text: async () => "", json: async () => ({ choices: [{ message: { content: "ok" } }] }) };
+      },
+    });
+    await provider.run({
+      system: "s", history: [], userQuery: "q", availableTools: [],
+      executeTool: () => "", maxRounds: 1,
+    });
+    expect(urls[0]).toBe("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions");
+    expect(urls[0]).not.toContain("//chat");
+  });
+
+  it("retries a busy free tier instead of silently demoting the answer", async () => {
+    // A free endpoint returning 503 is busy, not broken. Without a retry the
+    // question drops to the offline planner and the user just gets a worse
+    // answer for no visible reason.
+    let calls = 0;
+    const provider = new OpenAIProvider({
+      apiKey: "k",
+      maxRetries: 2,
+      fetchFn: async () => {
+        calls++;
+        // busy twice, then the normal tool-call / answer exchange
+        if (calls <= 2)
+          return { ok: false, status: 503, text: async () => "high demand", json: async () => ({}) };
+        const body = calls === 3
+          ? { choices: [{ message: { tool_calls: [{ id: "c1", function: { name: "get_cash_position", arguments: `{"asOf":"${AS_OF}"}` } }] } }] }
+          : { choices: [{ message: { content: "Cash on hand is **₹30,00,000.00** as of today." } }] };
+        return { ok: true, status: 200, text: async () => "", json: async () => body };
+      },
+    });
+    const record = await new Orchestrator(provider).ask(cfoUser, baseOrg(), "How much cash do we have?");
+    expect(calls).toBe(4); // 2 rejected + tool call + answer
+    expect(record.verified).toBe(true);
+    expect(record.toolsInvoked[0]!.tool).toBe("get_cash_position");
+  });
+
+  it("does not retry a failure that will never succeed", async () => {
+    // A dead key or a bad schema fails identically forever; retrying it only
+    // spends the caller's deadline before failing anyway.
+    let calls = 0;
+    const provider = new OpenAIProvider({
+      apiKey: "bad",
+      maxRetries: 2,
+      fetchFn: async () => {
+        calls++;
+        return { ok: false, status: 401, text: async () => "invalid key", json: async () => ({}) };
+      },
+    });
+    await expect(
+      provider.run({
+        system: "s", history: [], userQuery: "q", availableTools: [],
+        executeTool: () => "", maxRounds: 1,
+      }),
+    ).rejects.toThrow(/401/);
+    expect(calls).toBe(1);
+  });
+
+  it("still demands a key for a hosted endpoint", async () => {
+    const provider = new OpenAIProvider({ apiKey: "", baseUrl: "https://api.openai.com/v1" });
+    await expect(
+      provider.run({
+        system: "s", history: [], userQuery: "q", availableTools: [],
+        executeTool: () => "", maxRounds: 1,
+      }),
+    ).rejects.toThrow(/OPENAI_API_KEY is not set/);
+  });
+
   it("throws without an API key so the fallback chain can take over — and the fallback names who answered", async () => {
     const provider = new OpenAIProvider({ apiKey: "" });
     const planner = new CfoPlanner({ asOf: AS_OF, periodFrom: "2026-01-01" });

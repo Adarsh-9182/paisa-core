@@ -94,9 +94,20 @@ export class FallbackProvider implements LanguageModelProvider {
    * be told apart from "the planner answered because the key is dead".
    */
   lastUsedName: string | null = null;
+  /**
+   * Why each provider declined, for the run that just happened.
+   *
+   * A silent demotion is the hardest failure to diagnose in this system: the
+   * planner's answer is correct, so nothing looks broken, and the only symptom
+   * is that the AI got blander. Recording the reason turns "the model is
+   * worse today" into "gemini returned 503", which is a different
+   * conversation. Cleared per run so it always describes the current answer.
+   */
+  lastFailures: { name: string; error: string }[] = [];
   constructor(private chain: LanguageModelProvider[]) {}
   async run(ctx: AgentContext): Promise<string> {
     this.lastUsedName = null;
+    this.lastFailures = [];
     let lastError: unknown;
     for (const p of this.chain) {
       try {
@@ -104,6 +115,7 @@ export class FallbackProvider implements LanguageModelProvider {
         this.lastUsedName = p.name;
         return answer;
       } catch (e) {
+        this.lastFailures.push({ name: p.name, error: e instanceof Error ? e.message : String(e) });
         lastError = e;
       }
     }

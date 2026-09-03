@@ -375,10 +375,10 @@ ${nav()}
         consolidation, and a close that runs itself. Its AI CFO answers in plain language — and is
         structurally incapable of inventing a figure.</p>
       <div class="hero-cta fade-up" style="animation-delay:.88s">
-        <a class="btn btn-primary" href="/app">Ask the AI CFO</a>
-        <a class="btn btn-dark" href="/erp">Open the ERP console</a>
+        <a class="btn btn-primary" href="/site/contact">Book a demo</a>
+        <a class="btn btn-dark" href="/login">Sign in</a>
       </div>
-      <div class="hero-note fade-up" style="animation-delay:1s">No sign-up — the demo runs on a seeded company with a live close waiting.</div>
+      <div class="hero-note fade-up" style="animation-delay:1s">Your ledger is only ever visible to your team — the console is behind sign-in.</div>
       <div class="hint fade-up" style="animation-delay:1.15s"><i></i> watch the close resolve itself</div>
     </div>
 
@@ -651,11 +651,11 @@ ${nav()}
 <section class="cta">
   <div class="wrap">
     <h2>See a close that will not let you lie to yourself.</h2>
-    <p class="lede on-dark">The demo runs on a seeded company with June still open — two real blockers
-      waiting, agents holding proposals, and every number computed by the engines.</p>
+    <p class="lede on-dark">We will walk you through a seeded company with June still open — two real
+      blockers waiting, agents holding proposals, and every number computed by the engines.</p>
     <div class="cta-row">
-      <a class="btn btn-primary" href="/app">Try the AI CFO</a>
-      <a class="btn btn-dark" href="/erp">Open the ERP console</a>
+      <a class="btn btn-primary" href="/site/contact">Book a demo</a>
+      <a class="btn btn-dark" href="/login">Sign in</a>
     </div>
   </div>
 </section>

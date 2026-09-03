@@ -6,6 +6,7 @@ import {
   CfoPlanner,
   AiUser,
   Permission,
+  suggestKeyword,
 } from "../src/index.js";
 
 const freshOrg = (id = "org_t") => new Platform().createOrganization(id, "Test Co");
@@ -176,6 +177,129 @@ describe("banking ingestion", () => {
     expect(second.posted.length).toBe(0);
     expect(second.duplicates.length).toBe(3);
     expect(org.ledger.balance("acc_software", "2026-06-30")).toBe(parseINR("8,000")); // not doubled
+  });
+
+  it("does not match a keyword inside a longer word", () => {
+    const org = freshOrg();
+    // Every one of these would have been mis-booked by substring matching:
+    // "CURRENT" contains "rent", "THREADS" contains "ads", "CHOCOLATE"
+    // contains "ola", "SOLAR" contains "ola".
+    const traps = [
+      { date: "2026-06-02", description: "CURRENT ACCOUNT SWEEP", amount: parseINR("-1,000"), reference: "t1" },
+      { date: "2026-06-03", description: "THREADS MEDIA LLP", amount: parseINR("-2,000"), reference: "t2" },
+      { date: "2026-06-04", description: "CHOCOLATE ROOM CAFE", amount: parseINR("-3,000"), reference: "t3" },
+      { date: "2026-06-06", description: "SOLAR PANEL DEPOSIT", amount: parseINR("-4,000"), reference: "t4" },
+    ];
+    const result = org.banking.importStatement(traps, "adarsh");
+    expect(result.posted.length).toBe(0);
+    expect(result.needsReview.length).toBe(4);
+    expect(org.ledger.balance("acc_rent", "2026-06-30")).toBe(parseINR("0"));
+    expect(org.ledger.balance("acc_marketing", "2026-06-30")).toBe(parseINR("0"));
+    expect(org.ledger.balance("acc_travel", "2026-06-30")).toBe(parseINR("0"));
+  });
+
+  it("still matches a keyword bounded by punctuation, as real narrations are", () => {
+    const org = freshOrg();
+    const result = org.banking.importStatement(
+      [{ date: "2026-06-02", description: "NEFT DR-AWS INDIA-0042", amount: parseINR("-5,000"), reference: "b1" }],
+      "adarsh",
+    );
+    expect(result.posted.length).toBe(1);
+    expect(org.ledger.balance("acc_software", "2026-06-30")).toBe(parseINR("5,000"));
+  });
+
+  it("prefers the most specific rule when several match", () => {
+    const org = freshOrg();
+    // longer than the built-in "google cloud", so it knows more about this line
+    org.banking.addRule({ keyword: "google cloud india", accountId: "acc_utilities", label: "Hosting" });
+    org.banking.importStatement(
+      [{ date: "2026-06-02", description: "GOOGLE CLOUD INDIA-88", amount: parseINR("-9,000"), reference: "g1" }],
+      "adarsh",
+    );
+    expect(org.ledger.balance("acc_utilities", "2026-06-30")).toBe(parseINR("9,000"));
+    expect(org.ledger.balance("acc_software", "2026-06-30")).toBe(parseINR("0"));
+  });
+
+  it("a taught rule overrides a default of equal specificity", () => {
+    const org = freshOrg();
+    // "aws" is a built-in Software rule; this company's AWS spend is COGS
+    org.banking.addRule({ keyword: "aws", accountId: "acc_utilities", label: "Infrastructure" });
+    org.banking.importStatement(
+      [{ date: "2026-06-02", description: "AWS INDIA JUNE", amount: parseINR("-7,000"), reference: "a1" }],
+      "adarsh",
+    );
+    expect(org.ledger.balance("acc_utilities", "2026-06-30")).toBe(parseINR("7,000"));
+    expect(org.ledger.balance("acc_software", "2026-06-30")).toBe(parseINR("0"));
+  });
+
+  it("learns from a review so the same payee books itself next time", () => {
+    const org = freshOrg();
+    const first = { date: "2026-06-07", description: "UPI-ZOMATO FOR WORK-9912", amount: parseINR("-1,200"), reference: "z1" };
+    org.banking.importStatement([first], "adarsh");
+    expect(org.banking.pendingReview().length).toBe(1);
+
+    org.banking.categorize("z1", "acc_travel", "adarsh", "zomato");
+
+    // the next one never reaches the queue
+    const second = org.banking.importStatement(
+      [{ date: "2026-07-07", description: "UPI-ZOMATO FOR WORK-4471", amount: parseINR("-800"), reference: "z2" }],
+      "adarsh",
+    );
+    expect(second.posted.length).toBe(1);
+    expect(second.needsReview.length).toBe(0);
+    expect(org.ledger.balance("acc_travel", "2026-07-31")).toBe(parseINR("2,000"));
+  });
+
+  it("refuses to learn a keyword that is not in the description", () => {
+    const org = freshOrg();
+    org.banking.importStatement(
+      [{ date: "2026-06-07", description: "UPI-SWIGGY-1234", amount: parseINR("-500"), reference: "s1" }],
+      "adarsh",
+    );
+    expect(() => org.banking.categorize("s1", "acc_travel", "adarsh", "zomato")).toThrow(/does not appear/);
+    // nothing was posted and the line is still awaiting review
+    expect(org.banking.pendingReview().length).toBe(1);
+    expect(org.ledger.balance("acc_travel", "2026-06-30")).toBe(parseINR("0"));
+  });
+
+  it("suggests the payee, not the payment rail", () => {
+    // the merchant, not the longest single word ("point")
+    expect(suggestKeyword("IMPS 4032 Chai Point")).toBe("chai point");
+    // rails, reference numbers and filler are never the payee
+    expect(suggestKeyword("UPI transfer to Rahul")).toBe("rahul");
+    expect(suggestKeyword("NEFT DR-AWS INDIA-0042")).toBe("aws");
+    // a suggestion is cut verbatim, so the separator survives and the rule fires
+    expect(suggestKeyword("CHAI-POINT OUTLET")).toBe("chai-point outlet");
+    // nothing worth learning from
+    expect(suggestKeyword("NEFT DR 4032")).toBe(null);
+  });
+
+  it("a suggested keyword is always accepted as a rule for its own line", () => {
+    const org = freshOrg();
+    const line = { date: "2026-06-28", description: "IMPS 4032 Chai Point", amount: parseINR("-1,250"), reference: "c1" };
+    org.banking.importStatement([line], "adarsh");
+    const suggestion = suggestKeyword(line.description);
+    expect(suggestion).not.toBe(null);
+    // the round trip that matters: what we suggest must pass our own validation
+    expect(() => org.banking.categorize("c1", "acc_travel", "adarsh", suggestion!)).not.toThrow();
+  });
+
+  it("reports the auto-book rate, and null before anything is seen", () => {
+    const org = freshOrg();
+    expect(org.banking.stats().autoBookedPct).toBe(null);
+
+    org.banking.importStatement(lines, "adarsh"); // 2 posted, 1 queued
+    const s = org.banking.stats();
+    expect(s.posted).toBe(2);
+    expect(s.needsReview).toBe(1);
+    expect(s.autoBookedPct).toBeCloseTo(66.7, 1);
+
+    // resolving a review by hand does not flatter the auto-book rate
+    org.banking.categorize("utr_3", "acc_services", "adarsh", "mystery");
+    const after = org.banking.stats();
+    expect(after.autoBookedPct).toBeCloseTo(66.7, 1);
+    expect(after.resolved).toBe(1);
+    expect(after.learned).toBe(1);
   });
 
   it("categorizing a queued line posts it to the named account", () => {

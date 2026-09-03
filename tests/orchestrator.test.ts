@@ -3,7 +3,7 @@ import {
   Platform, parseINR,
   MockProvider, FallbackProvider, Orchestrator,
   NarrationError, PermissionError,
-  verifyNarration, extractFigures,
+  verifyNarration, extractFigures, assertsAFigure,
   AiUser, ChatTurn, AgentContext,
 } from "../src/index.js";
 
@@ -306,5 +306,22 @@ describe("conversation memory", () => {
     ]);
     await new Orchestrator(provider).ask(cfoUser, seededOrg(), "how much?", caller);
     expect(caller).toHaveLength(1);
+  });
+});
+
+describe("a figure the user supplies is a claim, not a fact", () => {
+  it("recognises the shapes a founder actually types", () => {
+    expect(assertsAFigure("Our revenue last month was about ₹40 lakh, right?")).toBe(true);
+    expect(assertsAFigure("we spend 2 lakh on salaries")).toBe(true);
+    expect(assertsAFigure("isn't our burn 3.5 lakhs?")).toBe(true);
+    expect(assertsAFigure("I think we have 3200000 in the bank")).toBe(true);
+    expect(assertsAFigure("₹1,20,000 a month for an engineer — affordable?")).toBe(true);
+  });
+
+  it("stays quiet when there is no figure to check", () => {
+    expect(assertsAFigure("What is my cash position?")).toBe(false);
+    expect(assertsAFigure("Which invoices are overdue?")).toBe(false);
+    // small bare numbers are ordinary language, not claims about money
+    expect(assertsAFigure("show me the last 3 months")).toBe(false);
   });
 });

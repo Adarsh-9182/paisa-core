@@ -99,6 +99,16 @@ export interface CloseContext {
   readonly deferredTiesToLedger: (period: PeriodKey) => { ties: boolean; detail: string };
   /** Cash accounts that must carry a completed reconciliation. */
   readonly cashAccounts: readonly { accountId: string; name: string }[];
+  /**
+   * Bank lines dated on or before `asOf` that are still awaiting a human's
+   * categorisation — money that moved and has not been booked anywhere.
+   */
+  readonly unreviewedBankLines: (asOf: string) => readonly {
+    readonly reference: string;
+    readonly date: string;
+    readonly description: string;
+    readonly amount: Paise;
+  }[];
   readonly reconciliationComplete: (accountId: string, asOf: string) => boolean;
   /** Automated runs — each returns the amount posted (zero if nothing due). */
   readonly runRevenueRecognition: (period: PeriodKey, actor: string) => Paise;
@@ -139,6 +149,37 @@ export class CloseEngine {
             passed: status !== "OPEN",
             detail: `Period ${period} is ${status}`,
             blockers: status === "OPEN" ? ["Period is still open to subledger postings"] : [],
+          };
+        },
+      },
+      {
+        /**
+         * Before reconciliation on purpose.
+         *
+         * A queued line has not been posted at all — it is money that moved
+         * through the bank and is absent from the ledger. Every downstream
+         * check inherits that hole: the bank will not reconcile, the P&L
+         * understates whatever the line was, and flux compares against a
+         * period that was missing it too. Reconciling first would mean
+         * explaining a difference whose cause is sitting in a queue.
+         */
+        id: "bank_lines_categorised",
+        name: "Bank feed fully categorised",
+        category: "RECONCILIATION",
+        automated: false,
+        run: (period) => {
+          // Only lines that belong to this period or earlier. A line dated
+          // into next month is not this close's problem.
+          const waiting = c.unreviewedBankLines(periodEnd(period));
+          return {
+            passed: waiting.length === 0,
+            detail:
+              waiting.length === 0
+                ? "Every bank line is booked"
+                : `${waiting.length} line${waiting.length === 1 ? "" : "s"} still awaiting categorisation`,
+            blockers: waiting.map(
+              (l) => `${l.date} ${l.description} (${formatINR(l.amount)}) is not booked to any account`,
+            ),
           };
         },
       },
@@ -293,7 +334,28 @@ export class CloseEngine {
     // control. Flux analysis begins once there is a prior period to vary from.
     const hasPrior = priorAccounts.some((a) => a.amount !== ZERO);
     const prior = new Map(priorAccounts.map((a) => [a.accountId, a.amount]));
-    return current
+
+    /**
+     * Both periods, not just this one.
+     *
+     * Walking only the current period made a line that stopped invisible: a
+     * cost centre running at ₹4,00,000 a month that books nothing at all this
+     * month produced no flux line, because there was no current row to hang
+     * it on. That is the wrong way round — an expense line going quiet
+     * usually means an invoice that has not arrived or a posting that went
+     * somewhere else, and revenue going quiet is worse. Falling to zero is a
+     * 100% movement and belongs in front of whoever signs the close.
+     */
+    const names = new Map(current.map((a) => [a.accountId, a.name]));
+    for (const a of priorAccounts) if (!names.has(a.accountId)) names.set(a.accountId, a.name);
+    const currentAmounts = new Map(current.map((a) => [a.accountId, a.amount]));
+    const union = [...names].map(([accountId, name]) => ({
+      accountId,
+      name,
+      amount: currentAmounts.get(accountId) ?? (ZERO as Paise),
+    }));
+
+    return union
       .map((a) => {
         const priorAmount = prior.get(a.accountId) ?? ZERO;
         const delta = sub(a.amount, priorAmount);

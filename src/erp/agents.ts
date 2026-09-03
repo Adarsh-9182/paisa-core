@@ -18,6 +18,7 @@ import { Paise, ZERO, add, sub, abs, cmp, sum, mulRatio, formatINR } from "../mo
 import { JournalEngine, JournalEntry } from "../journal.js";
 import { EventBus } from "../events.js";
 import { ChartOfAccounts } from "../accounts.js";
+import { daysBetween } from "../invoices.js";
 import { PeriodKey, periodOf, periodEnd, prevPeriod, periodRange } from "./periods.js";
 
 export type ProposalKind =
@@ -27,6 +28,9 @@ export type ProposalKind =
   | "UNCATEGORIZED_SPEND"
   | "MISSING_RECOGNITION"
   | "STALE_RECEIVABLE"
+  | "FLUX_VARIANCE"
+  | "RECONCILIATION_EXCEPTION"
+  | "UNCLEARED_ITEM"
   | "BUDGET_VARIANCE";
 
 export type ProposalStatus = "OPEN" | "APPROVED" | "DISMISSED";
@@ -82,6 +86,49 @@ export interface AgentContextIn {
   }[];
   /** Contracts whose schedule shows revenue due in a period, unrecognised. */
   readonly unrecognizedRevenue: (period: PeriodKey) => Paise;
+  /** Bank lines up to a date that are still waiting to be booked. */
+  readonly unreviewedBankLines: (asOf: string) => readonly {
+    readonly reference: string;
+    readonly date: string;
+    readonly description: string;
+    readonly amount: Paise;
+  }[];
+  /**
+   * The most recent reconciliation per cash account, whatever its status.
+   *
+   * Drafts included on purpose: a reconciliation that was started, did not
+   * balance, and was abandoned is the one most worth raising. Only completed
+   * ones would report silence exactly where someone gave up.
+   */
+  readonly latestReconciliations: () => readonly {
+    readonly accountId: string;
+    readonly accountName: string;
+    readonly asOf: string;
+    readonly difference: Paise;
+    readonly reconciled: boolean;
+    readonly status: "DRAFT" | "COMPLETED";
+    readonly unmatchedStatement: readonly { reference: string; date: string; description: string; amount: Paise }[];
+    readonly unmatchedBook: readonly { entryId: string; date: string; narration: string; amount: Paise }[];
+  }[];
+  /**
+   * Material P&L movements for a period, as the close engine judges them.
+   *
+   * Supplied rather than recomputed. "Is this movement material?" is a policy
+   * question with one answer per company, and the close checklist already
+   * owns it — a second implementation here meant a ₹60,000 swing at 25% could
+   * block the close while the agent said nothing about it, which is a product
+   * that disagrees with itself about its own books.
+   */
+  readonly materialFlux: (period: PeriodKey) => readonly {
+    readonly accountId: string;
+    readonly name: string;
+    readonly current: Paise;
+    readonly prior: Paise;
+    readonly delta: Paise;
+    readonly changeBps: number | null;
+    readonly explanation: string | null;
+    readonly needsExplanation: boolean;
+  }[];
 }
 
 export class AgentEngine {
@@ -98,6 +145,8 @@ export class AgentEngine {
       /** Ignore anything below this — noise, not signal. */
       floor: 500000n as Paise, // ₹5,000
       staleReceivableDays: 45,
+      /** Past this, a booked item that never reached the bank is not "in transit". */
+      unclearedDays: 30,
     },
   ) {}
 
@@ -112,6 +161,9 @@ export class AgentEngine {
       ...this.duplicateEntries(period),
       ...this.staleReceivables(period),
       ...this.missingRecognition(period),
+      ...this.fluxVariance(period),
+      ...this.uncategorizedSpend(period),
+      ...this.reconciliationExceptions(period),
     ];
     const raised: Proposal[] = [];
     for (const p of found) {
@@ -292,6 +344,222 @@ export class AgentEngine {
         proposedEntry: null,
       }),
     ];
+  }
+
+  /**
+   * Flux analysis — what moved against last month, and what moved it.
+   *
+   * This is the question a controller is asked first at every close and the
+   * one a reviewer cannot answer from a trial balance: not "what is the
+   * balance" but "why is it different". A flux that only flags the swing is
+   * half the job, so each finding names the entries that caused it — an
+   * explanation to confirm, rather than a variance to go hunting for.
+   *
+   * Materiality is not decided here. The close checklist already owns that
+   * policy, and this reads its verdict — otherwise the same swing is material
+   * to one half of the product and invisible to the other. What this adds is
+   * the part flux is actually for: naming the entries that caused the
+   * movement, so a finding is an explanation to confirm rather than a
+   * variance to go hunting for.
+   *
+   * Movements that already carry an explanation are skipped: the question has
+   * been answered, and raising it again is how a review queue trains people
+   * to ignore it.
+   *
+   * Nothing here proposes an entry. A variance is a question about work
+   * already booked — the answer is usually an explanation, sometimes a
+   * correction, and an agent is not entitled to guess which.
+   */
+  private fluxVariance(period: PeriodKey): Proposal[] {
+    const prior = prevPeriod(period);
+    const now = this.movement(period);
+
+    const out: Proposal[] = [];
+    for (const line of this.ctx.materialFlux(period)) {
+      if (!line.needsExplanation || line.explanation) continue;
+
+      const magnitude = abs(line.delta);
+      const grew = cmp(line.delta, ZERO) > 0;
+      const isNew = line.prior === ZERO;
+      const account = this.ctx.chart.get(line.accountId);
+      // For revenue, up is good news and down is the alarming direction; for
+      // expenses it is the other way round. Severity follows the surprise.
+      const worrying = account.type === "REVENUE" ? !grew : grew;
+      const drivers = (now.get(line.accountId)?.drivers ?? [])
+        .slice()
+        .sort((a, b) => cmp(abs(b.amount), abs(a.amount)))
+        .slice(0, 3);
+
+      const movement = isNew
+        ? `${formatINR(magnitude)} in ${period} against nothing in ${prior}`
+        : `${formatINR(line.prior)} → ${formatINR(line.current)} (${grew ? "+" : "−"}${formatINR(magnitude)}` +
+          (line.changeBps === null ? "" : `, ${Math.round(line.changeBps / 100)}%`) +
+          ")";
+
+      out.push(
+        this.propose({
+          kind: "FLUX_VARIANCE",
+          severity: worrying && (isNew || (line.changeBps ?? 0) >= 5000) ? "HIGH" : "MEDIUM",
+          period,
+          title: `${line.name}: ${movement}`,
+          rationale:
+            `${line.name} moved ${movement} between ${prior} and ${period}. ` +
+            (drivers.length
+              ? `The largest entries behind it are ${drivers
+                  .map((d) => `"${d.narration}" (${formatINR(abs(d.amount))})`)
+                  .join(", ")}. `
+              : "") +
+            `Confirm this is expected, or that it belongs in a different period — the close cannot ` +
+            `complete until this movement carries an explanation.`,
+          amount: magnitude,
+          evidence: drivers.map((d) => d.entryId),
+          proposedEntry: null,
+        }),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * Bank lines nobody has booked yet.
+   *
+   * Raised as one finding rather than one per line: a queue of forty lines is
+   * a single piece of work, and forty proposals is a queue nobody opens. The
+   * severity is the point — this is not a judgement call like an accrual, it
+   * is money that moved through the bank and appears nowhere in the books, so
+   * every figure derived from the period is understated until it is cleared.
+   *
+   * No proposed entry, deliberately. The engine cannot know which account a
+   * line belongs to — that is exactly why it is in the queue — and guessing
+   * here would put the categoriser's job into an Approve button.
+   */
+  private uncategorizedSpend(period: PeriodKey): Proposal[] {
+    const waiting = this.ctx.unreviewedBankLines(periodEnd(period));
+    if (waiting.length === 0) return [];
+
+    const total = sum(waiting.map((l) => abs(l.amount)));
+    const oldest = waiting.reduce((a, b) => (a.date <= b.date ? a : b));
+    return [
+      this.propose({
+        kind: "UNCATEGORIZED_SPEND",
+        severity: "HIGH",
+        period,
+        title: `${waiting.length} bank line${waiting.length === 1 ? "" : "s"} not booked (${formatINR(total)})`,
+        rationale:
+          `${waiting.length} line${waiting.length === 1 ? " has" : "s have"} moved through the bank up to ` +
+          `${periodEnd(period)} and ${waiting.length === 1 ? "has" : "have"} not been booked to any account, ` +
+          `totalling ${formatINR(total)}. The oldest is "${oldest.description}" from ${oldest.date}. ` +
+          `Until they are categorised the profit and loss understates whatever they were, the bank will not ` +
+          `reconcile, and the close cannot complete. Clear them in the review queue — categorising one can ` +
+          `teach a rule, so the same payee does not come back next month.`,
+        amount: total,
+        evidence: waiting.map((l) => l.reference),
+        proposedEntry: null,
+      }),
+    ];
+  }
+
+  /**
+   * What a reconciliation exposed — not whether one was done.
+   *
+   * The close checklist already asks whether each cash account carries a
+   * completed reconciliation; asking again here would be a second opinion on
+   * the same question. What is missing is the content: a reconciliation can
+   * be completed and still be carrying an unexplained difference, and an item
+   * that has sat uncleared for weeks is a different problem from one that
+   * cleared yesterday.
+   *
+   * Two findings, because they mean different things:
+   *
+   * A difference is a straight exception — the bank and the books disagree
+   * about how much money exists, and one of them is wrong.
+   *
+   * An aged uncleared item is usually worse than it looks. A payment booked
+   * six weeks ago that has never appeared on a statement is not "in transit";
+   * it is a cheque nobody banked, a duplicate that was reversed at the bank
+   * and not in the books, or a payment that never actually went out. Cash is
+   * overstated until it is resolved either way.
+   */
+  private reconciliationExceptions(period: PeriodKey): Proposal[] {
+    const asOf = periodEnd(period);
+    const out: Proposal[] = [];
+
+    for (const rec of this.ctx.latestReconciliations()) {
+      if (rec.difference !== ZERO) {
+        out.push(
+          this.propose({
+            kind: "RECONCILIATION_EXCEPTION",
+            severity: "HIGH",
+            period,
+            title: `${rec.accountName} is out by ${formatINR(abs(rec.difference))} at ${rec.asOf}`,
+            rationale:
+              `The ${rec.status === "DRAFT" ? "draft " : ""}reconciliation for ${rec.accountName} at ${rec.asOf} ` +
+              `leaves ${formatINR(abs(rec.difference))} unexplained: the bank and the books disagree about how ` +
+              `much money exists, and one of them is wrong. ` +
+              (rec.unmatchedStatement.length
+                ? `${rec.unmatchedStatement.length} statement line${rec.unmatchedStatement.length === 1 ? "" : "s"} ` +
+                  `are not in the books — bank charges and interest are the usual cause, and they still need booking. `
+                : "") +
+              `A cash balance nobody can tie out is the figure every other number in the close rests on.`,
+            amount: abs(rec.difference),
+            evidence: rec.unmatchedStatement.map((l) => l.reference),
+            proposedEntry: null,
+          }),
+        );
+      }
+
+      // Aged items only. Something booked last week has not had time to clear.
+      const stale = rec.unmatchedBook.filter((e) => daysBetween(e.date, asOf) >= this.thresholds.unclearedDays);
+      if (stale.length === 0) continue;
+
+      const total = sum(stale.map((e) => abs(e.amount)));
+      const oldest = stale.reduce((a, b) => (a.date <= b.date ? a : b));
+      out.push(
+        this.propose({
+          kind: "UNCLEARED_ITEM",
+          severity: daysBetween(oldest.date, asOf) >= this.thresholds.unclearedDays * 2 ? "HIGH" : "MEDIUM",
+          period,
+          title: `${rec.accountName}: ${stale.length} item${stale.length === 1 ? "" : "s"} uncleared over ${this.thresholds.unclearedDays} days (${formatINR(total)})`,
+          rationale:
+            `${stale.length} entr${stale.length === 1 ? "y has" : "ies have"} been booked against ${rec.accountName} ` +
+            `and never appeared on a statement, totalling ${formatINR(total)}. The oldest is "${oldest.narration}" ` +
+            `from ${oldest.date}, ${daysBetween(oldest.date, asOf)} days ago. Past a few weeks this is rarely still ` +
+            `in transit — it is usually a payment that never went out, a cheque nobody banked, or a reversal the ` +
+            `bank made and the books did not. Cash is overstated until each one is either cleared or written back.`,
+          amount: total,
+          evidence: stale.map((e) => e.entryId),
+          proposedEntry: null,
+        }),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * Net P&L movement per account for a period, with the entries that made it.
+   *
+   * Unlike the outlier agent this counts reversals, because a reversal really
+   * does change the period's P&L: dropping it while keeping the entry it
+   * reverses would report a movement the books do not show.
+   */
+  private movement(period: PeriodKey): Map<string, { total: Paise; drivers: { entryId: string; narration: string; amount: Paise }[] }> {
+    const out = new Map<string, { total: Paise; drivers: { entryId: string; narration: string; amount: Paise }[] }>();
+    for (const e of this.ctx.journal.all()) {
+      if (periodOf(e.date) !== period) continue;
+      for (const l of e.lines) {
+        const type = this.ctx.chart.get(l.accountId).type;
+        if (type !== "EXPENSE" && type !== "REVENUE") continue;
+        // Each account is measured in the direction it naturally grows, so a
+        // positive movement always means "more of this account".
+        const increases = type === "EXPENSE" ? l.side === "DEBIT" : l.side === "CREDIT";
+        const signed = (increases ? l.amount : mulRatio(l.amount, -1n, 1n)) as Paise;
+        const bucket = out.get(l.accountId) ?? { total: ZERO as Paise, drivers: [] };
+        bucket.total = add(bucket.total, signed);
+        bucket.drivers.push({ entryId: e.id, narration: e.narration, amount: signed });
+        out.set(l.accountId, bucket);
+      }
+    }
+    return out;
   }
 
   /* -------------------------------------------------------------- */

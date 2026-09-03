@@ -275,6 +275,17 @@ export const COMMANDS: Record<string, CommandHandler> = {
 
   "banking.importStatement": (ctx, pl, actor) =>
     ctx.org.banking.importStatement(p(pl, "lines"), actor, opt(pl, "bankAccountId", "acc_bank")),
+  // Logged rather than applied in place because the rule it can teach outlives
+  // the request: a categorizer that forgets what it learned on restart asks
+  // the same question every month, which is the failure this feature exists
+  // to end.
+  "banking.categorize": (ctx, pl, actor) =>
+    ctx.org.banking.categorize(
+      p(pl, "reference"),
+      p(pl, "accountId"),
+      actor,
+      opt<string | undefined>(pl, "learn", undefined),
+    ),
 
   /* ---------------- recommendations ---------------- */
 

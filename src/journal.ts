@@ -84,6 +84,7 @@ export class JournalEngine {
   }
 
   post(input: PostInput): JournalEntry {
+    this.assertDate(input.date);
     this.assertAllowed({ date: input.date, sourceModule: input.sourceModule, narration: input.narration });
     this.validate(input.lines);
     const entry: JournalEntry = Object.freeze({
@@ -119,6 +120,7 @@ export class JournalEngine {
     if (original.reverses !== null)
       throw new JournalError(`Cannot reverse a reversal entry (${originalId}); post a fresh correct entry instead`);
 
+    if (date !== undefined) this.assertDate(date, "reversal date");
     const narration = `REVERSAL of ${originalId}: ${reason}`;
     this.assertAllowed({ date: date ?? original.date, sourceModule: original.sourceModule, narration });
 
@@ -174,6 +176,31 @@ export class JournalEngine {
 
   between(fromISO: string, toISO: string): readonly JournalEntry[] {
     return this.all().filter((e) => e.date >= fromISO && e.date <= toISO);
+  }
+
+  /**
+   * A date the rest of the system can actually filter on.
+   *
+   * Every report, period and balance in Paisa is a string comparison against
+   * YYYY-MM-DD. An entry dated anything else still balances, so nothing
+   * complains — it simply never appears in a date range again. The money is
+   * in the ledger and absent from every statement that should show it, which
+   * is the worst of both: no error to notice, and books that do not add up to
+   * what the reports say.
+   *
+   * Checked here rather than at the callers because there is exactly one way
+   * into the ledger, and this is it.
+   */
+  private assertDate(date: string, field = "date"): void {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+      throw new JournalError(`Invalid ${field} "${date}": expected YYYY-MM-DD`);
+    // Catches the ones that match the shape but are not days — "2026-02-30",
+    // "2026-13-01" — which Date would otherwise roll forward into a
+    // different month without complaint.
+    const [y, m, d] = date.split("-").map(Number) as [number, number, number];
+    const asDate = new Date(Date.UTC(y, m - 1, d));
+    if (asDate.getUTCFullYear() !== y || asDate.getUTCMonth() !== m - 1 || asDate.getUTCDate() !== d)
+      throw new JournalError(`Invalid ${field} "${date}": not a real calendar date`);
   }
 
   private validate(lines: readonly JournalLine[]): void {

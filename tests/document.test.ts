@@ -46,6 +46,53 @@ describe("parseCsvDocument", () => {
   });
 });
 
+describe("verifyNarration — a year is a date, not a figure", () => {
+  it("allows a bare year when nothing was looked up", () => {
+    // The case this exists for: a question the ledger cannot answer, where
+    // there is no tool output to ground anything against. Rejecting the
+    // refusal turns an honest "I can't forecast that" into "I couldn't
+    // verify every figure", which reads as a malfunction.
+    expect(() => verifyNarration("I can't project revenue for 2035 from the ledger.", [])).not.toThrow();
+    expect(() => verifyNarration("As of 2026-07-02 I have no basis for that.", [])).not.toThrow();
+  });
+
+  it("lets the model quote the user's own figure in order to correct it", () => {
+    // The most valuable sentence this product can produce was being thrown
+    // away over the ₹40 it quotes to refute.
+    const question = "Our revenue last month was about ₹40 lakh, right?";
+    const tools = ["revenue=₹14,67,945.21 expenses=₹5,70,600.00"];
+    expect(() =>
+      verifyNarration(
+        "That is incorrect. Revenue was **₹14,67,945.21**, not ₹40 lakh.",
+        tools,
+        question,
+      ),
+    ).not.toThrow();
+    // and without the question as context it is still a stranger's number
+    expect(() =>
+      verifyNarration("That is incorrect. Revenue was **₹14,67,945.21**, not ₹40 lakh.", tools),
+    ).toThrow(NarrationError);
+  });
+
+  it("reads an ISO date as a date, not as three figures", () => {
+    // "2026-06-30" is 2026, 06 and 30; the last is past the small-integer
+    // allowance, so a correct answer failed on its own reporting period.
+    expect(() =>
+      verifyNarration(
+        "For the period 2026-06-01 to 2026-06-30, revenue was ₹14,67,945.21.",
+        ["revenue=₹14,67,945.21"],
+      ),
+    ).not.toThrow();
+  });
+
+  it("still refuses an ungrounded money figure of its own", () => {
+    expect(() => verifyNarration("Revenue was ₹2026.", [])).toThrow(NarrationError);
+    expect(() => verifyNarration("Revenue was ₹40,00,000.", [])).toThrow(NarrationError);
+    // outside any plausible year, so still a claim about a quantity
+    expect(() => verifyNarration("We have 45000 in the bank.", [])).toThrow(NarrationError);
+  });
+});
+
 describe("verifyNarration — ₹ fallback (spec 004)", () => {
   it("accepts a ₹-prefixed figure whose bare numerals appear in a tool output", () => {
     expect(() =>

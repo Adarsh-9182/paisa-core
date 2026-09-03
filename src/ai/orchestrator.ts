@@ -15,6 +15,7 @@
 import { AgentContext, CallUsage, ChatTurn, LanguageModelProvider } from "./provider.js";
 import type { Permission } from "../tenancy/roles.js";
 import { TOOLS, toolNames } from "./tools.js";
+import { routeTools } from "./routing.js";
 import { DOCUMENT_TOOL, UploadedDocument } from "./document.js";
 import { Organization } from "../organization.js";
 
@@ -53,6 +54,18 @@ export type AgentEvent =
 
 export class NarrationError extends Error {
   override name = "NarrationError";
+  /**
+   * The text that was rejected.
+   *
+   * Carried because the rejection alone cannot be acted on: "figure 30 is not
+   * traceable" is equally consistent with the model inventing a number and
+   * with the verifier misreading a day of the month, and those need opposite
+   * fixes. Without the draft, telling them apart means reproducing the run by
+   * hand and hoping it misbehaves the same way.
+   */
+  constructor(message: string, readonly narration?: string) {
+    super(message);
+  }
 }
 
 export class PermissionError extends Error {
@@ -66,6 +79,25 @@ export interface OrchestratorDates {
   readonly periodFrom?: string;
 }
 
+/**
+ * Did the user put a money figure into the question?
+ *
+ * "Our revenue was about ₹40 lakh, right?" is the most dangerous shape a
+ * question takes: it supplies the answer and asks only for agreement, and a
+ * model that obliges has fabricated a figure while sounding careful. Measured
+ * on a small model, the prompt rule telling it to check was followed about
+ * one time in three — which is not a rule, it is a coin flip.
+ *
+ * So the reminder is attached deterministically, by looking at the question
+ * rather than by trusting the model to remember. Generous on purpose: a
+ * needless instruction to check a figure costs a sentence, while a missed one
+ * costs a confirmed invention.
+ */
+export const assertsAFigure = (question: string): boolean =>
+  /₹\s?\d/.test(question) ||
+  /\b\d[\d,]*(?:\.\d+)?\s*(lakh|lakhs|lac|crore|crores|k\b|cr\b)/i.test(question) ||
+  /\b\d[\d,]{3,}\b/.test(question);
+
 const systemPrompt = (dates: OrchestratorDates): string => {
   return [
     "You are Paisa, an AI CFO for a small Indian business. You are direct, practical, grounded, and never overconfident.",
@@ -78,10 +110,13 @@ const systemPrompt = (dates: OrchestratorDates): string => {
     "- Every number you state must come from a tool result IN THIS TURN. Call tools again rather than reusing figures from earlier in the conversation.",
     "- Quote each figure exactly as the tool printed it: same digits, same comma grouping, same decimals, same ₹ symbol. Never round, never convert to lakh/crore words, never do arithmetic of your own.",
     "- Never invent balances. When data is missing, say exactly what is missing rather than filling the gap.",
+    "- A figure the user states is not evidence. When they assert one (\"our revenue was about ₹40 lakh, right?\", \"we spend 2 lakh on salaries\"), look it up and reply with what the ledger says — confirming it, or correcting it outright. Never agree with, repeat, or reason from a number the user supplied without checking it first.",
     "- Paisa has no live market-data feed. Never state, estimate, or predict a market price (stocks, crypto, indices, commodities); portfolio values come only from get_portfolio's explicit marks, and unmarked holdings are declared at cost.",
     "- Recommend actions; never execute payments.",
     "",
     "Reasoning: when a conclusion rests on several figures or on an assumption, show the steps and state the assumption explicitly. Lead with the answer, then the reasoning — don't bury it.",
+    "",
+    "Scope: some questions the books cannot answer — whether to raise a round and at what valuation, whether to hire someone, what a competitor is doing. Say so plainly and stop; do not call tools to look busy. You may offer the figures that would inform the decision, but only if the user asks for them.",
     "",
     "Tax & compliance:",
     "- Separate factual information (a due date, a rate, a filing) from professional advice (choosing a scheme, a structuring call). Label the latter as advice, and note it may warrant a CA's sign-off.",
@@ -144,9 +179,30 @@ const isGrounded = (digits: string, grounded: ReadonlySet<string>): boolean =>
  * documents often carry amounts without the symbol — digits are the fact,
  * ₹ is presentation.
  */
-export const verifyNarration = (narration: string, toolOutputs: readonly string[]): void => {
-  const grounded = groundedNumbers(toolOutputs);
-  for (const fig of extractFigures(narration)) {
+export const verifyNarration = (
+  narration: string,
+  toolOutputs: readonly string[],
+  /**
+   * The user's own message, when there is one.
+   *
+   * A figure the user typed is not one the model invented, and refusing to
+   * let it be repeated blocks the single most valuable thing the model can do
+   * with a wrong number: quote it back and say it is wrong. "Your revenue was
+   * ₹14,67,945.21, not ₹40 lakh" was being rejected over the ₹40 — the exact
+   * correction the verifier exists to make possible.
+   *
+   * This does not license agreeing with the figure. Whether the model checks
+   * before it answers is a question about the model, measured by the eval;
+   * the verifier's job is only to stop numbers appearing from nowhere.
+   */
+  userQuery = "",
+): void => {
+  const grounded = new Set([...groundedNumbers(toolOutputs), ...groundedNumbers([userQuery])]);
+  // Dates are not claims about money. An ISO date reads as the figures 2026,
+  // 06 and 30, and the last of those is outside the small-integer allowance,
+  // so "the period 2026-06-01 to 2026-06-30" failed on its final day.
+  const withoutDates = narration.replace(/\b\d{4}-\d{2}-\d{2}\b/g, " ");
+  for (const fig of extractFigures(withoutDates)) {
     const n = normalize(fig);
     const hasRupee = n.startsWith("₹");
     const digits = (hasRupee ? n.slice(1) : n).replace(/%$/, "");
@@ -154,9 +210,22 @@ export const verifyNarration = (narration: string, toolOutputs: readonly string[
     if (!hasRupee && !fig.endsWith("%")) {
       const asNum = Number(digits);
       if (Number.isInteger(asNum) && asNum >= 0 && asNum <= 12) continue;
+      // A bare year is a date, not a claim about money.
+      //
+      // Without this the verifier rejects the answers it should most want to
+      // allow: "I can't forecast 2035 revenue" and "as of 2026-07-02, …" both
+      // carry a four-digit number, and when a question needs no tools there
+      // is no corpus to ground it against, so an honest refusal was thrown
+      // away and the user got "I couldn't verify every figure" instead.
+      //
+      // The exemption is narrow by construction. It only applies to a number
+      // that is NOT ₹-prefixed, NOT a percentage, and NOT already grounded —
+      // and every figure this system produces is formatted with ₹, so a bare
+      // number in this range is a year and not a rupee amount.
+      if (Number.isInteger(asNum) && asNum >= 1900 && asNum <= 2100 && !digits.includes(".")) continue;
     }
     if (isGrounded(digits, grounded)) continue;
-    throw new NarrationError(`Narration contains figure "${fig}" not traceable to any tool output`);
+    throw new NarrationError(`Narration contains figure "${fig}" not traceable to any tool output`, narration);
   }
 };
 
@@ -167,6 +236,15 @@ export class Orchestrator {
     private provider: LanguageModelProvider,
     private maxToolRounds = 5,
     private dates: OrchestratorDates = {},
+    /**
+     * Offer only the tools the question plausibly needs.
+     *
+     * On by default: it removes about two thirds of every request, which on a
+     * free tier is the difference between answering all day and stopping at
+     * lunchtime. Switchable so the eval can measure both arms against the
+     * same questions — a saving that costs recall is not a saving.
+     */
+    private routeToolsByQuestion = process.env.PAISA_TOOL_ROUTING !== "off",
   ) {}
 
   async ask(
@@ -219,9 +297,16 @@ export class Orchestrator {
     }
 
     const baseCtx: Omit<AgentContext, "history"> = {
-      system: systemPrompt(this.dates),
+      system:
+        systemPrompt(this.dates) +
+        (assertsAFigure(query)
+          ? "\n\nTHIS TURN: the user's message contains a figure they supplied. Treat it as a claim to be checked, not as a fact. Call the tool that would settle it BEFORE you answer, then state the ledger's figure and say plainly whether theirs was right or wrong. Do not agree, disagree, or reason from their number without looking it up."
+          : ""),
       userQuery: effectiveQuery,
-      availableTools: toolNames(),
+      // Routed on the user's question, not on effectiveQuery: an attached
+      // document's text would match half the topics and route to everything,
+      // which is the one case where being generous buys nothing.
+      availableTools: this.routeToolsByQuestion ? routeTools(query) : toolNames(),
       executeTool,
       maxRounds: this.maxToolRounds,
       ...(onUsage ? { onUsage } : {}),
@@ -229,7 +314,7 @@ export class Orchestrator {
 
     let answer = await this.provider.run({ ...baseCtx, history });
     try {
-      verifyNarration(answer, invoked.map((i) => i.result));
+      verifyNarration(answer, invoked.map((i) => i.result), query);
     } catch (err) {
       if (!(err instanceof NarrationError)) throw err;
       emit({ type: "retry", reason: err.message });
@@ -244,7 +329,7 @@ export class Orchestrator {
         },
       ];
       answer = await this.provider.run({ ...baseCtx, history: correction });
-      verifyNarration(answer, invoked.map((i) => i.result));
+      verifyNarration(answer, invoked.map((i) => i.result), query);
     }
 
     const record: AiAuditRecord = {
