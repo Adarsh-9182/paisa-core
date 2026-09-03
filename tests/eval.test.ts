@@ -177,6 +177,30 @@ describe("aggregating a run", () => {
     expect(report.passed).toBe(0);
   });
 
+  it("separates a right answer that cost too much from a wrong one", async () => {
+    // Correctness and cost were being answered by one number. A model whose
+    // figures are all grounded but which takes four trips where two would do
+    // is expensive, not wrong, and the fixes are different.
+    const chatty = new MockProvider([
+      { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-07-02" } }] },
+      { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-07-02" } }] },
+      { kind: "tool_calls", toolCalls: [{ tool: "get_cash_position", args: { asOf: "2026-07-02" } }] },
+      { kind: "final", text: "Plenty." },
+    ]);
+    const report = await runEval(chatty, [{ ...CASH, maxRounds: 1 }], opts);
+    expect(report.passed).toBe(0); // it did break the round budget
+    expect(report.correct).toBe(1); // but it got the answer right
+    expect(report.cases[0]!.overRoundsOnly).toBe(true);
+    expect(formatReport(report)).toContain("costs quota, not correctness");
+  });
+
+  it("does not call a wrong answer merely expensive", async () => {
+    const wrong = new MockProvider([{ kind: "final", text: "No idea." }]);
+    const report = await runEval(wrong, [{ ...CASH, maxRounds: 1 }], opts);
+    expect(report.correct).toBe(0);
+    expect(report.cases[0]!.overRoundsOnly).toBe(false);
+  });
+
   it("reports a repeated case by its worst attempt, not its best", async () => {
     // A model that agrees with a made-up figure one time in three is not
     // two-thirds safe. Reporting the best attempt is how a coin flip gets

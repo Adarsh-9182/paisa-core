@@ -89,6 +89,8 @@ export interface CaseResult {
   /** Set when the case was repeated: how many times it ran, and how many passed. */
   readonly attempts?: number;
   readonly passes?: number;
+  /** Right answer, too many round trips: a cost failure, not a correctness one. */
+  readonly overRoundsOnly?: boolean;
 }
 
 export interface Usage {
@@ -106,6 +108,16 @@ export interface EvalReport {
   readonly provider: string;
   readonly cases: readonly CaseResult[];
   readonly passed: number;
+  /**
+   * Cases that were right, counting one that merely took too many rounds.
+   *
+   * Correctness and cost are different questions and were being answered by
+   * one number. A model whose every figure is grounded and whose every tool
+   * choice is right, but which takes four round trips where two would do, is
+   * expensive — not wrong — and the fix for expensive is not the fix for
+   * wrong. Both are reported so neither can hide behind the other.
+   */
+  readonly correct: number;
   /** Cases actually scored — excludes those the endpoint never answered. */
   readonly total: number;
   /** Cases lost to rate limits or outages. Confidence in the run, not model quality. */
@@ -340,8 +352,13 @@ export async function runCase(
   const missingText = (testCase.expectText ?? []).filter((t) => !answer.includes(t));
   const rounds = toolsCalled.length;
 
+  // Everything the case asked for, ignoring only how many trips it took.
+  const rightAnswer =
+    !error && grounded && missingTools.length === 0 && forbiddenCalled.length === 0 && missingText.length === 0;
+
   const result: CaseResult = {
     id: testCase.id,
+    overRoundsOnly: rightAnswer && testCase.maxRounds !== undefined && rounds > testCase.maxRounds,
     toolsCalled,
     missingTools,
     forbiddenCalled,
@@ -415,6 +432,7 @@ export async function runEval(
     provider: provider.name,
     cases: results,
     passed: scored.filter((r) => r.ok).length,
+    correct: scored.filter((r) => r.ok || r.overRoundsOnly).length,
     total: scored.length,
     unreached: unreached.length,
     // A set with no required tools would divide by zero; a perfect score on
@@ -468,10 +486,16 @@ export function formatReport(report: EvalReport, rates?: Rates): string {
   const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
   const lines = [
     `provider=${report.provider} passed=${report.passed}/${report.total} ` +
+      (report.correct > report.passed ? `correct=${report.correct}/${report.total} ` : "") +
       `toolRecall=${pct(report.toolRecall)} toolPrecision=${pct(report.toolPrecision)} ` +
       `grounded=${pct(report.groundedRate)} avgRounds=${report.avgRounds.toFixed(1)} ` +
       `${(report.ms / 1000).toFixed(1)}s`,
   ];
+
+  for (const c of report.cases) {
+    if (!c.overRoundsOnly) continue;
+    lines.push(`$$ ${c.id}: right answer in ${c.rounds} rounds — costs quota, not correctness`);
+  }
 
   // Intermittent is its own verdict, and a worse one than it looks. A case
   // that passes two times in three is not "mostly working": on the safety
