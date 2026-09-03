@@ -15,6 +15,7 @@
 import { AgentContext, CallUsage, ChatTurn, LanguageModelProvider } from "./provider.js";
 import type { Permission } from "../tenancy/roles.js";
 import { TOOLS, toolNames } from "./tools.js";
+import { routeTools } from "./routing.js";
 import { DOCUMENT_TOOL, UploadedDocument } from "./document.js";
 import { Organization } from "../organization.js";
 
@@ -183,6 +184,15 @@ export class Orchestrator {
     private provider: LanguageModelProvider,
     private maxToolRounds = 5,
     private dates: OrchestratorDates = {},
+    /**
+     * Offer only the tools the question plausibly needs.
+     *
+     * On by default: it removes about two thirds of every request, which on a
+     * free tier is the difference between answering all day and stopping at
+     * lunchtime. Switchable so the eval can measure both arms against the
+     * same questions — a saving that costs recall is not a saving.
+     */
+    private routeToolsByQuestion = process.env.PAISA_TOOL_ROUTING !== "off",
   ) {}
 
   async ask(
@@ -237,7 +247,10 @@ export class Orchestrator {
     const baseCtx: Omit<AgentContext, "history"> = {
       system: systemPrompt(this.dates),
       userQuery: effectiveQuery,
-      availableTools: toolNames(),
+      // Routed on the user's question, not on effectiveQuery: an attached
+      // document's text would match half the topics and route to everything,
+      // which is the one case where being generous buys nothing.
+      availableTools: this.routeToolsByQuestion ? routeTools(query) : toolNames(),
       executeTool,
       maxRounds: this.maxToolRounds,
       ...(onUsage ? { onUsage } : {}),
