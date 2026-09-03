@@ -19,5 +19,6 @@ export * from "./close.js";
 export * from "./agents.js";
 export * from "./connectors.js";
 export * from "./stripe.js";
+export * from "./connect.js";
 export * from "./suite.js";
 export * from "./tools.js";
