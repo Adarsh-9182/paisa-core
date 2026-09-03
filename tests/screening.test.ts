@@ -221,6 +221,52 @@ describe("OpenAIProvider (GPT-5.6)", () => {
     expect(urls[0]).not.toContain("//chat");
   });
 
+  it("retries a busy free tier instead of silently demoting the answer", async () => {
+    // A free endpoint returning 503 is busy, not broken. Without a retry the
+    // question drops to the offline planner and the user just gets a worse
+    // answer for no visible reason.
+    let calls = 0;
+    const provider = new OpenAIProvider({
+      apiKey: "k",
+      maxRetries: 2,
+      fetchFn: async () => {
+        calls++;
+        // busy twice, then the normal tool-call / answer exchange
+        if (calls <= 2)
+          return { ok: false, status: 503, text: async () => "high demand", json: async () => ({}) };
+        const body = calls === 3
+          ? { choices: [{ message: { tool_calls: [{ id: "c1", function: { name: "get_cash_position", arguments: `{"asOf":"${AS_OF}"}` } }] } }] }
+          : { choices: [{ message: { content: "Cash on hand is **₹30,00,000.00** as of today." } }] };
+        return { ok: true, status: 200, text: async () => "", json: async () => body };
+      },
+    });
+    const record = await new Orchestrator(provider).ask(cfoUser, baseOrg(), "How much cash do we have?");
+    expect(calls).toBe(4); // 2 rejected + tool call + answer
+    expect(record.verified).toBe(true);
+    expect(record.toolsInvoked[0]!.tool).toBe("get_cash_position");
+  });
+
+  it("does not retry a failure that will never succeed", async () => {
+    // A dead key or a bad schema fails identically forever; retrying it only
+    // spends the caller's deadline before failing anyway.
+    let calls = 0;
+    const provider = new OpenAIProvider({
+      apiKey: "bad",
+      maxRetries: 2,
+      fetchFn: async () => {
+        calls++;
+        return { ok: false, status: 401, text: async () => "invalid key", json: async () => ({}) };
+      },
+    });
+    await expect(
+      provider.run({
+        system: "s", history: [], userQuery: "q", availableTools: [],
+        executeTool: () => "", maxRounds: 1,
+      }),
+    ).rejects.toThrow(/401/);
+    expect(calls).toBe(1);
+  });
+
   it("still demands a key for a hosted endpoint", async () => {
     const provider = new OpenAIProvider({ apiKey: "", baseUrl: "https://api.openai.com/v1" });
     await expect(

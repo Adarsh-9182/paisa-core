@@ -169,6 +169,13 @@ if (process.env.ANTHROPIC_API_KEY) chain.push(new AnthropicProvider());
 // A base URL on its own is enough: a server on localhost has no key to set,
 // and requiring one here would leave the free path permanently unreachable.
 if (process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL) chain.push(new OpenAIProvider());
+// A second model on the same endpoint, tried when the first is rate-limited.
+// On a free tier the binding constraint is quota, not capability: the newest
+// model is the busiest, so the rung that matters is another model rather than
+// another provider. Dropping to the planner should be the last resort, not
+// the response to a 429.
+if (process.env.PAISA_OPENAI_MODEL_FALLBACK)
+  chain.push(new OpenAIProvider({ model: process.env.PAISA_OPENAI_MODEL_FALLBACK }));
 chain.push(planner);
 const provider = chain.length > 1 ? new FallbackProvider(chain) : planner;
 const orchestrator = new Orchestrator(provider, 6, { asOf: AS_OF, periodFrom: PERIOD_FROM });
@@ -1398,6 +1405,10 @@ export const handle = async (req, res) => {
             setTimeout(() => reject(new Error("agent deadline exceeded")), CHAT_DEADLINE_MS),
           ),
         ]);
+        // Logged even when the answer succeeded, because a good answer from a
+        // lower rung is exactly the case that otherwise leaves no trace.
+        if (provider instanceof FallbackProvider)
+          for (const f of provider.lastFailures) console.warn(`[paisa] ${f.name} declined: ${f.error}`);
         const drafted = books.org.actions
           .pending()
           .filter((a) => !before.has(a.id))
@@ -1407,6 +1418,10 @@ export const handle = async (req, res) => {
           tools: record.toolsInvoked.map((t) => t.tool),
           verified: record.verified,
           actions: drafted,
+          // Which rung of the chain actually answered. Without this a model
+          // outage reads as "the AI got worse today" — the planner's answer
+          // is correct but plainer, and nothing on the page said why.
+          answeredBy: provider instanceof FallbackProvider ? provider.lastUsedName : provider.name,
         });
       } catch (err) {
         const timedOut = err.message === "agent deadline exceeded";

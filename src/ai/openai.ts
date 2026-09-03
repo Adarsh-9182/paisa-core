@@ -23,6 +23,8 @@ type FetchFn = (input: string, init: { method: string; headers: Record<string, s
   status: number;
   text(): Promise<string>;
   json(): Promise<unknown>;
+  /** Present on a real Response; absent from the stubs tests inject. */
+  headers?: { get(name: string): string | null };
 }>;
 
 interface OpenAiToolCall {
@@ -43,7 +45,10 @@ export class OpenAIProvider implements LanguageModelProvider {
   private fetchFn: FetchFn;
   private baseUrl: string;
 
-  constructor(opts: { model?: string; apiKey?: string; baseUrl?: string; fetchFn?: FetchFn } = {}) {
+  private maxRetries: number;
+
+  constructor(opts: { model?: string; apiKey?: string; baseUrl?: string; fetchFn?: FetchFn; maxRetries?: number } = {}) {
+    this.maxRetries = opts.maxRetries ?? Number(process.env.PAISA_MODEL_RETRIES ?? 2);
     this.model = opts.model ?? process.env.PAISA_OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL;
     this.apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY;
     // OPENAI_BASE_URL lets any OpenAI-compatible server stand in — including
@@ -67,6 +72,49 @@ export class OpenAIProvider implements LanguageModelProvider {
     return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|\/|$)/i.test(this.baseUrl);
   }
 
+  /**
+   * One request, retried while the endpoint says "not now".
+   *
+   * A free tier is busy, not broken. 429 and 5xx from a shared endpoint are
+   * routine and clear in seconds, but without a retry each one drops the
+   * whole question to the offline planner — the user asks their AI CFO a
+   * question and silently gets a worse answer for no reason they can see.
+   *
+   * Only the statuses that mean "try again" are retried: a 400 (bad schema)
+   * or 401 (dead key) will fail identically forever, and retrying those just
+   * spends the caller's deadline before failing anyway.
+   */
+  private async send(
+    messages: Record<string, unknown>[],
+    tools: unknown[],
+  ): Promise<{ ok: boolean; status: number; text(): Promise<string>; json(): Promise<unknown> }> {
+    const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+    let res!: Awaited<ReturnType<FetchFn>>;
+
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      res = await this.fetchFn(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // Omitted entirely rather than sent empty: a local server that does
+          // check the header should see no credential, not a blank one.
+          ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+        },
+        body: JSON.stringify({ model: this.model, messages, tools }),
+      });
+      if (res.ok || !RETRYABLE.has(res.status) || attempt === this.maxRetries) return res;
+
+      // Honour the server's own advice when it gives any, but never let it
+      // park us past the caller's deadline.
+      const advised = Number(res.headers?.get?.("retry-after") ?? NaN);
+      const backoff = Number.isFinite(advised)
+        ? Math.min(advised * 1000, 8000)
+        : Math.min(500 * 2 ** attempt, 4000);
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+    return res;
+  }
+
   async run(ctx: AgentContext): Promise<string> {
     if (!this.apiKey && !this.isLocal)
       throw new Error("OPENAI_API_KEY is not set; falling back.");
@@ -83,16 +131,7 @@ export class OpenAIProvider implements LanguageModelProvider {
     ];
 
     for (let round = 0; round <= ctx.maxRounds; round++) {
-      const res = await this.fetchFn(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // Omitted entirely rather than sent empty: a local server that does
-          // check the header should see no credential, not a blank one.
-          ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
-        },
-        body: JSON.stringify({ model: this.model, messages, tools }),
-      });
+      const res = await this.send(messages, tools);
       if (!res.ok) {
         const body = (await res.text()).slice(0, 300);
         throw new Error(`OpenAI API error ${res.status}: ${body}`);
