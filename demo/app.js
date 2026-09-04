@@ -93,10 +93,10 @@ const openSignup = () => process.env.PAISA_OPEN_SIGNUP === "1";
 const resolvePassword = () => {
   const password = process.env.PAISA_PASSWORD;
   if (password && password.length >= 10) return password;
-  if (process.env.NODE_ENV === "production" || process.env.VERCEL)
-    throw new Error(
-      "PAISA_PASSWORD must be set (at least 10 characters) — refusing to serve with the committed development password",
-    );
+  // In production there is no fallback: the development password is
+  // committed, so guarding a deployment with it would be the same as having
+  // no password at all. Null means "found no owner", handled at boot.
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL) return null;
   return "paisa123456-dev";
 };
 
@@ -138,7 +138,24 @@ const ready = boot(seedAll).then((b) => {
  * depending on.
  */
 const authReady = (async () => {
-  const owner = await accounts.register(OWNER_EMAIL, resolvePassword(), process.env.PAISA_OWNER_NAME);
+  const password = resolvePassword();
+
+  // No configured password means no owner account — which is fail-closed, and
+  // is not the same as failing to boot. This used to throw, and because it
+  // throws at module scope the whole function died at cold start: a missing
+  // owner credential took down the marketing site, the docs and every public
+  // page with it, and the platform kept serving the last deployment that
+  // booted, so weeks of merges silently never shipped. An outage is a worse
+  // answer than a site whose owner cannot sign in yet.
+  if (!password) {
+    console.error(
+      "PAISA_PASSWORD is not set (needs 10+ characters), so no owner account exists and owner sign-in is disabled. " +
+        "Everything else serves normally. Set it and redeploy to enable sign-in.",
+    );
+    return null;
+  }
+
+  const owner = await accounts.register(OWNER_EMAIL, password, process.env.PAISA_OWNER_NAME);
   const booted = await ready;
   members.found(booted.org.orgId, owner.userId);
   return owner;
