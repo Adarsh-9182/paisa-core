@@ -25,6 +25,7 @@ import { canonicalRedirect, isCanonicalHost, robotsTxt, sitemapXml } from "./sit
 import { boot, sync, ORG_ID, ORG_NAME } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
 import { loginPage, safeNext } from "./login-page.js";
+import { consolePage } from "./console.js";
 import { demoRuntime, newDemoId, isDemoId, demoStats } from "./demo-sessions.js";
 import {
   parseINR,
@@ -1582,6 +1583,14 @@ export const handle = async (req, res) => {
     if (path === "/erp") {
       if (requireSession(req, res, path)) return;
       return send(200, erpPage(), "text/html");
+    }
+
+    /* The application console. Reads only — every panel fetches the
+       endpoint that owns its numbers, so this page cannot show a figure
+       the books do not agree with. */
+    if (path === "/console") {
+      if (requireSession(req, res, path)) return;
+      return send(200, consolePage(), "text/html");
     }
 
     const erpName = path.replace("/api/erp/", "");
