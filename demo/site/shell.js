@@ -245,7 +245,7 @@ export const nav = () => `
       </div>
     </div>
     <div class="navcta">
-      <a class="btn btn-dark" href="/app">AI CFO</a>
+      <a class="btn btn-dark" href="/try">Try the AI CFO</a>
       <button class="menu-btn" id="menu-btn" aria-label="Menu" aria-expanded="false">
         <span></span><span></span><span></span>
       </button>

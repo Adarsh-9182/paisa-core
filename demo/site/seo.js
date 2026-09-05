@@ -26,8 +26,15 @@ const STATIC_PATHS = [
   { path: "/site/contact", priority: "0.5", changefreq: "yearly" },
 ];
 
-/** Paths the crawler should never index: the app, the console, and auth. */
-export const NOINDEX_PATHS = ["/app", "/erp", "/login"];
+/**
+ * Paths the crawler should never index: the app, the console, and auth.
+ *
+ * `/try` is here for a second reason. It is not a page to rank — it is a
+ * redirect that mints a sandbox — and sandboxes are a bounded resource. A
+ * crawler that follows it on every visit churns through the session cap for
+ * nothing, so it is asked not to.
+ */
+export const NOINDEX_PATHS = ["/app", "/erp", "/login", "/try"];
 
 export const absolute = (path) => `${SITE_URL}${path}`;
 

@@ -1215,20 +1215,25 @@ const setDemoCookie = (req, res, id) => {
 const RAW_VIEWS = new Set(["/journal", "/trial-balance", "/balance-sheet", "/profit-and-loss", "/audit"]);
 
 /**
- * The dashboards are for customers, not for visitors.
+ * The dashboards are for customers, and for visitors who asked to see them.
  *
  * A finance product that shows a ledger to whoever types the URL has to
  * explain that to every buyer who asks how their books are protected, and
  * "those were fake books" is a worse answer than not having shown them. So
- * `/app` and `/erp` are behind the session, and the marketing site sells the
- * product rather than handing over a console.
+ * typing `/console` still lands on the sign-in page: the console is not what
+ * this site hands a stranger who guessed a path.
  *
- * The demo runtime is deliberately left in place rather than deleted: it is
- * still the cheapest way to seed a sandbox, and reopening the front door is
- * one call site, not a rebuild. Returning `false` here is that switch.
+ * `/try` is the door instead. It mints the visitor a sandbox and sends them
+ * in carrying its cookie, so the console opens for someone who asked for the
+ * demo and stays shut for someone who did not. What they then see is their
+ * own runtime, never the real books — that separation is `resolveBooks`, and
+ * it is unchanged by opening this door.
  */
 const requireSession = (req, res, path) => {
   if (currentSession(req)) return false;
+  // Came through /try: not signed in, and `resolveBooks` will hand them a
+  // sandbox rather than the real books, but they did ask for the demo.
+  if (isDemoId(parseCookies(req.headers.cookie)[DEMO_COOKIE])) return false;
   res.statusCode = 302;
   // Come back to where they were headed once they are signed in, rather than
   // dropping them on a dashboard they did not ask for.
@@ -1490,6 +1495,22 @@ export const handle = async (req, res) => {
     }
 
     if (path === "/") return send(200, sitePage(), "text/html");
+
+    /* The demo's front door.
+     *
+     * The sandbox is named here, in one response, rather than by whichever
+     * of the console's parallel fetches happens to arrive first — the same
+     * reason RAW_VIEWS exists. A visitor who already has a sandbox keeps it,
+     * so returning to /try resumes their books instead of resetting them. */
+    if (path === "/try") {
+      if (!isDemoId(parseCookies(req.headers.cookie)[DEMO_COOKIE]))
+        setDemoCookie(req, res, newDemoId());
+      res.statusCode = 302;
+      res.setHeader("Location", "/app");
+      res.end();
+      return;
+    }
+
     if (path === "/app") {
       if (requireSession(req, res, path)) return;
       return send(200, page(), "text/html");
