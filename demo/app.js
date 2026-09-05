@@ -25,8 +25,10 @@ import { canonicalRedirect, isCanonicalHost, robotsTxt, sitemapXml } from "./sit
 import { boot, sync, ORG_ID, ORG_NAME } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
 import { loginPage, safeNext } from "./login-page.js";
+import { callbackPage } from "./auth-callback-page.js";
 import { consolePage } from "./console.js";
 import { demoRuntime, newDemoId, isDemoId, demoStats } from "./demo-sessions.js";
+import { googleConfig, googleEnabled, authorizeUrl, originOf } from "./auth-google.js";
 import {
   parseINR,
   formatINR,
@@ -51,6 +53,8 @@ import {
   MemberDirectory,
   AccessError,
   normalizeEmail,
+  identityFromToken,
+  SupabaseAuthError,
 } from "../dist/src/index.js";
 
 const ACTOR = "adarsh";
@@ -141,6 +145,16 @@ const workspaceName = (orgId) => (orgId === ORG_ID ? ORG_NAME : orgId);
 
 
 const isSecure = (req) => req.headers["x-forwarded-proto"] === "https" || !!process.env.VERCEL;
+
+/**
+ * Where a visitor was headed before they were sent to Google.
+ *
+ * A breadcrumb for one round trip, not a session: it is unsigned, so nothing
+ * is trusted from it beyond `safeNext`'s rule that a destination is a path on
+ * this site. Ten minutes is long enough to pick a Google account and short
+ * enough that a shared machine does not keep it.
+ */
+const NEXT_COOKIE = "paisa_next";
 
 const currentSession = (req) => {
   const secret = optionalSessionSecret();
@@ -1359,7 +1373,7 @@ export const handle = async (req, res) => {
         res.setHeader("Location", next);
         return res.end();
       }
-      return send(200, loginPage(query.get("error"), next), "text/html");
+      return send(200, loginPage(query.get("error"), next, { google: googleEnabled() }), "text/html");
     }
 
     if (path === "/api/login" && req.method === "POST") {
@@ -1375,6 +1389,73 @@ export const handle = async (req, res) => {
       const token = issueSession(account.userId, workspaces[0].orgId, requireSessionSecret());
       res.setHeader("Set-Cookie", sessionCookie(token, isSecure(req)));
       return send(200, { ok: true, orgId: workspaces[0].orgId });
+    }
+
+    /* ---- Google sign-in, via Supabase ----
+
+       Three steps, because an OAuth redirect cannot carry a server secret
+       and a URL fragment never reaches the server:
+
+         /auth/google      → remember where they were headed, hand them to
+                             Supabase
+         /auth/callback    → the fragment lands in the browser; a script
+                             posts the token back
+         /api/auth/google  → verify the token, become a Paisa session       */
+
+    if (path === "/auth/google") {
+      const config = googleConfig();
+      if (!config) return send(404, { error: "Google sign-in is not configured" });
+      // Where they were going travels in a cookie, not in redirect_to —
+      // Supabase matches that against an allow-list. Short-lived: it is a
+      // breadcrumb for one round trip, not a session.
+      const next = safeNext(new URLSearchParams((req.url ?? "").split("?")[1] ?? "").get("next"));
+      res.setHeader("Set-Cookie",
+        `${NEXT_COOKIE}=${encodeURIComponent(next)}; Path=/; Max-Age=600; SameSite=Lax; HttpOnly${isSecure(req) ? "; Secure" : ""}`);
+      res.statusCode = 302;
+      res.setHeader("Location", authorizeUrl(config, originOf(req, isSecure(req))));
+      res.end();
+      return;
+    }
+
+    if (path === "/auth/callback") return send(200, callbackPage(), "text/html");
+
+    if (path === "/api/auth/google" && req.method === "POST") {
+      const config = googleConfig();
+      if (!config) return send(404, { error: "Google sign-in is not configured" });
+
+      const { token } = JSON.parse((await readBody(req)) || "{}");
+      let identity;
+      try {
+        identity = identityFromToken(String(token ?? ""), {
+          jwtSecret: config.jwtSecret,
+          issuer: config.issuer,
+        });
+      } catch (err) {
+        // Every rejection reason here is a forged or stale token, and none of
+        // them is the visitor's to fix. One message, logged server-side.
+        if (err instanceof SupabaseAuthError) console.error(`[paisa] google sign-in rejected: ${err.message}`);
+        return send(401, { error: "That Google sign-in could not be verified. Try again." });
+      }
+
+      const account = accounts.findByEmail(identity.email);
+      // Unlike the password route, this one may say the address is unknown.
+      // Supabase has already proved the caller controls it, so naming it
+      // leaks nothing they could not learn by reading their own inbox — and
+      // "no account" is the one thing that tells them what to do next.
+      if (!account)
+        return send(403, { error: `No Paisa account for ${identity.email}. Ask an owner to invite you.` });
+
+      const workspaces = members.listUser(account.userId);
+      if (!workspaces.length) return send(403, { error: "Your account is not a member of any workspace." });
+
+      const cookies = parseCookies(req.headers.cookie);
+      const next = safeNext(decodeURIComponent(cookies[NEXT_COOKIE] ?? ""));
+      const session = issueSession(account.userId, workspaces[0].orgId, requireSessionSecret());
+      res.setHeader("Set-Cookie", [
+        sessionCookie(session, isSecure(req)),
+        `${NEXT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly${isSecure(req) ? "; Secure" : ""}`,
+      ]);
+      return send(200, { ok: true, orgId: workspaces[0].orgId, next });
     }
 
     if (path === "/api/register" && req.method === "POST") {
