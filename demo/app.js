@@ -59,7 +59,33 @@ const ACTOR = "adarsh";
 /* Auth: one demo user, env-configured, cookie-based sessions          */
 /* ------------------------------------------------------------------ */
 
-const SESSION_SECRET = resolveSessionSecret();
+/**
+ * Resolved on first use, not at import.
+ *
+ * The rule itself is not being relaxed: without a real secret this still
+ * refuses to sign a session. But resolving at module scope meant an absent
+ * secret threw while the module was loading, so the serverless function
+ * never booted and every route died with it — the marketing page, the docs,
+ * /api/health. A deployment that is merely unconfigured looked entirely
+ * broken, and the logs said nothing about which of the two it was.
+ *
+ * Deferring the failure to the first caller that actually needs a session
+ * keeps the blast radius on the routes that genuinely cannot work.
+ */
+let sessionSecret;
+const requireSessionSecret = () => (sessionSecret ??= resolveSessionSecret());
+
+/**
+ * Null when no secret is configured. Without one no session can be verified,
+ * so the honest answer to "who is this request from" is nobody — not a crash.
+ */
+const optionalSessionSecret = () => {
+  try {
+    return requireSessionSecret();
+  } catch {
+    return null;
+  }
+};
 
 /**
  * Accounts and memberships.
@@ -116,7 +142,11 @@ const workspaceName = (orgId) => (orgId === ORG_ID ? ORG_NAME : orgId);
 
 const isSecure = (req) => req.headers["x-forwarded-proto"] === "https" || !!process.env.VERCEL;
 
-const currentSession = (req) => readSession(parseCookies(req.headers.cookie)[SESSION_COOKIE], SESSION_SECRET);
+const currentSession = (req) => {
+  const secret = optionalSessionSecret();
+  if (!secret) return null;
+  return readSession(parseCookies(req.headers.cookie)[SESSION_COOKIE], secret);
+};
 
 /* ------------------------------------------------------------------ */
 /* Boot: one runtime, durable when a database is configured            */
@@ -1342,7 +1372,7 @@ export const handle = async (req, res) => {
 
       const workspaces = members.listUser(account.userId);
       if (!workspaces.length) return send(403, { error: "Your account is not a member of any workspace." });
-      const token = issueSession(account.userId, workspaces[0].orgId, SESSION_SECRET);
+      const token = issueSession(account.userId, workspaces[0].orgId, requireSessionSecret());
       res.setHeader("Set-Cookie", sessionCookie(token, isSecure(req)));
       return send(200, { ok: true, orgId: workspaces[0].orgId });
     }
@@ -1403,7 +1433,7 @@ export const handle = async (req, res) => {
       } catch {
         return send(403, { error: `No access to organization ${orgId}` });
       }
-      const token = issueSession(me.account.userId, String(orgId), SESSION_SECRET);
+      const token = issueSession(me.account.userId, String(orgId), requireSessionSecret());
       res.setHeader("Set-Cookie", sessionCookie(token, isSecure(req)));
       return send(200, { ok: true, orgId });
     }
