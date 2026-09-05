@@ -47,6 +47,8 @@ const token = (claims: Record<string, unknown>, secret = JWT_SECRET) => {
 
 interface Reply { status: number; body: any; location: string | undefined; cookies: readonly string[]; }
 
+let callNumber = 0;
+
 const call = async (
   method: string,
   url: string,
@@ -55,7 +57,14 @@ const call = async (
   const req: any = Readable.from(body === undefined ? [] : [JSON.stringify(body)]);
   req.method = method;
   req.url = url;
-  req.headers = { host: "localhost:4000", ...(cookie ? { cookie } : {}) };
+  // A distinct source per call. Sign-in is rate-limited per source now, and
+  // these cases are about whether a token verifies — sharing one address
+  // would have them throttle each other and assert the wrong refusal.
+  req.headers = {
+    host: "localhost:4000",
+    "x-forwarded-for": `198.51.100.${(callNumber = (callNumber + 1) % 250) + 1}`,
+    ...(cookie ? { cookie } : {}),
+  };
 
   const headers = new Map<string, string | string[]>();
   let status = 200;
