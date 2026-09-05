@@ -375,10 +375,10 @@ ${nav()}
         consolidation, and a close that runs itself. Its AI CFO answers in plain language — and is
         structurally incapable of inventing a figure.</p>
       <div class="hero-cta fade-up" style="animation-delay:.88s">
-        <a class="btn btn-primary" href="/site/contact">Book a demo</a>
-        <a class="btn btn-dark" href="/login">Sign in</a>
+        <a class="btn btn-primary" href="/try">Try it live</a>
+        <a class="btn btn-dark" href="/site/contact">Book a demo</a>
       </div>
-      <div class="hero-note fade-up" style="animation-delay:1s">Your ledger is only ever visible to your team — the console is behind sign-in.</div>
+      <div class="hero-note fade-up" style="animation-delay:1s">No account needed — the demo opens a seeded company that is yours alone. Your own ledger stays behind sign-in.</div>
       <div class="hint fade-up" style="animation-delay:1.15s"><i></i> watch the close resolve itself</div>
     </div>
 
@@ -651,10 +651,11 @@ ${nav()}
 <section class="cta">
   <div class="wrap">
     <h2>See a close that will not let you lie to yourself.</h2>
-    <p class="lede on-dark">We will walk you through a seeded company with June still open — two real
-      blockers waiting, agents holding proposals, and every number computed by the engines.</p>
+    <p class="lede on-dark">Open a seeded company with June still open — two real blockers waiting,
+      agents holding proposals, and every number computed by the engines. It is a sandbox of your
+      own: approve, post and close in it without touching anyone else's books.</p>
     <div class="cta-row">
-      <a class="btn btn-primary" href="/site/contact">Book a demo</a>
+      <a class="btn btn-primary" href="/try">Try it live</a>
       <a class="btn btn-dark" href="/login">Sign in</a>
     </div>
   </div>
