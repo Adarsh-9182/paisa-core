@@ -548,6 +548,21 @@ const page = () => `<!doctype html>
   .auth-btn .caret { font-size: 10px; color: var(--ink-3); }
   .auth-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+  /* Signed out, the corner is two doors rather than one icon.
+     A lone circle with an arrow in it is not a word: it does not say "sign
+     in", it does not offer signing up at all, and on a phone — where the
+     name beside it was being hidden — that circle was the entire control. */
+  .auth-actions { display: flex; align-items: center; gap: 8px; }
+  .auth-door { display: inline-flex; align-items: center; justify-content: center; height: 42px;
+    padding: 0 15px; border-radius: 13px; font-family: inherit; font-size: 13.5px; font-weight: 650;
+    text-decoration: none; white-space: nowrap; }
+  .auth-door.ghost { border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    box-shadow: var(--shadow-sm); }
+  .auth-door.ghost:hover { border-color: var(--line-strong); }
+  .auth-door.solid { border: 0; color: #fff;
+    background: linear-gradient(150deg, var(--orange), var(--violet)); box-shadow: var(--glow); }
+  .auth-door.solid:active { transform: scale(0.97); }
+
   .auth-menu { position: absolute; top: 50px; right: 0; min-width: 214px; padding: 6px;
     border-radius: 14px; border: 1px solid var(--line); background: var(--surface);
     box-shadow: var(--shadow-md); }
@@ -561,7 +576,17 @@ const page = () => `<!doctype html>
     text-align: left; text-decoration: none; cursor: pointer; }
   .auth-item:hover { background: var(--surface-2); color: var(--ink); }
   .auth-item.danger { color: var(--red); }
-  @media (max-width: 720px) { .auth-name { display: none; } .auth-btn { padding: 0 10px; } }
+  /* The name goes on a narrow screen — the initials still identify the
+     account. The words "Sign in" and "Sign up" never go: they are the
+     control, not a label on one. */
+  @media (max-width: 720px) {
+    .auth-name { display: none; }
+    .auth-btn { padding: 0 10px; }
+    .authpill { top: 16px; right: 12px; }
+    .auth-actions { gap: 6px; }
+    .auth-door { height: 40px; padding: 0 12px; font-size: 13px; }
+  }
+  @media (max-width: 360px) { .auth-door { padding: 0 10px; font-size: 12.5px; } }
   .nav-menu {
     position: fixed; top: 66px; left: 16px; z-index: 59; width: 252px; padding: 10px;
     background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
@@ -910,8 +935,10 @@ async function loadIdentity() {
     // says so and offers the way out of them. The next= param brings them back
     // here rather than to whatever the login page's default happens to be.
     $("authpill").innerHTML =
-      '<a class="auth-btn" href="/login?next=%2Fapp"><span class="avatar-sm">→</span>' +
-      '<span class="auth-name">Sign in</span></a>';
+      '<div class="auth-actions">' +
+        '<a class="auth-door ghost" href="/login?next=%2Fapp">Sign in</a>' +
+        '<a class="auth-door solid" href="/signup?next=%2Fapp">Sign up</a>' +
+      "</div>";
     return;
   }
   const me = await res.json();
