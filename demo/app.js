@@ -508,7 +508,7 @@ const page = () => `<!doctype html>
       radial-gradient(60% 50% at 12% 0%, rgba(47,107,255,0.10), transparent 70%),
       radial-gradient(50% 45% at 100% 6%, rgba(106,73,242,0.09), transparent 72%);
   }
-  .app { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 380px; height: 100vh; }
+  .app { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr; height: 100vh; }
 
   /* ---------- floating nav (hamburger) ---------- */
   .hamburger {
@@ -530,6 +530,38 @@ const page = () => `<!doctype html>
   }
   .logo-mark { width: 26px; height: 26px; border-radius: 8px; color: #fff; display: grid; place-items: center;
     font-size: 15px; font-weight: 800; background: linear-gradient(150deg, var(--orange), var(--violet)); box-shadow: var(--glow); }
+
+  /* ---------- the account, top right ----------
+     Opposite the brand, in the corner every application puts it, and visible
+     without opening anything: whether you are signed in is the first thing a
+     page like this has to answer, and it was previously hidden inside the
+     hamburger. */
+  .authpill { position: fixed; top: 16px; right: 16px; z-index: 60; }
+  .auth-btn { display: flex; align-items: center; gap: 9px; height: 42px; padding: 0 14px;
+    border-radius: 13px; border: 1px solid var(--line); background: var(--surface);
+    box-shadow: var(--shadow-sm); font-family: inherit; font-size: 13.5px; font-weight: 650;
+    color: var(--ink); cursor: pointer; text-decoration: none; }
+  .auth-btn:hover { border-color: var(--line-strong); }
+  .auth-btn .avatar-sm { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+    font-size: 11.5px; font-weight: 800; color: #fff;
+    background: linear-gradient(150deg, var(--orange), var(--violet)); }
+  .auth-btn .caret { font-size: 10px; color: var(--ink-3); }
+  .auth-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .auth-menu { position: absolute; top: 50px; right: 0; min-width: 214px; padding: 6px;
+    border-radius: 14px; border: 1px solid var(--line); background: var(--surface);
+    box-shadow: var(--shadow-md); }
+  .auth-menu[hidden] { display: none; }
+  .auth-head { padding: 9px 10px 10px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  .auth-head b { display: block; font-size: 13px; }
+  .auth-head span { display: block; font-size: 11.5px; color: var(--ink-3);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .auth-item { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 9px;
+    background: none; font-family: inherit; font-size: 13px; color: var(--ink-2);
+    text-align: left; text-decoration: none; cursor: pointer; }
+  .auth-item:hover { background: var(--surface-2); color: var(--ink); }
+  .auth-item.danger { color: var(--red); }
+  @media (max-width: 720px) { .auth-name { display: none; } .auth-btn { padding: 0 10px; } }
   .nav-menu {
     position: fixed; top: 66px; left: 16px; z-index: 59; width: 252px; padding: 10px;
     background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
@@ -563,8 +595,6 @@ const page = () => `<!doctype html>
   .profile .who { min-width: 0; }
   .profile .who b, .profile .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  /* ---------- dashboard rail ---------- */
-  .main { grid-area: 1 / 2; overflow-y: auto; padding: 22px 20px 30px; border-left: 1px solid var(--line); background: color-mix(in oklab, var(--surface) 55%, transparent); }
   .date-line { color: var(--ink-3); font-size: 13px; margin-bottom: 5px; }
   h1 { font-size: 31px; letter-spacing: -0.032em; font-weight: 700; }
   .btn { border: 0; border-radius: 99px; padding: 10px 18px; font-weight: 650; font-size: 13px; cursor: pointer; font-family: inherit; }
@@ -605,69 +635,6 @@ const page = () => `<!doctype html>
   .rec-actions { display: flex; gap: 8px; margin-top: 10px; }
   .btn-approve { background: var(--green); color: #fff; padding: 7px 14px; }
   .btn-dismiss { background: var(--surface-2); color: var(--ink-2); padding: 7px 14px; }
-
-  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 15px 16px; }
-  .tile .t-label { font-size: 12px; color: var(--ink-2); font-weight: 600; }
-  .tile .t-value { font-size: 23px; font-weight: 800; letter-spacing: -0.02em; margin: 6px 0 3px; font-variant-numeric: tabular-nums; }
-  .tile .t-sub { font-size: 11.5px; color: var(--ink-3); }
-  .delta-up { color: var(--green); font-weight: 700; }
-  .delta-down { color: var(--green); font-weight: 700; }
-  .delta-bad { color: var(--red); font-weight: 700; }
-
-  .row2 { display: grid; grid-template-columns: 1.6fr 1fr; gap: 14px; margin-bottom: 20px; }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
-  .card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
-  .card-head h2 { font-size: 15.5px; font-weight: 750; letter-spacing: -0.01em; }
-  .card-sub { font-size: 12px; color: var(--ink-3); margin-bottom: 10px; }
-  .badge-healthy { font-size: 11.5px; font-weight: 700; color: var(--green); background: var(--green-soft); border-radius: 99px; padding: 3px 10px; }
-  .cash-line { font-size: 12.5px; color: var(--ink-2); margin-top: 8px; }
-  .cash-line b { font-variant-numeric: tabular-nums; }
-
-  .chart-wrap { position: relative; }
-  .chart-tip { position: absolute; pointer-events: none; background: var(--ink); color: #fff; border-radius: 8px; padding: 7px 10px; font-size: 11.5px; line-height: 1.45; opacity: 0; transform: translate(-50%, -110%); white-space: nowrap; transition: opacity 80ms; }
-  .legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--ink-2); margin-top: 6px; }
-  .legend i { display: inline-block; width: 14px; height: 0; border-top: 2.5px solid; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
-  .legend .l-actual i { border-color: #0E9C72; }
-  .legend .l-forecast i { border-color: #B3770F; border-top-style: dashed; }
-
-  .up-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
-  .up-item:last-child { border-bottom: 0; }
-  .up-item b { font-size: 13px; display: block; }
-  .up-item .sub { font-size: 11.5px; color: var(--ink-3); }
-  .up-right { text-align: right; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-  .badge-due { display: inline-block; font-size: 10.5px; font-weight: 700; color: var(--orange-deep); background: var(--orange-soft); border-radius: 99px; padding: 2px 8px; margin-top: 2px; }
-
-  /* ---------- bank feed review ---------- */
-  .rate { font-size: 11.5px; font-weight: 700; border-radius: 99px; padding: 3px 10px;
-    color: var(--orange-deep); background: var(--orange-soft); font-variant-numeric: tabular-nums; }
-  .rvw { border-top: 1px solid var(--line); padding: 12px 0; }
-  .rvw:first-child { border-top: 0; }
-  .rvw-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
-  .rvw-desc { font-weight: 600; font-size: 13px; word-break: break-word; }
-  .rvw-when { font-size: 11.5px; color: var(--ink-3); }
-  .rvw-amt { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .rvw-amt.in { color: var(--green); }
-  .rvw-form { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; align-items: center; }
-  .rvw-form select, .rvw-form input {
-    border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; font-size: 12.5px;
-    font-family: inherit; background: var(--surface); color: var(--ink); outline: none; min-width: 0; }
-  .rvw-form select { flex: 1 1 140px; }
-  .rvw-form input { flex: 1 1 110px; }
-  .rvw-form select:focus, .rvw-form input:focus { border-color: var(--orange); }
-  .rvw-learn { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--ink-2);
-    white-space: nowrap; cursor: pointer; }
-  .rvw-learn input { flex: none; min-width: 0; width: 14px; height: 14px; accent-color: var(--orange); }
-  .rvw-err { color: var(--red); font-size: 11.5px; margin-top: 6px; }
-  .rvw-empty { color: var(--ink-3); font-size: 12.5px; padding: 6px 0; }
-
-  table.tx { width: 100%; border-collapse: collapse; }
-  table.tx td { padding: 9px 4px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
-  table.tx tr:last-child td { border-bottom: 0; }
-  .tx .cat { color: var(--ink-3); font-size: 11.5px; }
-  .tx .amt { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .tx .amt.in { color: var(--green); }
-  .link { color: var(--orange-deep); font-weight: 650; font-size: 12.5px; text-decoration: none; cursor: pointer; }
 
   /* ---------- centre: landing → conversation ---------- */
   .centre { grid-area: 1 / 1; min-width: 0; display: flex; flex-direction: column; height: 100vh; }
@@ -788,10 +755,6 @@ const page = () => `<!doctype html>
     font-size: 12px; color: var(--ink-2); cursor: pointer; font-family: inherit; }
   .chips button:hover { border-color: var(--orange); color: var(--orange-deep); }
 
-  .main .tiles { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .main .row2 { grid-template-columns: 1fr; }
-
-  @media (max-width: 1180px) { .app { grid-template-columns: 1fr; } .main { display: none; } }
   @media (max-width: 720px) { .brandpill { display: none; } .landing { padding-top: 76px; } }
 </style>
 </head>
@@ -799,6 +762,7 @@ const page = () => `<!doctype html>
 <button class="hamburger" id="menubtn" aria-label="Open menu" aria-expanded="false"><i></i></button>
 <div class="brandpill"><span class="logo-mark">₹</span>paisa</div>
 <nav class="nav-menu" id="navmenu"></nav>
+<div class="authpill" id="authpill"></div>
 
 <div class="app">
 
@@ -861,39 +825,6 @@ const page = () => `<!doctype html>
     <div class="askdock" id="askdock" hidden></div>
   </section>
 
-  <main class="main">
-    <section class="tiles" id="tiles"></section>
-
-    <section class="row2">
-      <div class="card">
-        <div class="card-head"><h2>Cash flow</h2><span class="badge-healthy" id="cf-badge">Healthy</span></div>
-        <div class="card-sub">Last 6 months · forecast in amber</div>
-        <div class="chart-wrap">
-          <svg id="chart" width="100%" height="210" role="img" aria-label="Monthly closing cash, actuals and forecast"></svg>
-          <div class="chart-tip" id="tip"></div>
-        </div>
-        <div class="legend"><span class="l-actual"><i></i>Closing cash (actual)</span><span class="l-forecast"><i></i>Forecast</span></div>
-        <div class="cash-line" id="cash-line"></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h2>Upcoming</h2></div>
-        <div class="card-sub">Compliance & committed payments</div>
-        <div id="upcoming"></div>
-      </div>
-    </section>
-
-    <section class="card" id="review-card" style="margin-bottom:16px">
-      <div class="card-head"><h2>Needs your review</h2><span class="rate" id="review-rate"></span></div>
-      <div class="card-sub" id="review-sub">Lines the categoriser would not guess an account for</div>
-      <div id="review-list"></div>
-    </section>
-
-    <section class="card">
-      <div class="card-head"><h2>Recent transactions</h2><a class="link" href="/journal" target="_blank">View all</a></div>
-      <div class="card-sub" id="tx-sub">Auto-categorised by AI</div>
-      <table class="tx"><tbody id="txbody"></tbody></table>
-    </section>
-  </main>
 </div>
 
 <script>
@@ -973,6 +904,12 @@ async function loadIdentity() {
     $("profile").innerHTML =
       '<a href="/login"><div class="avatar guest">→</div>' +
       '<div class="who"><b>Sign in</b><span>You are viewing demo books</span></div></a>';
+    // A visitor with no session is looking at the demo books, and the corner
+    // says so and offers the way out of them. The next= param brings them back
+    // here rather than to whatever the login page's default happens to be.
+    $("authpill").innerHTML =
+      '<a class="auth-btn" href="/login?next=%2Fapp"><span class="avatar-sm">→</span>' +
+      '<span class="auth-name">Sign in</span></a>';
     return;
   }
   const me = await res.json();
@@ -982,6 +919,30 @@ async function loadIdentity() {
     '<div class="avatar">' + esc(initials(name)) + "</div>" +
     '<div class="who"><b>' + esc(name) + "</b><span>" + esc(me.workspace) + "</span></div>";
   $("greeting").textContent = "Good morning, " + name.split(/\\s+/)[0];
+
+  $("authpill").innerHTML =
+    '<button class="auth-btn" id="authBtn" type="button" aria-haspopup="menu" aria-expanded="false">' +
+      '<span class="avatar-sm">' + esc(initials(name)) + "</span>" +
+      '<span class="auth-name">' + esc(name) + '</span><span class="caret">▾</span>' +
+    "</button>" +
+    '<div class="auth-menu" id="authMenu" hidden role="menu">' +
+      '<div class="auth-head"><b>' + esc(name) + "</b><span>" + esc(me.user.email || me.workspace) + "</span></div>" +
+      '<a class="auth-item" role="menuitem" href="/console">Console</a>' +
+      '<button class="auth-item danger" role="menuitem" id="authOut" type="button">Sign out</button>' +
+    "</div>";
+
+  const menu = $("authMenu"), btn = $("authBtn");
+  const setOpen = (open) => { menu.hidden = !open; btn.setAttribute("aria-expanded", open ? "true" : "false"); };
+  btn.addEventListener("click", (e) => { e.stopPropagation(); setOpen(menu.hidden); });
+  menu.addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => setOpen(false));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
+
+  // The cookie is the only session state, so signing out ends with a fresh
+  // request rather than with a route change in JavaScript.
+  $("authOut").addEventListener("click", () => {
+    fetch("/api/logout", { method: "POST" }).finally(() => { location.href = "/login"; });
+  });
 }
 
 /* ---- brief + health ---- */
@@ -993,112 +954,6 @@ async function loadBrief() {
   // highlight rupee amounts in green/orange like the design
   let i = 0;
   $("brief-text").innerHTML = esc(b.headline).replace(/₹[\\d,]+(?:\\.\\d{2})?/g, (m) => '<span class="' + (i++ === 0 ? "hl-g" : "hl-o") + '">' + m + "</span>");
-}
-
-/* ---- metric tiles ---- */
-const deltaSpan = (chg, goodWhenUp) => {
-  if (chg === null) return "";
-  if (chg === 0) return '<span style="color:var(--ink-3);font-weight:700">→ 0%</span> ';
-  const up = chg > 0;
-  const good = goodWhenUp ? up : !up;
-  const cls = good ? "delta-up" : "delta-bad";
-  return '<span class="' + cls + '">' + (up ? "↗" : "↘") + " " + Math.abs(chg) + "%</span> ";
-};
-async function loadTiles() {
-  const m = await j("/api/metrics");
-  const runwayVal = m.runway.positive ? "∞" : m.runway.days !== null ? m.runway.days + "d" : "—";
-  const runwaySub = m.runway.positive ? "cash-flow positive — no burn" : m.runway.burn ? "at current burn of " + m.runway.burn + "/mo" : m.runway.note;
-  $("tiles").innerHTML =
-    tile("Revenue", m.revenue.value, deltaSpan(m.revenue.changePct, true) + "vs last month", m.revenue.full) +
-    tile("Expenses", m.expenses.value, deltaSpan(m.expenses.changePct, false) + "vs last month", m.expenses.full) +
-    tile("Profit", m.profit.value, (m.profit.marginPct ?? "—") + "% margin", m.profit.full) +
-    tile("Runway", runwayVal, runwaySub, "");
-}
-const tile = (label, value, sub, title) =>
-  '<div class="tile" title="' + esc(title) + '"><div class="t-label">' + label + '</div><div class="t-value">' + value + '</div><div class="t-sub">' + sub + "</div></div>";
-
-/* ---- cash flow chart ---- */
-async function loadChart() {
-  const data = await j("/api/cashflow");
-  const svg = $("chart");
-  const W = svg.clientWidth || 520, H = 210, padL = 46, padR = 40, padT = 14, padB = 26;
-  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
-  const pts = data.points;
-  const ys = pts.map((p) => p.closing);
-  const yMax = Math.max(...ys) * 1.08, yMin = Math.min(0, Math.min(...ys));
-  const x = (i) => padL + (i * (W - padL - padR)) / (pts.length - 1);
-  const y = (v) => padT + (1 - (v - yMin) / (yMax - yMin)) * (H - padT - padB);
-  const fmtL = (v) => "₹" + (v / 1e5).toFixed(0) + "L";
-
-  let g = "";
-  // gridlines + y labels (recessive)
-  for (let k = 0; k <= 3; k++) {
-    const v = yMin + ((yMax - yMin) * k) / 3;
-    g += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#E4E7EE" stroke-width="1"/>';
-    g += '<text x="' + (padL - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end" font-size="10" fill="#878FA1">' + fmtL(v) + "</text>";
-  }
-  // x labels
-  pts.forEach((p, i) => {
-    const name = new Date(p.month + "-01T00:00:00").toLocaleDateString("en", { month: "short" });
-    g += '<text x="' + x(i) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="#878FA1">' + name + "</text>";
-  });
-  // paths: actual solid, forecast dashed (starts at last actual point)
-  const lastActual = pts.map((p) => p.kind).lastIndexOf("actual");
-  const path = (from, to) => pts.slice(from, to + 1).map((p, k) => (k ? "L" : "M") + x(from + k) + " " + y(p.closing)).join(" ");
-  // soft area under actuals
-  g += '<path d="' + path(0, lastActual) + " L" + x(lastActual) + " " + y(yMin) + " L" + x(0) + " " + y(yMin) + ' Z" fill="#0E9C72" opacity="0.07"/>';
-  g += '<path d="' + path(0, lastActual) + '" fill="none" stroke="#0E9C72" stroke-width="2" stroke-linecap="round"/>';
-  if (lastActual < pts.length - 1)
-    g += '<path d="' + path(lastActual, pts.length - 1) + '" fill="none" stroke="#B3770F" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round"/>';
-  // end-point markers + direct labels
-  const mark = (i, color, label) => {
-    g += '<circle cx="' + x(i) + '" cy="' + y(pts[i].closing) + '" r="4" fill="' + color + '" stroke="#FFFFFF" stroke-width="2"/>';
-    g += '<text x="' + x(i) + '" y="' + (y(pts[i].closing) - 10) + '" text-anchor="middle" font-size="10.5" font-weight="700" fill="' + color + '">' + label + "</text>";
-  };
-  mark(lastActual, "#0E9C72", pts[lastActual].closingLabel);
-  mark(pts.length - 1, "#B3770F", pts[pts.length - 1].closingLabel);
-  // hover targets
-  pts.forEach((p, i) => {
-    g += '<rect data-i="' + i + '" x="' + (x(i) - (W - padL - padR) / (2 * (pts.length - 1))) + '" y="0" width="' + (W - padL - padR) / (pts.length - 1) + '" height="' + H + '" fill="transparent"/>';
-  });
-  g += '<line id="xh" y1="' + padT + '" y2="' + (H - padB) + '" stroke="#878FA1" stroke-width="1" stroke-dasharray="2 3" opacity="0"/>';
-  svg.innerHTML = g;
-
-  const tip = $("tip");
-  svg.addEventListener("mousemove", (e) => {
-    const t = e.target.closest("rect[data-i]");
-    if (!t) return;
-    const i = +t.dataset.i, p = pts[i];
-    const xh = svg.querySelector("#xh");
-    xh.setAttribute("x1", x(i)); xh.setAttribute("x2", x(i)); xh.setAttribute("opacity", "1");
-    tip.style.opacity = 1;
-    tip.style.left = (x(i) / W) * svg.clientWidth + "px";
-    tip.style.top = (y(p.closing) / H) * 210 + "px";
-    tip.innerHTML = "<b>" + p.month + (p.kind === "forecast" ? " · forecast" : "") + "</b><br>Closing " + p.closingLabel + " · Net " + p.netLabel;
-  });
-  svg.addEventListener("mouseleave", () => { tip.style.opacity = 0; svg.querySelector("#xh").setAttribute("opacity", "0"); });
-
-  const b = await j("/api/brief");
-  $("cash-line").innerHTML = "<b>" + b.cash + "</b> in bank · " + esc(data.assumption);
-  if (data.depletionMonth) { $("cf-badge").textContent = "At risk"; $("cf-badge").style.color = "#DD4360"; $("cf-badge").style.background = "#FCE9EC"; }
-}
-
-/* ---- upcoming ---- */
-async function loadUpcoming() {
-  const u = await j("/api/upcoming");
-  $("upcoming").innerHTML = u.items.map((it) =>
-    '<div class="up-item"><div><b>' + esc(it.title) + '</b><span class="sub">' + esc(it.sub) + (it.badge ? ' </span><span class="badge-due">' + it.badge + "</span>" : "</span>") +
-    '</div><div class="up-right">' + new Date(it.date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + (it.amount ? "<br><b>" + it.amount + "</b>" : "") + "</div></div>"
-  ).join("");
-}
-
-/* ---- transactions ---- */
-async function loadTx() {
-  const t = await j("/api/transactions");
-  $("tx-sub").textContent = "Auto-categorised by AI" + (t.needsReview ? " · " + t.needsReview + " need review" : "");
-  $("txbody").innerHTML = t.rows.map((r) =>
-    "<tr><td><b>" + esc(r.narration) + '</b><div class="cat">' + esc(r.category) + " · " + r.date + '</div></td><td class="amt ' + (r.direction === "in" ? "in" : "") + '">' + (r.direction === "in" ? "+" : "−") + r.amount.replace("-", "") + "</td></tr>"
-  ).join("");
 }
 
 /* ---- recommendations ---- */
@@ -1123,88 +978,6 @@ $("recs").addEventListener("click", async (e) => {
   if (!btn) return;
   await fetch("/api/recommendations/" + btn.dataset.id + "/" + btn.dataset.act, { method: "POST" });
   await Promise.all([loadRecs(), loadBrief()]);
-});
-
-/* ---- bank feed review ----
-
-   The queue is where the auto-book rate is actually earned: every line
-   resolved here can leave a rule behind, so the same payee never asks again.
-   The rate is shown beside it because that is the whole point of the work —
-   a reviewer should watch the queue get quieter. */
-async function loadReview() {
-  const d = await j("/api/banking/review");
-  const pct = d.stats.autoBookedPct;
-  $("review-rate").textContent = pct === null ? "no feed yet" : pct + "% booked automatically";
-
-  if (!d.items.length) {
-    $("review-sub").textContent = "Every line in the feed booked itself";
-    $("review-list").innerHTML = '<div class="rvw-empty">Nothing waiting — the categoriser placed all of it.</div>';
-    return;
-  }
-
-  $("review-sub").textContent =
-    d.items.length + (d.items.length === 1 ? " line" : " lines") + " the categoriser would not guess an account for";
-
-  const options = d.accounts
-    .map((a) => '<option value="' + esc(a.id) + '">' + esc(a.name) + "</option>")
-    .join("");
-
-  $("review-list").innerHTML = d.items.map((it) => {
-    const kw = it.suggestedKeyword;
-    // Learning is offered pre-ticked only when there is something to learn;
-    // the keyword stays editable because the reviewer, not the heuristic, is
-    // the one vouching for it.
-    const learn = kw
-      ? '<input type="text" value="' + esc(kw) + '" data-kw aria-label="Keyword to remember">' +
-        '<label class="rvw-learn"><input type="checkbox" data-learn checked>remember</label>'
-      : "";
-    return (
-      '<div class="rvw" data-ref="' + esc(it.reference) + '">' +
-        '<div class="rvw-head">' +
-          '<div><div class="rvw-desc">' + esc(it.description) + "</div>" +
-          '<div class="rvw-when">' + esc(it.date) + "</div></div>" +
-          '<div class="rvw-amt' + (it.direction === "in" ? " in" : "") + '">' + esc(it.amount) + "</div>" +
-        "</div>" +
-        '<div class="rvw-form">' +
-          "<select data-acc>" + options + "</select>" + learn +
-          '<button class="btn btn-quiet" data-book>Book</button>' +
-        "</div>" +
-        '<div class="rvw-err" hidden></div>' +
-      "</div>"
-    );
-  }).join("");
-}
-
-$("review-list").addEventListener("click", async (e) => {
-  const btn = e.target.closest("button[data-book]");
-  if (!btn) return;
-  const row = btn.closest(".rvw");
-  const err = row.querySelector(".rvw-err");
-  const learnBox = row.querySelector("[data-learn]");
-  const kwField = row.querySelector("[data-kw]");
-
-  btn.disabled = true;
-  err.hidden = true;
-  const res = await j("/api/banking/categorize", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      reference: row.dataset.ref,
-      accountId: row.querySelector("[data-acc]").value,
-      ...(learnBox && learnBox.checked && kwField.value.trim() ? { learn: kwField.value.trim() } : {}),
-    }),
-  });
-
-  if (!res.ok) {
-    // The rejection is the useful part — a keyword that is not in the line
-    // would have become a rule that fires on somebody else's payments.
-    btn.disabled = false;
-    err.textContent = res.error;
-    err.hidden = false;
-    return;
-  }
-  // The books moved, so anything derived from them is now stale.
-  await Promise.all([loadReview(), loadTx(), loadTiles(), loadBrief()]);
 });
 
 /* ---- chat ---- */
@@ -1276,9 +1049,10 @@ $("log").addEventListener("click", async (e) => {
       '<div class="done">' +
       (btn.dataset.do === "approve" ? "Approved — " + esc(out.result || "done") : "Dismissed. Nothing was posted.") +
       "</div>";
-    if (btn.dataset.do === "approve") await Promise.all([loadBrief(), loadTx(), loadUpcoming()]);
+    // Approving posts to the books, so the brief that summarises them is stale.
+    if (btn.dataset.do === "approve") await loadBrief();
   } catch {
-    row.outerHTML = '<div class="done">That didn\'t go through — nothing was posted.</div>';
+    row.outerHTML = '<div class="done">That did not go through — nothing was posted.</div>';
   }
 });
 
@@ -1303,7 +1077,7 @@ async function sendChat(text) {
   scrollThread();
 }
 
-loadIdentity(); loadBrief(); loadTiles(); loadChart(); loadUpcoming(); loadTx(); loadRecs(); loadReview();
+loadIdentity(); loadBrief(); loadRecs();
 </script>
 </body>
 </html>`;
