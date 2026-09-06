@@ -708,7 +708,9 @@ const page = () => `<!doctype html>
   .cosmos-copy { position: relative; z-index: 1; }
   .cosmos .date-line { color: rgba(233,240,255,0.66); }
   .cosmos h1 { color: #fff; margin-bottom: 0; }
-  .cosmos .since { margin-top: 10px; font-size: 12.5px; text-align: center; color: rgba(233,240,255,0.58); }
+  /* The invitation, not a caption — it is the question the ask bar below
+     answers, so it carries the weight of one. */
+  .cosmos .since { margin-top: 11px; font-size: 15.5px; text-align: center; color: rgba(233,240,255,0.72); }
 
   /* A moving light source is decoration, and decoration is the first thing
      that should stop when somebody has asked for less motion. */
@@ -793,8 +795,8 @@ const page = () => `<!doctype html>
           </div>
           <div class="cosmos-copy">
             <div class="date-line" id="dateline"></div>
-            <h1 id="greeting">Good morning</h1>
-            <div class="since">The ledger has been closing while you were away.</div>
+            <h1 id="greeting">Hi, I&#39;m Paisa</h1>
+            <div class="since">How can I help with your finances?</div>
           </div>
         </div>
 
@@ -918,7 +920,6 @@ async function loadIdentity() {
   $("profile").innerHTML =
     '<div class="avatar">' + esc(initials(name)) + "</div>" +
     '<div class="who"><b>' + esc(name) + "</b><span>" + esc(me.workspace) + "</span></div>";
-  $("greeting").textContent = "Good morning, " + name.split(/\\s+/)[0];
 
   $("authpill").innerHTML =
     '<button class="auth-btn" id="authBtn" type="button" aria-haspopup="menu" aria-expanded="false">' +
