@@ -55,6 +55,8 @@ import {
   normalizeEmail,
   identityFromToken,
   SupabaseAuthError,
+  SignInThrottle,
+  MemoryThrottleStore,
 } from "../dist/src/index.js";
 
 const ACTOR = "adarsh";
@@ -145,6 +147,39 @@ const workspaceName = (orgId) => (orgId === ORG_ID ? ORG_NAME : orgId);
 
 
 const isSecure = (req) => req.headers["x-forwarded-proto"] === "https" || !!process.env.VERCEL;
+
+/**
+ * Who is asking, for rate-limiting purposes only.
+ *
+ * x-forwarded-for is caller-supplied on a bare socket, so this is trustworthy
+ * exactly to the extent that the proxy in front rewrites it — which Vercel
+ * does. It is never used for authority, only to decide whether one source has
+ * guessed too many passwords.
+ *
+ * The leftmost entry is the client; the rest are proxies. An unknown address
+ * falls back to one shared bucket rather than to a unique value per request:
+ * over-counting throttles a few people together, while under-counting removes
+ * the limit altogether, and only one of those is a security failure.
+ */
+const callerIp = (req) => {
+  const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
+  return forwarded || String(req.headers["x-real-ip"] ?? "").trim() || req.socket?.remoteAddress || "unknown";
+};
+
+/**
+ * Sign-in rate limiting. See src/auth/throttle.ts for the policy and for the
+ * honest limits of counting in memory on serverless.
+ */
+const signInThrottle = new SignInThrottle(new MemoryThrottleStore());
+
+/** One refusal shape, so a throttled caller learns nothing about the account. */
+const tooManyAttempts = (res, send, retryAfterSeconds) => {
+  res.setHeader("Retry-After", String(retryAfterSeconds));
+  return send(429, {
+    error: "Too many sign-in attempts. Try again in a moment.",
+    retryAfterSeconds,
+  });
+};
 
 /**
  * Where a visitor was headed before they were sent to Google.
@@ -1383,14 +1418,33 @@ export const handle = async (req, res) => {
 
     if (path === "/api/login" && req.method === "POST") {
       const { email, password } = JSON.parse((await readBody(req)) || "{}");
-      const account = await accounts.authenticate(String(email ?? ""), String(password ?? ""));
+      const address = String(email ?? "");
+      const ip = callerIp(req);
+
+      // Asked before the password is verified, so a locked-out caller does not
+      // even spend the server's scrypt work. An address with no account is
+      // throttled exactly like one with an account — a 429 that appeared only
+      // for real users would be the membership check the next comment exists
+      // to prevent.
+      const gate = await signInThrottle.check(address, ip);
+      if (!gate.allowed) return tooManyAttempts(res, send, gate.retryAfterSeconds);
+
+      const account = await accounts.authenticate(address, String(password ?? ""));
       // One message for both halves. "No account with that email" is a free
       // membership check for anyone holding a list of addresses, which for a
       // finance product is a list of who banks with you.
-      if (!account) return send(401, { error: "Invalid email or password" });
+      if (!account) {
+        await signInThrottle.fail(address, ip);
+        return send(401, { error: "Invalid email or password" });
+      }
 
       const workspaces = members.listUser(account.userId);
+      // Not a failed guess — the password was right — so this does not count
+      // against them. Throttling it would lock a correctly-typed password out
+      // over a membership problem only an owner can fix.
       if (!workspaces.length) return send(403, { error: "Your account is not a member of any workspace." });
+
+      await signInThrottle.succeed(address, ip);
       const token = issueSession(account.userId, workspaces[0].orgId, requireSessionSecret());
       res.setHeader("Set-Cookie", sessionCookie(token, isSecure(req)));
       return send(200, { ok: true, orgId: workspaces[0].orgId });
@@ -1428,6 +1482,17 @@ export const handle = async (req, res) => {
       const config = googleConfig();
       if (!config) return send(404, { error: "Google sign-in is not configured" });
 
+      const ip = callerIp(req);
+      // Verifying a token is an HMAC, not scrypt, so this is cheap to attempt
+      // — but a forged token is still a guess, and a source that keeps sending
+      // them should slow down. Counted under a fixed name rather than a real
+      // address: nobody's email is known until the token verifies, and
+      // charging a stranger's failures to a real account is how the counter
+      // would become a way to lock someone out.
+      const GOOGLE_BUCKET = "oauth:google";
+      const gate = await signInThrottle.check(GOOGLE_BUCKET, ip);
+      if (!gate.allowed) return tooManyAttempts(res, send, gate.retryAfterSeconds);
+
       const { token } = JSON.parse((await readBody(req)) || "{}");
       let identity;
       try {
@@ -1439,6 +1504,7 @@ export const handle = async (req, res) => {
         // Every rejection reason here is a forged or stale token, and none of
         // them is the visitor's to fix. One message, logged server-side.
         if (err instanceof SupabaseAuthError) console.error(`[paisa] google sign-in rejected: ${err.message}`);
+        await signInThrottle.fail(GOOGLE_BUCKET, ip);
         return send(401, { error: "That Google sign-in could not be verified. Try again." });
       }
 
@@ -1453,6 +1519,7 @@ export const handle = async (req, res) => {
       const workspaces = members.listUser(account.userId);
       if (!workspaces.length) return send(403, { error: "Your account is not a member of any workspace." });
 
+      await signInThrottle.succeed(GOOGLE_BUCKET, ip);
       const cookies = parseCookies(req.headers.cookie);
       const next = safeNext(decodeURIComponent(cookies[NEXT_COOKIE] ?? ""));
       const session = issueSession(account.userId, workspaces[0].orgId, requireSessionSecret());

@@ -37,3 +37,4 @@ export * from "./persistence/index.js";
 export * from "./auth/password.js";
 export * from "./auth/session.js";
 export * from "./auth/supabase.js";
+export * from "./auth/throttle.js";
