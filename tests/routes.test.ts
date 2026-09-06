@@ -124,14 +124,21 @@ describe("route authority", () => {
   });
 
   it("refuses a viewer the writes their role does not carry", async () => {
-    await call("POST", "/api/register", {
+    // Registering is enough: where signup is open, the account is seated in
+    // the workspace as a viewer in the same request, because an account with
+    // no workspace is one /api/login refuses.
+    const made = await call("POST", "/api/register", {
       body: { email: "viewer@paisa.local", password: "viewer123456", name: "Viewer" },
     });
-    const invited = await call("POST", "/api/members", {
-      cookie: owner,
-      body: { email: "viewer@paisa.local", role: "viewer" },
-    });
-    expect(invited.status).toBe(201);
+    expect(made.status).toBe(201);
+
+    const seated = await call("GET", "/api/members", { cookie: owner });
+    expect(
+      seated.body.items.some(
+        (m: { email: string | null; role: string }) =>
+          m.email === "viewer@paisa.local" && m.role === "viewer",
+      ),
+    ).toBe(true);
 
     const viewer = await signIn("viewer@paisa.local", "viewer123456");
 

@@ -678,6 +678,79 @@ const page = () => `<!doctype html>
   .landing .date-line, .landing h1 { text-align: center; }
   .landing h1 { margin-bottom: 22px; }
 
+  /* ---------- the cosmos hero ----------
+     A star with belts of collectors turning around it, and the light they
+     throw. All of it is CSS and one inline SVG: no canvas, no 3D library,
+     nothing to download before the greeting is readable.
+
+     It is a contained panel rather than a page backdrop on purpose. The rest
+     of this console is a light instrument panel, and a moving light source
+     behind live figures makes them harder to read; behind a greeting it
+     costs nothing. */
+  .cosmos {
+    position: relative; overflow: hidden; border-radius: 22px; margin-bottom: 22px;
+    padding: 38px 26px 34px; background: #0A0D16; isolation: isolate;
+    box-shadow: var(--shadow-md);
+  }
+  .cosmos-scene { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+
+  /* One anchor at the star's centre; every layer centres on it, which is the
+     only way the core and the belts share an origin instead of drifting. */
+  .cos-star { position: absolute; left: 50%; top: 132%; width: 0; height: 0; }
+  .cos-corona, .cos-core, .cos-hot, .cos-rings {
+    position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
+  }
+  .cos-corona {
+    width: 760px; height: 760px; border-radius: 50%; filter: blur(64px);
+    background: radial-gradient(circle, rgba(47,107,255,0.42) 0%, rgba(106,73,242,0.22) 38%,
+                                rgba(47,107,255,0.06) 62%, transparent 76%);
+    animation: cos-breathe 9s ease-in-out infinite;
+  }
+  .cos-core {
+    width: 150px; height: 150px; border-radius: 50%; filter: blur(22px);
+    background: radial-gradient(circle at 50% 45%, #fff 0%, #E4EDFF 22%, #7FA6FF 46%,
+                                #2F6BFF 68%, rgba(28,79,224,0.32) 84%, transparent 92%);
+    animation: cos-pulse 6.5s ease-in-out infinite;
+  }
+  .cos-hot {
+    width: 74px; height: 74px; border-radius: 50%; filter: blur(13px);
+    background: radial-gradient(circle, #fff 0%, #F2F6FF 55%, transparent 78%);
+    animation: cos-pulse 6.5s ease-in-out infinite;
+  }
+  .cos-rings { width: 720px; height: 720px; animation: cos-drift 150s linear infinite; }
+
+  /* The dashes travel along the orbit rather than the ring spinning as a
+     shape — that is what reads as collectors moving around a star. */
+  .cos-belt { fill: none; stroke: #8FB0FF; stroke-linecap: round;
+              animation: cos-travel var(--dur, 26s) linear infinite; }
+  .cos-spark { position: absolute; width: 3px; height: 3px; border-radius: 50%;
+               background: #CBDBFF; animation: cos-spark var(--sd, 9s) ease-out infinite; }
+  /* The copy has to stay readable across a moving light source, so the panel
+     gets a scrim rather than the star getting dimmed into nothing. */
+  .cos-scrim { position: absolute; inset: 0;
+               background: linear-gradient(to top, rgba(10,13,22,0.10) 0%, rgba(10,13,22,0.62) 46%, rgba(10,13,22,0.86) 100%); }
+
+  @keyframes cos-travel  { to { stroke-dashoffset: -2000; } }
+  @keyframes cos-drift   { to { transform: translate(-50%, -50%) rotate(360deg); } }
+  @keyframes cos-pulse   { 0%, 100% { opacity: .94; } 50% { opacity: 1; } }
+  @keyframes cos-breathe { 0%, 100% { opacity: .62; } 50% { opacity: .88; } }
+  @keyframes cos-spark   { 0%   { opacity: 0; transform: translate3d(0,0,0) scale(.6); }
+                           15%  { opacity: .9; }
+                           100% { opacity: 0; transform: translate3d(var(--sx,40px), var(--sy,-90px), 0) scale(1); } }
+
+  .cosmos-copy { position: relative; z-index: 1; }
+  .cosmos .date-line { color: rgba(233,240,255,0.66); }
+  .cosmos h1 { color: #fff; margin-bottom: 0; }
+  .cosmos .since { margin-top: 10px; font-size: 12.5px; text-align: center; color: rgba(233,240,255,0.58); }
+
+  /* A moving light source is decoration, and decoration is the first thing
+     that should stop when somebody has asked for less motion. */
+  @media (prefers-reduced-motion: reduce) {
+    .cos-corona, .cos-core, .cos-hot, .cos-rings, .cos-belt, .cos-spark { animation: none !important; }
+    .cos-spark { opacity: .5; }
+  }
+  @media (max-width: 720px) { .cosmos { padding: 30px 20px 28px; border-radius: 18px; } }
+
   /* conversation: a scrolling thread with the ask bar pinned under it */
   .thread { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
   .thread-log { max-width: 780px; margin-inline: auto; padding: 26px 20px 8px; display: flex; flex-direction: column; gap: 16px; }
@@ -732,8 +805,34 @@ const page = () => `<!doctype html>
   <section class="centre">
     <div class="landing" id="landing">
       <div class="landing-inner">
-        <div class="date-line" id="dateline"></div>
-        <h1 id="greeting">Good morning</h1>
+        <div class="cosmos">
+          <div class="cosmos-scene" aria-hidden="true">
+            <div class="cos-star">
+              <div class="cos-corona"></div>
+              <svg class="cos-rings" viewBox="0 0 960 960">
+                <ellipse class="cos-belt" cx="480" cy="480" rx="404" ry="128" transform="rotate(-18 480 480)"
+                         stroke-width="1.1" stroke-dasharray="2 15" opacity=".55" style="--dur:26s"/>
+                <ellipse class="cos-belt" cx="480" cy="480" rx="330" ry="202" transform="rotate(26 480 480)"
+                         stroke-width="1.1" stroke-dasharray="2 19" opacity=".42" style="--dur:34s"/>
+                <ellipse class="cos-belt" cx="480" cy="480" rx="452" ry="70" transform="rotate(8 480 480)"
+                         stroke-width="1.1" stroke-dasharray="2 23" opacity=".34" style="--dur:44s"/>
+              </svg>
+              <div class="cos-core"></div>
+              <div class="cos-hot"></div>
+            </div>
+            <span class="cos-spark" style="left:18%; top:62%; --sx:60px;  --sy:-130px; --sd:9s;  animation-delay:0s"></span>
+            <span class="cos-spark" style="left:72%; top:70%; --sx:-40px; --sy:-150px; --sd:11s; animation-delay:1.6s"></span>
+            <span class="cos-spark" style="left:44%; top:78%; --sx:30px;  --sy:-170px; --sd:13s; animation-delay:3.1s"></span>
+            <span class="cos-spark" style="left:62%; top:40%; --sx:50px;  --sy:-100px; --sd:10s; animation-delay:4.4s"></span>
+            <span class="cos-spark" style="left:30%; top:36%; --sx:-30px; --sy:-120px; --sd:12s; animation-delay:2.2s"></span>
+            <div class="cos-scrim"></div>
+          </div>
+          <div class="cosmos-copy">
+            <div class="date-line" id="dateline"></div>
+            <h1 id="greeting">Good morning</h1>
+            <div class="since">The ledger has been closing while you were away.</div>
+          </div>
+        </div>
 
         <section class="brief">
           <div class="brief-top"><span class="tag">YOUR AI CFO</span><span class="when">Updated 6:00 AM</span></div>
@@ -1403,7 +1502,11 @@ export const handle = async (req, res) => {
   if (!isCanonicalHost(host)) res.setHeader("X-Robots-Tag", "noindex");
 
   try {
-    if (path === "/login") {
+    /* Two doors, one page. /signup is not a second implementation of the
+       form — it is the same page in its other mode, so the two halves cannot
+       drift apart and a visitor can swap between them without losing where
+       they were headed. */
+    if (path === "/login" || path === "/signup") {
       const query = new URLSearchParams((req.url ?? "").split("?")[1] ?? "");
       const next = safeNext(query.get("next"));
       if (currentSession(req)) {
@@ -1413,7 +1516,12 @@ export const handle = async (req, res) => {
         res.setHeader("Location", next);
         return res.end();
       }
-      return send(200, loginPage(query.get("error"), next, { google: googleEnabled() }), "text/html");
+      const mode = path === "/signup" ? "signup" : "signin";
+      return send(
+        200,
+        loginPage(query.get("error"), next, { google: googleEnabled(), signup: openSignup(), mode }),
+        "text/html"
+      );
     }
 
     if (path === "/api/login" && req.method === "POST") {
@@ -1537,6 +1645,23 @@ export const handle = async (req, res) => {
       const { email, password, name } = JSON.parse((await readBody(req)) || "{}");
       try {
         const account = await accounts.register(String(email ?? ""), String(password ?? ""), name);
+
+        /* An account with no workspace is an account that cannot sign in —
+           /api/login refuses it, correctly, and the new visitor sees a dead
+           end one second after creating a password. So the seat is granted
+           here, in the same request that created the account.
+
+           Granted through the ordinary `add`, with the founding owner as the
+           actor, rather than by writing a membership directly: open signup is
+           a deliberate switch on a demo deployment, not a reason to give the
+           tenant boundary a second door. And it is capped at `viewer` — the
+           new arrival can read the books and cannot touch them. */
+        const owner = await authReady;
+        if (owner) {
+          const booted = await ready;
+          members.add(members.authorize(owner.userId, booted.org.orgId), account.userId, "viewer");
+        }
+
         return send(201, { ok: true, userId: account.userId, email: account.email });
       } catch (err) {
         return send(400, { error: err.message });

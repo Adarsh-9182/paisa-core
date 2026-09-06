@@ -60,8 +60,32 @@ export const consolePage = () => `<!doctype html>
   .nav-item:hover { background:var(--rail-2); color:#fff; }
   .nav-item[aria-current="page"] { background:var(--rail-2); color:#fff; font-weight:600; }
   .nav-item .ic { width:15px; text-align:center; opacity:.85; font-size:12px; }
-  .rail-foot { padding:10px 14px 14px; border-top:1px solid var(--rail-2); font-size:11.5px; color:var(--rail-ink-2); }
-  .rail-foot a { color:var(--rail-ink); }
+  /* The account lives at the foot of the rail, where the thing that is about
+     you belongs: farthest from the modules, and reachable from every one of
+     them without a page that exists only to hold a sign-out button. */
+  .rail-foot { padding:8px; border-top:1px solid var(--rail-2); position:relative; }
+  .acct { display:flex; align-items:center; gap:9px; width:100%; padding:8px 9px; border:0;
+          border-radius:8px; background:none; color:var(--rail-ink); cursor:pointer;
+          font-family:inherit; font-size:13px; text-align:left; }
+  .acct:hover { background:var(--rail-2); }
+  .acct-face { width:26px; height:26px; border-radius:50%; flex:none; display:grid; place-items:center;
+               background:var(--accent); color:#fff; font-weight:640; font-size:12px; }
+  .acct-who { min-width:0; flex:1; }
+  .acct-name { color:#fff; font-weight:560; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .acct-role { font-size:11px; color:var(--rail-ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .acct-caret { color:var(--rail-ink-2); font-size:11px; flex:none; }
+
+  .acct-menu { position:absolute; left:8px; right:8px; bottom:calc(100% - 2px); z-index:30;
+               background:var(--rail-2); border:1px solid #3A352D; border-radius:10px;
+               padding:5px; box-shadow:0 12px 32px rgba(0,0,0,.38); }
+  .acct-menu[hidden] { display:none; }
+  .acct-head { padding:8px 9px 9px; border-bottom:1px solid #3A352D; margin-bottom:5px; }
+  .acct-email { font-size:11.5px; color:var(--rail-ink-2); overflow:hidden; text-overflow:ellipsis;
+                white-space:nowrap; }
+  .acct-item { display:block; width:100%; padding:7px 9px; border:0; border-radius:7px; background:none;
+               color:var(--rail-ink); font-family:inherit; font-size:12.5px; text-align:left; cursor:pointer; }
+  .acct-item:hover { background:#3A352D; color:#fff; }
+  .acct-item.danger { color:#E8A79B; }
 
   /* Topbar ------------------------------------------------------- */
   .main { display:flex; flex-direction:column; min-width:0; }
@@ -166,7 +190,23 @@ export const consolePage = () => `<!doctype html>
     </div>
     <nav id="nav"></nav>
     <div class="rail-foot">
-      <a href="/">AI CFO</a> · <a href="/erp">Legacy ERP</a>
+      <div class="acct-menu" id="acctMenu" hidden role="menu">
+        <div class="acct-head">
+          <div class="acct-name" id="acctMenuName">&nbsp;</div>
+          <div class="acct-email" id="acctEmail">&nbsp;</div>
+        </div>
+        <a class="acct-item" role="menuitem" href="/app">AI CFO</a>
+        <a class="acct-item" role="menuitem" href="/erp">Legacy ERP</a>
+        <button class="acct-item danger" role="menuitem" id="signOut" type="button">Sign out</button>
+      </div>
+      <button class="acct" id="acctBtn" type="button" aria-haspopup="menu" aria-expanded="false">
+        <span class="acct-face" id="acctFace">·</span>
+        <span class="acct-who">
+          <span class="acct-name" id="acctName">Loading…</span>
+          <span class="acct-role" id="acctRole">&nbsp;</span>
+        </span>
+        <span class="acct-caret" aria-hidden="true">▾</span>
+      </button>
     </div>
   </aside>
 
@@ -547,14 +587,46 @@ export const consolePage = () => `<!doctype html>
   });
   el("refresh").addEventListener("click", function () { show(current); });
 
+  /* The account menu. Opens on click, closes on the next click anywhere else
+     or on Escape — the two ways anybody expects a menu like this to close. */
+  var acctMenu = el("acctMenu");
+  var acctBtn = el("acctBtn");
+  var setMenu = function (open) {
+    acctMenu.hidden = !open;
+    acctBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  acctBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    setMenu(acctMenu.hidden);
+  });
+  document.addEventListener("click", function () { setMenu(false); });
+  acctMenu.addEventListener("click", function (e) { e.stopPropagation(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") setMenu(false); });
+
+  /* Sign out clears the cookie server-side, then reloads rather than routing
+     in JavaScript: the cookie is the only session state, so the next request
+     is the honest answer to whether it worked. */
+  el("signOut").addEventListener("click", function () {
+    fetch("/api/logout", { method: "POST" })
+      .then(function () { location.href = "/login"; })
+      .catch(function () { location.href = "/login"; });
+  });
+
   /* Identity + period, from the endpoints that own them ----------- */
   get("/api/me").then(function (me) {
-    var org = me.org || me.organization || {};
-    el("orgName").textContent = org.name || me.name || "Paisa";
-    el("orgMeta").textContent = me.email || (me.account && me.account.email) || "";
+    var user = me.user || {};
+    var who = user.displayName || user.email || "Signed in";
+    el("orgName").textContent = me.workspace || "Paisa";
+    el("orgMeta").textContent = me.role ? me.role.charAt(0).toUpperCase() + me.role.slice(1) : "";
+    el("acctName").textContent = who;
+    el("acctMenuName").textContent = who;
+    el("acctEmail").textContent = user.email || "";
+    el("acctRole").textContent = me.workspace || "";
+    el("acctFace").textContent = who.trim().charAt(0).toUpperCase() || "·";
   }).catch(function () {
     el("orgName").textContent = "Paisa";
     el("orgMeta").textContent = "";
+    el("acctName").textContent = "Signed in";
   });
 
   get("/api/erp/close").then(function (c) { el("periodChip").textContent = c.period; }).catch(function () {});
