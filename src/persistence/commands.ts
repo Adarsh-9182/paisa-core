@@ -21,6 +21,7 @@ import { Paise } from "../money.js";
 import { Organization } from "../organization.js";
 import { ErpSuite } from "../erp/suite.js";
 import { standardHandlers } from "../erp/flow-handlers.js";
+import { workTheClose } from "../erp/close-agent.js";
 import type { FlowRun } from "../erp/flows.js";
 
 export interface CommandContext {
@@ -245,6 +246,15 @@ export const COMMANDS: Record<string, CommandHandler> = {
   "agents.approve": (ctx, pl, actor) => ctx.erp.agents.approve(p(pl, "proposalId"), actor),
   "agents.dismiss": (ctx, pl, actor) =>
     ctx.erp.agents.dismiss(p(pl, "proposalId"), actor, p(pl, "reason")),
+
+  /*
+   * Working the close is one command rather than the six calls it makes,
+   * because replay has to reproduce the same attempt. Logging the steps
+   * separately would replay a scan against a different queue and a
+   * settlement against different findings.
+   */
+  "close.work": (ctx, pl, actor) =>
+    workTheClose({ close: ctx.erp.close, agents: ctx.erp.agents, authority: ctx.erp.authority }, p(pl, "period"), actor),
 
   /* ---------------- standing authority ---------------- */
 

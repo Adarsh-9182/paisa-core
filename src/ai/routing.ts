@@ -109,8 +109,8 @@ const TOPICS: readonly Topic[] = [
     // people's words, so both reach the tool that finishes what a grant
     // covers — alongside the list, because the honest answer to "clear this"
     // is usually "I cleared four, here are the three I could not".
-    triggers: ["settle", "clear the queue", "clear queue", "close the month", "month end", "month-end", "close", "closing", "finish", "sign off", "sign-off"],
-    tools: ["settle_authorised", "list_pending_actions"],
+    triggers: ["settle", "clear the queue", "clear queue", "close the month", "month end", "month-end", "close", "closing", "finish", "sign off", "sign-off", "blocking", "blocked"],
+    tools: ["work_the_close", "settle_authorised", "list_pending_actions"],
   },
   {
     triggers: ["asset", "assets", "liability", "liabilities", "equity", "net worth", "balance sheet"],
