@@ -14,6 +14,7 @@ import { searchKnowledge } from "../knowledge.js";
 import { screenTransactions } from "../anomalies.js";
 import { Organization } from "../organization.js";
 import type { Permission } from "../tenancy/roles.js";
+import { workTheClose, describeAttempt } from "../erp/close-agent.js";
 
 export type ToolFn = (org: Organization, args: Record<string, unknown>) => string;
 
@@ -36,6 +37,9 @@ export type ToolFn = (org: Organization, args: Record<string, unknown>) => strin
  */
 export const TOOL_PERMISSIONS: Readonly<Record<string, Permission>> = {
   settle_authorised: "post_journal",
+  // Working the close runs the automated close tasks, which post, and
+  // settles findings, which post. Same power, same permission.
+  work_the_close: "post_journal",
 };
 
 export interface ToolSpec {
@@ -385,6 +389,36 @@ export const TOOLS: Record<string, ToolFn> = {
     );
   },
 
+  /*
+   * The one tool with a goal rather than a question.
+   *
+   * Everything else answers: what is cash, what is blocked, what is waiting.
+   * This one is handed a month and told to get it as close to closeable as
+   * it honestly can — running the checklist, scanning, settling what a grant
+   * covers, and re-running until it stops making progress.
+   *
+   * It never waives. A waiver is a person accepting a check the books
+   * failed, recorded against their name; an agent that waives its own
+   * blockers closes broken books and reports success. So what comes back
+   * always names what is still blocked and what a person has to do about it.
+   */
+  work_the_close: (org, args) => {
+    if (!org.erp) return `error="this organization has no ERP layer, so there is no close to work"`;
+    const period = str(args.period, "period");
+    const attempt = workTheClose(
+      { close: org.erp.close, agents: org.erp.agents, authority: org.erp.authority },
+      period,
+      "paisa",
+    );
+    return (
+      `period=${period} ready_to_close=${attempt.readyToClose} ` +
+      `passed_before=${attempt.before.passed} passed_after=${attempt.after.passed} ` +
+      `blocked_after=${attempt.after.blocked} rounds=${attempt.rounds}` +
+      (attempt.stalled ? " stalled=true" : "") +
+      ` summary="${describeAttempt(attempt).replace(/"/g, "'")}"`
+    );
+  },
+
   screen_transactions: (org, args) => {
     const asOf = str(args.asOf, "asOf");
     const report = screenTransactions(org, asOf);
@@ -455,6 +489,7 @@ export const TOOL_SPECS: readonly ToolSpec[] = [
   { name: "propose_categorization", description: "Draft a categorisation for ONE review-queue line. This never posts anything — the user gets an Approve button and the journal entry is created only after their explicit approval. Money out needs an EXPENSE account code, money in a REVENUE code (e.g. 5300 Software, 5400 Travel, 4000 Sales).", inputSchema: { type: "object", properties: { reference: { type: "string", description: "The line's bank reference, exactly as list_review_queue printed it" }, accountCode: { type: "string", description: "Chart of accounts code to categorise into" } }, required: ["reference", "accountCode"], additionalProperties: false } },
   { name: "propose_payment_reminder", description: "Draft a payment-chasing message for ONE overdue invoice. This only drafts — the user sees an Approve button and nothing is recorded or sent until they click it. Use for questions about chasing, following up on, or collecting an overdue invoice.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), invoiceNumber: { type: "string", description: "The invoice number exactly as list_overdue_invoices printed it" } }, required: ["asOf", "invoiceNumber"], additionalProperties: false } },
   { name: "list_pending_actions", description: "Everything waiting on the user, from both queues: drafts the AI proposed in conversation (these expire), and open agent findings about the books such as a missing accrual or a receivable going bad (these do not, and approving one posts a journal entry). Check this before proposing something similar, and whenever asked what needs their attention, what is pending, or what is blocking the close.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },  { name: "get_morning_brief", description: "The full morning brief: health, cash, month metrics, overdue invoices, filings, recommendations.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), periodFrom: dateArg("Period start") }, required: ["asOf", "periodFrom"], additionalProperties: false } },
+  { name: "work_the_close", description: "Work a month's close as far as it honestly goes: run the checklist, scan for findings, settle everything a standing authority covers, and re-run until no further progress is possible. Reports what it did, what is still blocked, and what each remaining blocker needs from a person. It never waives a check — that is a human decision. Use when asked to close the month, work the close, or find out what is stopping the close.", inputSchema: { type: "object", properties: { period: { type: "string", description: "The period to work, as YYYY-MM" } }, required: ["period"], additionalProperties: false } },
   { name: "settle_authorised", description: "Approve every open agent finding that a standing authority already covers, and report what was left for a person and why. This posts journal entries — but only ones a controller pre-authorised in writing, within their own limits on amount, accounts and period. It cannot approve anything outside a grant, and it cannot widen one. Use when asked to clear the queue, settle what can be settled, or get the close moving.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "screen_transactions", description: "Deterministic fraud/anomaly screening over the last 90 days of the ledger: duplicate payments (same narration + amount within a week) and expense charges far above the account's own median. Every finding names the exact journal entries and the rule that fired. Use for questions about fraud, suspicious activity, duplicates, or unusual spending.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date") }, required: ["asOf"], additionalProperties: false } },
   { name: "lookup_regulation", description: "Search Paisa's curated Indian tax & GST regulation knowledge base: GST rates and registration, ITC conditions and blocked credits, composition scheme, return due-date rules, e-invoicing, reverse charge, income-tax slabs, 44AD/44ADA presumptive schemes, 80C/80D deductions, TDS sections, advance tax. Returns cited passages with a verified-as-of date. Use for ANY question about what the law says — a rate, threshold, section, or eligibility — and never answer such questions from memory.", inputSchema: { type: "object", properties: { query: { type: "string", description: "The legal question or topic, e.g. 'GST rate on software services' or 'ITC on food'" } }, required: ["query"], additionalProperties: false } },
