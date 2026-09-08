@@ -34,6 +34,7 @@ export const FLOW_TASKS = {
   cfoDigest: "report.cfoDigest",
   vendorBillAlert: "ap.vendorAlert",
   badDebt: "ar.badDebt",
+  settleAuthorised: "authority.settle",
 } as const;
 
 const SUNDAY = 0;
@@ -68,6 +69,24 @@ export const STANDARD_FLOWS: readonly FlowDefinition[] = [
     // month overstates deferred revenue until someone notices by hand.
     catchUp: "each",
     task: FLOW_TASKS.deferredRevenue,
+    startDate: "2026-01-01",
+    enabled: false,
+  },
+
+  /* ---- settlement: clears what a controller pre-approved ---- */
+
+  {
+    id: "flow_settle_authorised",
+    name: "Settle pre-approved findings",
+    // Daily, because the value of this flow is a queue that is short when
+    // someone opens it, and a queue that is only cleared monthly is one they
+    // learn to distrust in between.
+    cadence: { kind: "daily" },
+    // Nothing is owed per period. A day this did not run leaves its proposals
+    // open, and tomorrow's sweep takes them — running four back-dated
+    // settlements would approve the same queue four times over.
+    catchUp: "latest",
+    task: FLOW_TASKS.settleAuthorised,
     startDate: "2026-01-01",
     enabled: false,
   },
