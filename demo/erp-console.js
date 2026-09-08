@@ -115,6 +115,34 @@ export const erpApi = (org, erp) => ({
     }));
   },
 
+  /*
+   * A standing authority is a delegated power, so the panel that shows it
+   * has to answer two questions a controller actually asks: what may run
+   * without me, and has it been right. The second is `reversed` — postings
+   * made under a grant that a human later undid — and it is the number that
+   * says whether to widen the grant or narrow it.
+   */
+  authority() {
+    const stats = erp.authority.stats();
+    return {
+      stats,
+      grants: erp.authority.all().map((a) => ({
+        id: a.id,
+        kind: a.kind,
+        maxAmount: formatINR(a.maxAmount),
+        maxPerSweep: formatINR(a.maxPerSweep),
+        accounts: a.accounts,
+        note: a.note,
+        grantedBy: a.grantedBy,
+        grantedAt: a.grantedAt,
+        expiresAt: a.expiresAt,
+        revokedAt: a.revokedAt,
+        revokedBy: a.revokedBy,
+        active: !a.revokedAt && (!a.expiresAt || a.expiresAt >= new Date().toISOString()),
+      })),
+    };
+  },
+
   subledgers() {
     const asOf = lastDay(PERIOD);
     const t = erp.tieOut(asOf);
@@ -137,4 +165,4 @@ export const erpApi = (org, erp) => ({
  * reach, so a future write method on `erpApi` cannot become reachable by GET
  * just by existing.
  */
-export const ERP_READS = new Set(["close", "revenue", "contracts", "metrics", "agents", "subledgers"]);
+export const ERP_READS = new Set(["close", "revenue", "contracts", "metrics", "agents", "authority", "subledgers"]);

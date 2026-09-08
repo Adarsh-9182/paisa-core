@@ -246,6 +246,45 @@ export const COMMANDS: Record<string, CommandHandler> = {
   "agents.dismiss": (ctx, pl, actor) =>
     ctx.erp.agents.dismiss(p(pl, "proposalId"), actor, p(pl, "reason")),
 
+  /* ---------------- standing authority ---------------- */
+
+  /*
+   * A grant is a permission, so it has to be command-sourced for a reason
+   * the other commands do not share: replay is what makes a revoke stick.
+   * Held only in memory, a revocation would vanish on the next cold start
+   * and the authority would quietly come back — which is the one failure
+   * mode a permission system must not have.
+   *
+   * The id is supplied by the caller rather than generated inside, because
+   * a replayed grant must land on the same id its revoke names.
+   */
+  "authority.grant": (ctx, pl, actor) =>
+    ctx.erp.authority.grant(
+      {
+        id: p(pl, "id"),
+        kind: p(pl, "kind"),
+        maxAmount: p<Paise>(pl, "maxAmount"),
+        maxPerSweep: p<Paise>(pl, "maxPerSweep"),
+        accounts: (pl.accounts as readonly string[] | undefined) ?? null,
+        expiresAt: (pl.expiresAt as string | undefined) ?? null,
+        note: p(pl, "note"),
+      },
+      actor,
+    ),
+
+  "authority.revoke": (ctx, pl, actor) => ctx.erp.authority.revoke(p(pl, "id"), actor),
+
+  /*
+   * Settling names the proposals it is settling rather than saying "settle
+   * whatever is open". Replaying "settle everything open" a year later would
+   * sweep a completely different queue and rebuild a state that never
+   * existed — the same rule flow-engine.ts states about occurrences.
+   */
+  "authority.settle": (ctx, pl) =>
+    ctx.erp.authority.settle(
+      p<readonly string[]>(pl, "proposalIds").map((id) => ctx.erp.agents.get(id)),
+    ),
+
   /* ---------------- flows ---------------- */
 
   "flows.enable": (ctx, pl, actor) =>

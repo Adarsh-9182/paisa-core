@@ -1757,6 +1757,78 @@ export const handle = async (req, res) => {
         return send(200, { ok: false, error: err.message });
       }
     }
+    /*
+     * Standing authority.
+     *
+     * Granting one takes `manage_members`, not `post_journal`, and the
+     * difference is the point: a grant is not a posting, it is a
+     * non-human actor being given the standing power to make them. That
+     * is a membership-shaped decision, so it sits with the permission
+     * that governs who may act in this organisation at all.
+     *
+     * Settling takes `post_journal` — the same permission as approving a
+     * proposal by hand, because that is exactly what it does.
+     */
+    if (path === "/api/erp/authority/grant" && req.method === "POST") {
+      const { books, refusal } = await booksForWrite(req, res, "manage_members");
+      if (refusal) return send(refusal.code, refusal.body);
+      const body = JSON.parse((await readBody(req)) || "{}");
+      try {
+        /*
+         * The ceilings arrive as rupee strings, not numbers.
+         *
+         * Money is bigint paise everywhere inside, and JSON cannot carry a
+         * bigint — `JSON.stringify(50000n)` throws and a client that sent a
+         * float would be handing an amount limit to floating point. So the
+         * wire format is the same string a person would type ("50,000") and
+         * `parseINR` is the only thing that turns it into money.
+         */
+        const a = await books.exec(
+          "authority.grant",
+          {
+            ...body,
+            maxAmount: parseINR(String(body.maxAmount ?? "")),
+            maxPerSweep: parseINR(String(body.maxPerSweep ?? "")),
+          },
+          CONTROLLER,
+        );
+        return send(200, { ok: true, id: a.id, kind: a.kind, grantedBy: a.grantedBy });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
+    const revoke = /^\/api\/erp\/authority\/([\w]+)\/revoke$/.exec(path);
+    if (revoke && req.method === "POST") {
+      const { books, refusal } = await booksForWrite(req, res, "manage_members");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        const a = await books.exec("authority.revoke", { id: revoke[1] }, CONTROLLER);
+        return send(200, { ok: true, id: a.id, revokedAt: a.revokedAt });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
+    if (path === "/api/erp/authority/settle" && req.method === "POST") {
+      const { books, refusal } = await booksForWrite(req, res, "post_journal");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        // The command names its proposals rather than saying "settle what is
+        // open", so replaying the log a year later settles the same queue
+        // instead of whatever happens to be open then.
+        const open = books.erp.agents.open().map((p) => p.id);
+        const result = await books.exec("authority.settle", { proposalIds: open }, CONTROLLER);
+        return send(200, {
+          ok: true,
+          approved: result.approved.length,
+          refused: result.refused,
+        });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
     /* Stripe → billing queue. The key lives only in the environment; it is
        never accepted from the request, so a sync cannot be triggered against
        someone else's account by posting a key at this route. */

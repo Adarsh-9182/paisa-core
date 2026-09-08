@@ -147,6 +147,11 @@ describe("route authority", () => {
       ["/api/erp/close/lock", "close period"],
       ["/api/banking/categorize", "categorize transactions"],
       ["/api/connectors/stripe/sync", "manage connectors"],
+      // Granting a standing authority creates a non-human actor that can
+      // post, so it sits with the permission governing who may act at all.
+      ["/api/erp/authority/grant", "manage members"],
+      ["/api/erp/authority/auth_x/revoke", "manage members"],
+      ["/api/erp/authority/settle", "post journal"],
     ] as const) {
       const reply = await call("POST", path, { cookie: viewer, body: {} });
       expect(reply.status, path).toBe(403);
@@ -175,5 +180,66 @@ describe("route authority", () => {
     const after = await call("GET", "/api/erp/close", { cookie: owner });
     expect(after.status).toBe(200);
     expect(after.body.locked).toBe(true);
+  });
+});
+
+describe("standing authority over the wire", () => {
+  let owner = "";
+
+  beforeAll(async () => {
+    owner = await signIn("owner@paisa.local", "paisa123456-dev");
+  });
+
+  it("grants, lists and revokes — and the ceilings survive the JSON round trip", async () => {
+    const granted = await call("POST", "/api/erp/authority/grant", {
+      cookie: owner,
+      body: {
+        id: "auth_route_1",
+        kind: "MISSING_ACCRUAL",
+        // Rupee strings, because money is bigint paise inside and JSON
+        // cannot carry a bigint at all.
+        maxAmount: "50,000",
+        maxPerSweep: "2,00,000",
+        note: "A recurring vendor's monthly accrual reverses next month.",
+      },
+    });
+    expect(granted.status).toBe(200);
+    expect(granted.body.ok, JSON.stringify(granted.body)).toBe(true);
+
+    const listed = await call("GET", "/api/erp/authority", { cookie: owner });
+    expect(listed.status).toBe(200);
+    const grant = listed.body.grants.find((g: { id: string }) => g.id === "auth_route_1");
+    expect(grant).toBeDefined();
+    // Parsed as money, not as a float that happened to look right.
+    expect(grant.maxAmount).toBe("₹50,000.00");
+    expect(grant.maxPerSweep).toBe("₹2,00,000.00");
+    expect(grant.active).toBe(true);
+
+    const revoked = await call("POST", "/api/erp/authority/auth_route_1/revoke", { cookie: owner, body: {} });
+    expect(revoked.body.ok).toBe(true);
+
+    const after = await call("GET", "/api/erp/authority", { cookie: owner });
+    expect(after.body.grants.find((g: { id: string }) => g.id === "auth_route_1").active).toBe(false);
+  });
+
+  it("refuses a grant with no stated reason, rather than storing a blank one", async () => {
+    const reply = await call("POST", "/api/erp/authority/grant", {
+      cookie: owner,
+      body: { id: "auth_route_2", kind: "MISSING_ACCRUAL", maxAmount: "1,000", maxPerSweep: "1,000", note: "  " },
+    });
+    expect(reply.body.ok).toBe(false);
+    expect(reply.body.error).toMatch(/note|why/i);
+  });
+
+  it("settles nothing when nothing is granted, and says so without posting", async () => {
+    const before = await call("GET", "/api/erp/authority", { cookie: owner });
+    const reply = await call("POST", "/api/erp/authority/settle", { cookie: owner, body: {} });
+    expect(reply.status).toBe(200);
+    expect(reply.body.ok).toBe(true);
+    expect(reply.body.approved).toBe(0);
+    // Nothing was granted in this test, so the count of postings made under
+    // a grant must not have moved.
+    const after = await call("GET", "/api/erp/authority", { cookie: owner });
+    expect(after.body.stats.approved).toBe(before.body.stats.approved);
   });
 });
