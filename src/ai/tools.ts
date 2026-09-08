@@ -13,8 +13,30 @@ import { formatQty } from "../portfolio.js";
 import { searchKnowledge } from "../knowledge.js";
 import { screenTransactions } from "../anomalies.js";
 import { Organization } from "../organization.js";
+import type { Permission } from "../tenancy/roles.js";
 
 export type ToolFn = (org: Organization, args: Record<string, unknown>) => string;
+
+/**
+ * Tools that need more than `access_ai_cfo`.
+ *
+ * Until now every tool either read the books or drafted a proposal that a
+ * human still had to approve, so one permission at the door was enough — the
+ * architecture was safe because nothing the AI could call actually did
+ * anything. The moment one tool acts, that stops being true.
+ *
+ * `viewer` carries `access_ai_cfo`. Without this map, adding an acting tool
+ * would let a viewer ask the assistant to do what the HTTP route refuses
+ * them outright: the same person 403s on POST /api/erp/authority/settle and
+ * succeeds by typing "settle what you can" into a chat box. A permission
+ * that holds at one door and not the other is not a permission.
+ *
+ * Absent from this map means `access_ai_cfo` alone is enough, which is the
+ * right default for every reading tool.
+ */
+export const TOOL_PERMISSIONS: Readonly<Record<string, Permission>> = {
+  settle_authorised: "post_journal",
+};
 
 export interface ToolSpec {
   readonly name: string;
@@ -324,6 +346,45 @@ export const TOOLS: Record<string, ToolFn> = {
     ).trim();
   },
 
+  /*
+   * The one tool that finishes work rather than describing it.
+   *
+   * It takes no arguments, and that is the safety property rather than an
+   * omission. A tool where the model could pass a ceiling would be the model
+   * setting its own limits; here every decision — which kinds, how much per
+   * posting, how much per sweep, which accounts, which periods — was written
+   * down by a person in a standing authority before this ran. The model
+   * chooses only the moment, and the worst it can do is spend a grant's
+   * sweep allowance slightly earlier than a scheduled flow would have.
+   *
+   * It reports refusals with their reasons, because "settled 3, left 4" is
+   * an answer and "settled 3" is a half-answer that hides whether the rest
+   * needs a person or a wider grant.
+   */
+  settle_authorised: (org) => {
+    if (!org.erp) return `error="this organization has no ERP layer, so there are no findings to settle"`;
+
+    const open = org.erp.agents.open();
+    if (open.length === 0) return `settled=0 refused=0 note="Nothing is waiting to be settled."`;
+
+    const grants = org.erp.authority.all().filter((a) => !a.revokedAt);
+    if (grants.length === 0)
+      return (
+        `settled=0 refused=${open.length} ` +
+        `note="No standing authority has been granted, so every finding needs a person. ` +
+        `A controller grants one; the assistant cannot."`
+      );
+
+    const result = org.erp.authority.settle(open);
+    const refusedRows = result.refused
+      .map((r) => `[${r.proposalId}] ${r.reason}`)
+      .join("; ");
+    return (
+      `settled=${result.approved.length} total=${formatINR(result.totalApproved)} ` +
+      `refused=${result.refused.length}${result.refused.length ? ` reasons: ${refusedRows}` : ""}`
+    );
+  },
+
   screen_transactions: (org, args) => {
     const asOf = str(args.asOf, "asOf");
     const report = screenTransactions(org, asOf);
@@ -394,6 +455,7 @@ export const TOOL_SPECS: readonly ToolSpec[] = [
   { name: "propose_categorization", description: "Draft a categorisation for ONE review-queue line. This never posts anything — the user gets an Approve button and the journal entry is created only after their explicit approval. Money out needs an EXPENSE account code, money in a REVENUE code (e.g. 5300 Software, 5400 Travel, 4000 Sales).", inputSchema: { type: "object", properties: { reference: { type: "string", description: "The line's bank reference, exactly as list_review_queue printed it" }, accountCode: { type: "string", description: "Chart of accounts code to categorise into" } }, required: ["reference", "accountCode"], additionalProperties: false } },
   { name: "propose_payment_reminder", description: "Draft a payment-chasing message for ONE overdue invoice. This only drafts — the user sees an Approve button and nothing is recorded or sent until they click it. Use for questions about chasing, following up on, or collecting an overdue invoice.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), invoiceNumber: { type: "string", description: "The invoice number exactly as list_overdue_invoices printed it" } }, required: ["asOf", "invoiceNumber"], additionalProperties: false } },
   { name: "list_pending_actions", description: "Everything waiting on the user, from both queues: drafts the AI proposed in conversation (these expire), and open agent findings about the books such as a missing accrual or a receivable going bad (these do not, and approving one posts a journal entry). Check this before proposing something similar, and whenever asked what needs their attention, what is pending, or what is blocking the close.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },  { name: "get_morning_brief", description: "The full morning brief: health, cash, month metrics, overdue invoices, filings, recommendations.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), periodFrom: dateArg("Period start") }, required: ["asOf", "periodFrom"], additionalProperties: false } },
+  { name: "settle_authorised", description: "Approve every open agent finding that a standing authority already covers, and report what was left for a person and why. This posts journal entries — but only ones a controller pre-authorised in writing, within their own limits on amount, accounts and period. It cannot approve anything outside a grant, and it cannot widen one. Use when asked to clear the queue, settle what can be settled, or get the close moving.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "screen_transactions", description: "Deterministic fraud/anomaly screening over the last 90 days of the ledger: duplicate payments (same narration + amount within a week) and expense charges far above the account's own median. Every finding names the exact journal entries and the rule that fired. Use for questions about fraud, suspicious activity, duplicates, or unusual spending.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date") }, required: ["asOf"], additionalProperties: false } },
   { name: "lookup_regulation", description: "Search Paisa's curated Indian tax & GST regulation knowledge base: GST rates and registration, ITC conditions and blocked credits, composition scheme, return due-date rules, e-invoicing, reverse charge, income-tax slabs, 44AD/44ADA presumptive schemes, 80C/80D deductions, TDS sections, advance tax. Returns cited passages with a verified-as-of date. Use for ANY question about what the law says — a rate, threshold, section, or eligibility — and never answer such questions from memory.", inputSchema: { type: "object", properties: { query: { type: "string", description: "The legal question or topic, e.g. 'GST rate on software services' or 'ITC on food'" } }, required: ["query"], additionalProperties: false } },
 ];
