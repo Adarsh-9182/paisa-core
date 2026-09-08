@@ -105,6 +105,14 @@ const TOPICS: readonly Topic[] = [
     tools: ["get_recommendations", "list_pending_actions"],
   },
   {
+    // Clearing the queue and closing the month are the same request in most
+    // people's words, so both reach the tool that finishes what a grant
+    // covers — alongside the list, because the honest answer to "clear this"
+    // is usually "I cleared four, here are the three I could not".
+    triggers: ["settle", "clear the queue", "clear queue", "close the month", "month end", "month-end", "close", "closing", "finish", "sign off", "sign-off"],
+    tools: ["settle_authorised", "list_pending_actions"],
+  },
+  {
     triggers: ["asset", "assets", "liability", "liabilities", "equity", "net worth", "balance sheet"],
     tools: ["get_balance_sheet", "get_account_balance"],
   },

@@ -14,7 +14,7 @@
 
 import { AgentContext, CallUsage, ChatTurn, LanguageModelProvider } from "./provider.js";
 import type { Permission } from "../tenancy/roles.js";
-import { TOOLS, toolNames } from "./tools.js";
+import { TOOLS, TOOL_PERMISSIONS, toolNames } from "./tools.js";
 import { routeTools } from "./routing.js";
 import { DOCUMENT_TOOL, UploadedDocument } from "./document.js";
 import { Organization } from "../organization.js";
@@ -277,7 +277,7 @@ export class Orchestrator {
     const invoked: { tool: string; args: Record<string, unknown>; result: string }[] = [];
     const executeTool = (tool: string, args: Record<string, unknown>): string => {
       emit({ type: "tool", tool });
-      const result = this.runTool(org, tool, args);
+      const result = this.runTool(org, tool, args, user.permissions);
       invoked.push({ tool, args: { ...args }, result });
       return result;
     };
@@ -306,7 +306,10 @@ export class Orchestrator {
       // Routed on the user's question, not on effectiveQuery: an attached
       // document's text would match half the topics and route to everything,
       // which is the one case where being generous buys nothing.
-      availableTools: this.routeToolsByQuestion ? routeTools(query) : toolNames(),
+      availableTools: (this.routeToolsByQuestion ? routeTools(query) : toolNames()).filter((t) => {
+        const required = TOOL_PERMISSIONS[t];
+        return !required || user.permissions.has(required);
+      }),
       executeTool,
       maxRounds: this.maxToolRounds,
       ...(onUsage ? { onUsage } : {}),
@@ -350,9 +353,31 @@ export class Orchestrator {
     return record;
   }
 
-  private runTool(org: Organization, tool: string, args: Record<string, unknown>): string {
+  /**
+   * Run one tool, after checking the caller may.
+   *
+   * The permission is checked here rather than only when the tool list is
+   * built, because the list is a hint and this is the gate. A model that
+   * names a tool it was not offered — small models do — must be refused by
+   * the thing that executes it, not by the thing that suggested it.
+   *
+   * The refusal is returned as a tool result rather than thrown, so the
+   * model can tell the user what they lack instead of the turn dying with a
+   * stack trace where an explanation belonged.
+   */
+  private runTool(
+    org: Organization,
+    tool: string,
+    args: Record<string, unknown>,
+    permissions: ReadonlySet<Permission>,
+  ): string {
     const fn = TOOLS[tool];
     if (!fn) return `error="unknown tool ${tool}"`;
+
+    const required = TOOL_PERMISSIONS[tool];
+    if (required && !permissions.has(required))
+      return `error="You do not have permission to ${required.replace(/_/g, " ")}, so this could not be done. Ask someone who does."`;
+
     try {
       return fn(org, { ...args });
     } catch (e) {
