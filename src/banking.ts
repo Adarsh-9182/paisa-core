@@ -25,7 +25,27 @@ export interface CategorizationRule {
   readonly keyword: string; // matched case-insensitively against the description
   readonly accountId: string; // expense account for outflows, revenue account for inflows
   readonly label: string;
+  /**
+   * True when a person taught this rule, false for the ones shipped as
+   * defaults.
+   *
+   * This used to be implicit in array position — defaults were constructed
+   * first, taught rules appended after, and `match` let the later of two
+   * equally specific rules win to encode "a human outranks a default". That
+   * works right up until two *taught* rules are equally specific and point at
+   * different accounts, at which point the winner is whichever was added
+   * last, and adding a rule silently re-books descriptions that already
+   * matched another one. Recording the origin makes the intended rule
+   * explicit and leaves genuine ties detectable instead of resolved by
+   * accident.
+   */
+  readonly taught?: boolean;
 }
+
+/** Why a line is waiting for a person. */
+export type ReviewReason =
+  | { readonly kind: "no_rule" }
+  | { readonly kind: "ambiguous"; readonly accounts: readonly string[]; readonly keywords: readonly string[] };
 
 export interface ImportResult {
   readonly posted: readonly { line: BankStatementLine; entry: JournalEntry; label: string }[];
@@ -41,7 +61,7 @@ export class BankFeedEngine {
   private seen = new Set<string>(); // dedupe keys of every line ever ingested
   // Queued lines remember the bank account they were imported against, so
   // categorization posts the counter-entry to the right account, not a default.
-  private reviewQueue: { line: BankStatementLine; bankAccountId: string }[] = [];
+  private reviewQueue: { line: BankStatementLine; bankAccountId: string; reason: ReviewReason }[] = [];
   private rules: CategorizationRule[];
   /** Lifetime tallies behind stats() — the auto-book rate is a trend, not a snapshot. */
   private totals = { posted: 0, needsReview: 0, duplicates: 0 };
@@ -59,7 +79,9 @@ export class BankFeedEngine {
     this.rules = [...(rules ?? defaultCategorizationRules())];
   }
 
+  /** A rule added here was taught by someone, and outranks a default it ties with. */
   addRule(rule: CategorizationRule): void {
+    rule = { ...rule, taught: rule.taught ?? true };
     this.chart.get(rule.accountId); // throws if unknown
     this.rules.push(rule);
   }
@@ -70,6 +92,17 @@ export class BankFeedEngine {
 
   pendingReview(): readonly BankStatementLine[] {
     return this.reviewQueue.map((q) => q.line);
+  }
+
+  /**
+   * The queue with the reason each line is in it.
+   *
+   * Separate from `pendingReview` rather than replacing it: six callers want
+   * the lines and nothing else, and widening their return type to carry a
+   * field they ignore would be churn. What needs the reason asks for it.
+   */
+  reviewQueueWithReasons(): readonly { line: BankStatementLine; reason: ReviewReason }[] {
+    return this.reviewQueue.map((q) => ({ line: q.line, reason: q.reason }));
   }
 
   importStatement(lines: readonly BankStatementLine[], actor: string, bankAccountId = "acc_bank"): ImportResult {
@@ -87,13 +120,32 @@ export class BankFeedEngine {
       }
       this.seen.add(key);
 
-      const rule = this.match(line.description);
-      if (!rule) {
-        this.reviewQueue.push({ line, bankAccountId });
+      const outcome = this.match(line.description);
+
+      // No rule, or rules that disagree — both are questions for a person,
+      // and the queue records which so the answer can be the right one. A
+      // line nobody has a rule for needs a rule; a line two rules fight over
+      // needs one of them narrowed.
+      if (!outcome || "tie" in outcome) {
+        const reason: ReviewReason = outcome
+          ? {
+              kind: "ambiguous",
+              accounts: [...new Set(outcome.tie.map((r) => r.accountId))],
+              keywords: outcome.tie.map((r) => r.keyword),
+            }
+          : { kind: "no_rule" };
+        this.reviewQueue.push({ line, bankAccountId, reason });
         needsReview.push(line);
-        this.emit("banking.needs_review", actor, { reference: line.reference, description: line.description });
+        this.emit("banking.needs_review", actor, {
+          reference: line.reference,
+          description: line.description,
+          reason: reason.kind,
+          ...(reason.kind === "ambiguous" ? { keywords: reason.keywords, accounts: reason.accounts } : {}),
+        });
         continue;
       }
+
+      const rule = outcome.rule;
 
       const amount = abs(line.amount);
       const entry = this.journal.post({
@@ -179,7 +231,7 @@ export class BankFeedEngine {
     this.reviewQueue.splice(idx, 1);
     this.resolved++;
     if (keyword !== undefined) {
-      this.rules.push({ keyword, accountId, label: account.name });
+      this.rules.push({ keyword, accountId, label: account.name, taught: true });
       this.learned++;
       this.emit("banking.rule_learned", actor, { keyword, accountId, from: line.description });
     }
@@ -232,18 +284,33 @@ export class BankFeedEngine {
    * a line posted to the wrong account is a misstatement someone has to find.
    *
    * Longest-wins: "google cloud" must beat a "google" rule, so the rule that
-   * knows the most about a description is the one that books it. On equal
-   * specificity the later rule wins, because rules are added in order of
-   * authority: a keyword a person taught this engine outranks the built-in
-   * default it was correcting, which is the whole point of teaching it.
+   * knows the most about a description is the one that books it.
+   *
+   * Then taught-beats-default at equal length, which is what array order used
+   * to stand in for. Stating it directly means it still holds if the rules are
+   * ever reordered, deduplicated, or loaded from somewhere that does not
+   * preserve insertion order.
+   *
+   * And when that still leaves a tie between rules that disagree about the
+   * account, this returns the tie rather than picking. Two people taught two
+   * equally specific rules and a line satisfies both: there is no fact here
+   * that says which is right, and the engine inventing one books money to an
+   * account nobody chose. A line in review is a question; a line posted to
+   * the wrong account is a misstatement someone has to find.
    */
-  private match(description: string): CategorizationRule | null {
-    let best: CategorizationRule | null = null;
-    for (const rule of this.rules) {
-      if (!patternFor(rule.keyword).test(description)) continue;
-      if (!best || rule.keyword.length >= best.keyword.length) best = rule;
-    }
-    return best;
+  private match(description: string): { rule: CategorizationRule } | { tie: readonly CategorizationRule[] } | null {
+    const matched = this.rules.filter((r) => patternFor(r.keyword).test(description));
+    if (matched.length === 0) return null;
+
+    const rank = (r: CategorizationRule): number => r.keyword.length * 2 + (r.taught ? 1 : 0);
+    const top = Math.max(...matched.map(rank));
+    const finalists = matched.filter((r) => rank(r) === top);
+
+    // Agreeing on the account is not a tie worth stopping for — two keywords
+    // can both be right about the same expense.
+    const accounts = new Set(finalists.map((r) => r.accountId));
+    if (accounts.size === 1) return { rule: finalists[0]! };
+    return { tie: finalists };
   }
 
   private emit(type: string, actor: string, payload: Record<string, unknown>): void {
