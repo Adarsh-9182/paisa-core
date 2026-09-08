@@ -23,6 +23,8 @@ import { RecommendationEngine } from "./recommendations.js";
 import { BriefComposer } from "./brief.js";
 import { PortfolioEngine } from "./portfolio.js";
 import { ActionQueue } from "./actions.js";
+// Type-only: erased at runtime, so the cycle with erp/suite.ts is not real.
+import type { ErpSuite } from "./erp/suite.js";
 
 export interface Organization {
   readonly orgId: string;
@@ -45,6 +47,29 @@ export interface Organization {
   readonly portfolio: PortfolioEngine;
   /** Changes the AI CFO has proposed, none of which happen without approval. */
   readonly actions: ActionQueue;
+
+  /**
+   * The ERP layer, once `attachErp` has attached it — and the one field here
+   * that is not readonly, deliberately.
+   *
+   * The books exist without it: a bare organization has a ledger, invoices
+   * and a bank feed, and every one of those works with no ERP suite in
+   * sight. Periods, close, agents and standing authority are a layer
+   * fastened on top afterwards, which is why the field is optional and why
+   * it is filled in later rather than passed to the constructor.
+   *
+   * It is here because the alternative was worse. Things that need it —
+   * `list_pending_actions` most of all, which claims to list *everything*
+   * waiting on you — were reaching only `org.actions` and silently missing
+   * every agent proposal. Threading the suite through `Orchestrator.ask`
+   * would have meant an eighth positional parameter on a call that already
+   * takes seven, most of them optional; a module-level registry keyed by
+   * orgId would have been a global wearing a lookup. `attachErp(org)` says
+   * in its own name that it attaches to this org, and it already mutates it
+   * (it registers the period guard on the journal), so recording what was
+   * attached is the honest version of what is already happening.
+   */
+  erp?: ErpSuite;
 }
 
 /**

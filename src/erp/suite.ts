@@ -269,5 +269,18 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
     org.bus,
   );
 
-  return { periods, contracts, revrec, bills, schedules, fx, reconciliation, metrics, close, agents, authority, connectors, flows, tieOut };
+  const suite: ErpSuite = { periods, contracts, revrec, bills, schedules, fx, reconciliation, metrics, close, agents, authority, connectors, flows, tieOut };
+
+  /*
+   * Record what was attached, on the org it was attached to.
+   *
+   * Without this the AI's tools can only see `org.actions` — so
+   * `list_pending_actions`, whose description promises everything waiting on
+   * the user, was quietly omitting every agent proposal. An agent that
+   * answers "nothing is waiting on you" while nine findings sit in a queue is
+   * worse than one that cannot answer at all.
+   */
+  org.erp = suite;
+
+  return suite;
 };

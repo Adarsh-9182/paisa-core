@@ -276,13 +276,52 @@ export const TOOLS: Record<string, ToolFn> = {
     return `action_id=${action.id} kind=payment_reminder invoice=${invoice.number} customer="${invoice.customer}" outstanding=${formatINR(outstanding)} days_overdue=${daysOverdue} status="drafted — awaiting approval, nothing sent"`;
   },
 
+  /*
+   * Everything waiting on the user — from BOTH queues, which is the whole
+   * point of this tool and was the thing it got wrong.
+   *
+   * There are two, and they are different objects rather than a duplication
+   * to be merged away:
+   *
+   *   - `org.actions` holds what the AI offered to do in a conversation. It
+   *     expires in an hour, because an offer nobody took is stale.
+   *   - `erp.agents` holds findings about the books — a missing accrual, a
+   *     receivable going bad. It is tied to a period and does not expire,
+   *     because the books stay wrong until someone decides.
+   *
+   * This tool read only the first, while its own description promised
+   * everything. So an agent asked "what needs me?" answered "nothing is
+   * waiting on your approval" with nine findings sitting in a queue — the
+   * most damaging shape a wrong answer can take, because it is confident,
+   * short, and sounds like good news.
+   *
+   * The ERP half is absent on a bare organization, and the reply says which
+   * queues it actually looked at rather than implying it saw both.
+   */
   list_pending_actions: (org) => {
-    const pending = org.actions.pending();
-    if (pending.length === 0) return `pending_actions=0 note="Nothing is waiting on your approval."`;
-    const rows = pending
+    const drafts = org.actions.pending();
+    const findings = org.erp ? org.erp.agents.open() : [];
+
+    if (drafts.length === 0 && findings.length === 0)
+      return org.erp
+        ? `pending_actions=0 findings=0 note="Nothing is waiting on your approval."`
+        : `pending_actions=0 note="Nothing is waiting on your approval." scope="drafts only — this organization has no ERP layer, so agent findings were not checked."`;
+
+    const draftRows = drafts
       .map((a) => `[${a.id}] kind=${a.kind} summary="${a.summary}" expires=${a.expiresAt}`)
       .join("; ");
-    return `pending_actions=${pending.length} actions: ${rows}`;
+    const findingRows = findings
+      .map(
+        (p) =>
+          `[${p.id}] kind=${p.kind} severity=${p.severity} period=${p.period} title="${p.title}"` +
+          `${p.amount ? ` amount=${formatINR(p.amount)}` : ""} posts_on_approval=${p.proposedEntry !== null}`,
+      )
+      .join("; ");
+
+    return (
+      `pending_actions=${drafts.length}${drafts.length ? ` actions: ${draftRows}` : ""} ` +
+      `findings=${findings.length}${findings.length ? ` findings: ${findingRows}` : ""}`
+    ).trim();
   },
 
   screen_transactions: (org, args) => {
@@ -354,7 +393,7 @@ export const TOOL_SPECS: readonly ToolSpec[] = [
   { name: "list_review_queue", description: "Bank statement lines awaiting human categorisation (the review queue): reference, date, description, amount, direction. Check this before proposing categorisations.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "propose_categorization", description: "Draft a categorisation for ONE review-queue line. This never posts anything — the user gets an Approve button and the journal entry is created only after their explicit approval. Money out needs an EXPENSE account code, money in a REVENUE code (e.g. 5300 Software, 5400 Travel, 4000 Sales).", inputSchema: { type: "object", properties: { reference: { type: "string", description: "The line's bank reference, exactly as list_review_queue printed it" }, accountCode: { type: "string", description: "Chart of accounts code to categorise into" } }, required: ["reference", "accountCode"], additionalProperties: false } },
   { name: "propose_payment_reminder", description: "Draft a payment-chasing message for ONE overdue invoice. This only drafts — the user sees an Approve button and nothing is recorded or sent until they click it. Use for questions about chasing, following up on, or collecting an overdue invoice.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), invoiceNumber: { type: "string", description: "The invoice number exactly as list_overdue_invoices printed it" } }, required: ["asOf", "invoiceNumber"], additionalProperties: false } },
-  { name: "list_pending_actions", description: "Everything the user has been asked to approve and has not yet decided on. Check this before proposing something similar, and when asked what is waiting on them.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },  { name: "get_morning_brief", description: "The full morning brief: health, cash, month metrics, overdue invoices, filings, recommendations.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), periodFrom: dateArg("Period start") }, required: ["asOf", "periodFrom"], additionalProperties: false } },
+  { name: "list_pending_actions", description: "Everything waiting on the user, from both queues: drafts the AI proposed in conversation (these expire), and open agent findings about the books such as a missing accrual or a receivable going bad (these do not, and approving one posts a journal entry). Check this before proposing something similar, and whenever asked what needs their attention, what is pending, or what is blocking the close.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },  { name: "get_morning_brief", description: "The full morning brief: health, cash, month metrics, overdue invoices, filings, recommendations.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), periodFrom: dateArg("Period start") }, required: ["asOf", "periodFrom"], additionalProperties: false } },
   { name: "screen_transactions", description: "Deterministic fraud/anomaly screening over the last 90 days of the ledger: duplicate payments (same narration + amount within a week) and expense charges far above the account's own median. Every finding names the exact journal entries and the rule that fired. Use for questions about fraud, suspicious activity, duplicates, or unusual spending.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date") }, required: ["asOf"], additionalProperties: false } },
   { name: "lookup_regulation", description: "Search Paisa's curated Indian tax & GST regulation knowledge base: GST rates and registration, ITC conditions and blocked credits, composition scheme, return due-date rules, e-invoicing, reverse charge, income-tax slabs, 44AD/44ADA presumptive schemes, 80C/80D deductions, TDS sections, advance tax. Returns cited passages with a verified-as-of date. Use for ANY question about what the law says — a rate, threshold, section, or eligibility — and never answer such questions from memory.", inputSchema: { type: "object", properties: { query: { type: "string", description: "The legal question or topic, e.g. 'GST rate on software services' or 'ITC on food'" } }, required: ["query"], additionalProperties: false } },
 ];
