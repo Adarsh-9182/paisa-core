@@ -23,6 +23,7 @@ import { ReconciliationEngine } from "./reconciliation.js";
 import { MetricsEngine } from "./metrics.js";
 import { CloseEngine, CloseContext } from "./close.js";
 import { AgentEngine } from "./agents.js";
+import { AuthorityRegistry } from "./authority.js";
 import { ConnectorHub } from "./connectors.js";
 import { FlowEngine } from "./flow-engine.js";
 
@@ -45,6 +46,7 @@ export interface ErpSuite {
   readonly metrics: MetricsEngine;
   readonly close: CloseEngine;
   readonly agents: AgentEngine;
+  readonly authority: AuthorityRegistry;
   readonly connectors: ConnectorHub;
   readonly flows: FlowEngine;
   /**
@@ -250,5 +252,22 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
 
   const connectors = new ConnectorHub(org.orgId, contracts, org.bus);
 
-  return { periods, contracts, revrec, bills, schedules, fx, reconciliation, metrics, close, agents, connectors, flows, tieOut };
+  /*
+   * The standing-authority registry approves through `agents.approve`, which
+   * is still the only path to the ledger — this adds no second way in. It
+   * reads period status and reversals live rather than being handed copies,
+   * so a grant can never act on a period that has since closed or stay
+   * confident about a posting a controller has already undone.
+   */
+  const authority = new AuthorityRegistry(
+    org.orgId,
+    {
+      approve: (proposalId, actor) => agents.approve(proposalId, actor),
+      periodStatus: (period) => periods.status(period),
+      isReversed: (entryId) => org.journal.get(entryId).reversedBy !== null,
+    },
+    org.bus,
+  );
+
+  return { periods, contracts, revrec, bills, schedules, fx, reconciliation, metrics, close, agents, authority, connectors, flows, tieOut };
 };

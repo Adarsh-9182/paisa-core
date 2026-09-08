@@ -233,6 +233,44 @@ const priorPeriod = (period: string): string => {
 };
 
 /* ------------------------------------------------------------------ */
+/* Settling — finishing what a controller already agreed to            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The third kind of flow, and the one that lets a month actually close.
+ *
+ * It is neither executing nor judging. It posts nothing itself and decides
+ * nothing itself: it walks the open queue and approves only what a standing
+ * authority already covers, through the same `approve` a person uses. What it
+ * cannot take, it leaves — with the reason, so the queue that remains is a
+ * queue of real decisions rather than a queue with the easy ones still in it.
+ *
+ * The summary names the refusals as well as the approvals on purpose. An
+ * automation that reports only its successes is one nobody can calibrate, and
+ * the refusals are where a controller learns whether their grant is too tight.
+ */
+const settleAuthorised =
+  ({ erp }: HandlerDeps): FlowHandler =>
+  (): FlowOutcome => {
+    const open = erp.agents.open();
+    if (open.length === 0) return { summary: "Nothing waiting to settle" };
+
+    const result = erp.authority.settle(open);
+    if (result.approved.length === 0)
+      return {
+        summary: `Settled nothing of ${open.length} waiting — none covered by a standing authority`,
+        proposalIds: [],
+      };
+
+    return {
+      summary:
+        `Settled ${result.approved.length} of ${open.length} waiting (${formatINR(result.totalApproved)}), ` +
+        `${result.refused.length} left for review`,
+      proposalIds: result.approved.map((a) => a.proposalId),
+    };
+  };
+
+/* ------------------------------------------------------------------ */
 /* Registry                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -255,4 +293,5 @@ export const standardHandlers = (deps: HandlerDeps): FlowRegistry =>
     [FLOW_TASKS.cfoDigest, cfoDigest(deps)],
     [FLOW_TASKS.boardSummary, boardSummary(deps)],
     [FLOW_TASKS.vendorBillAlert, vendorBillAlert(deps)],
+    [FLOW_TASKS.settleAuthorised, settleAuthorised(deps)],
   ]);
