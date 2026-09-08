@@ -243,3 +243,41 @@ describe("standing authority over the wire", () => {
     expect(after.body.stats.approved).toBe(before.body.stats.approved);
   });
 });
+
+describe("the console can actually reach the authority", () => {
+  let owner = "";
+
+  beforeAll(async () => {
+    owner = await signIn("owner@paisa.local", "paisa123456-dev");
+  });
+
+  /**
+   * The engine, the commands and the routes all shipped before anything
+   * rendered them, which meant a controller could not grant an authority
+   * without curl — and `settle_authorised` would have told every user
+   * forever that none had been granted. This asserts the panel is on the
+   * page and wired to the endpoints, so that cannot silently regress.
+   */
+  it("serves the standing-authority panel, wired to its endpoints", async () => {
+    const page = await call("GET", "/erp", { cookie: owner });
+    expect(page.status).toBe(200);
+
+    const html = String(page.body);
+    expect(html).toContain("Standing authority");
+    expect(html).toContain('id="grants"');
+    expect(html).toContain('id="auth-trust"');
+
+    // The three things the panel has to be able to do.
+    expect(html).toContain("/api/erp/authority/grant");
+    expect(html).toContain("/revoke");
+    expect(html).toContain("/api/erp/authority/settle");
+
+    // And it must load the read endpoint alongside the others.
+    expect(html).toContain("loadAuthority");
+  });
+
+  it("redirects an anonymous visitor to sign in rather than showing the console", async () => {
+    const page = await call("GET", "/erp");
+    expect(page.status).toBe(302);
+  });
+});

@@ -137,6 +137,19 @@ export const erpPage = () => `<!doctype html>
     <div id="proposals"></div>
   </div>
 
+  <div class="card">
+    <div class="card-head"><h2>Standing authority</h2><span class="pill neutral" id="auth-trust">–</span></div>
+    <div class="card-sub">
+      What may be approved without you. A grant names its own limits and can be revoked at any time —
+      settling only ever approves findings that already fall inside one.
+    </div>
+    <div id="grants"></div>
+    <div class="prop-actions" style="margin-top:12px">
+      <button class="btn btn-primary" id="grant">Grant an authority</button>
+      <button class="btn" id="settle">Settle what is covered</button>
+    </div>
+  </div>
+
   <div class="grid2">
     <div class="card">
       <div class="card-head"><h2>Subledger tie-out</h2></div>
@@ -288,7 +301,32 @@ async function loadContracts() {
     ).join("") + "</tbody></table>";
 }
 
-const loadAll = () => Promise.all([loadClose(), loadRevenue(), loadMetrics(), loadAgents(), loadSubledgers(), loadContracts()]);
+async function loadAuthority() {
+  const d = await get("authority");
+  // Reversals are the number worth showing beside the grants: a grant whose
+  // postings keep getting undone is one to narrow, and that is a fact about
+  // the ledger rather than an opinion about the automation.
+  $("auth-trust").textContent =
+    d.stats.approved === 0
+      ? d.stats.active + " active"
+      : d.stats.active + " active · " + d.stats.approved + " posted · " + d.stats.reversed + " reversed";
+
+  $("grants").innerHTML = d.grants.length === 0
+    ? '<div class="muted">Nothing is pre-approved. Every finding waits for a person.</div>'
+    : d.grants.map((g) =>
+        '<div class="prop" data-id="' + g.id + '">' +
+        '<div class="prop-head"><span class="pill ' + (g.active ? "neutral" : "bad") + '">' +
+        (g.active ? "ACTIVE" : "REVOKED") + "</span>" +
+        '<span class="prop-title">' + g.kind + " up to " + g.maxAmount + "</span>" +
+        '<span class="pill neutral">' + g.maxPerSweep + " per sweep</span></div>" +
+        '<div class="prop-why">' + g.note + " — granted by " + g.grantedBy +
+        (g.expiresAt ? ", expires " + g.expiresAt : "") + "</div>" +
+        (g.active ? '<div class="prop-actions"><button class="btn" data-act="revoke">Revoke</button></div>' : "") +
+        "</div>",
+      ).join("");
+}
+
+const loadAll = () => Promise.all([loadClose(), loadRevenue(), loadMetrics(), loadAgents(), loadAuthority(), loadSubledgers(), loadContracts()]);
 
 $("proposals").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-act]");
@@ -307,6 +345,51 @@ $("rerun").addEventListener("click", async () => {
 $("lock").addEventListener("click", async () => {
   const r = await fetch("/api/erp/close/lock", { method: "POST" }).then((x) => x.json());
   if (r.error) alert(r.error);
+  await loadAll();
+});
+
+$("grants").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.closest(".prop").dataset.id;
+  if (!confirm("Revoke this authority? Findings it covered will wait for a person again.")) return;
+  btn.disabled = true;
+  const r = await fetch("/api/erp/authority/" + id + "/revoke", { method: "POST" }).then((x) => x.json());
+  if (r.error) alert(r.error);
+  await loadAll();
+});
+
+$("grant").addEventListener("click", async () => {
+  // Prompts rather than a form, deliberately: this console is a working
+  // surface, and a grant asked for in four questions is one someone actually
+  // reads. The note is required because a grant nobody can explain a year
+  // later is the one that gets revoked in a panic during an audit.
+  const kind = prompt("Which finding may be approved without you?\n\ne.g. MISSING_ACCRUAL", "MISSING_ACCRUAL");
+  if (!kind) return;
+  const maxAmount = prompt("Most it may approve in one posting", "50,000");
+  if (!maxAmount) return;
+  const maxPerSweep = prompt("Most across one sweep — the blast radius", "2,00,000");
+  if (!maxPerSweep) return;
+  const note = prompt("Why does this grant exist? (required)");
+  if (!note) return;
+
+  const r = await fetch("/api/erp/authority/grant", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: "auth_" + Date.now(), kind, maxAmount, maxPerSweep, note }),
+  }).then((x) => x.json());
+  if (!r.ok) alert(r.error || "Could not grant that.");
+  await loadAll();
+});
+
+$("settle").addEventListener("click", async () => {
+  const r = await fetch("/api/erp/authority/settle", { method: "POST" }).then((x) => x.json());
+  if (!r.ok) alert(r.error || "Could not settle.");
+  else if (r.approved === 0)
+    // Saying why nothing happened beats a silent refresh that looks broken.
+    alert(r.refused && r.refused.length
+      ? "Settled nothing. " + r.refused.length + " left:\n\n" + r.refused.map((x) => "• " + x.reason).join("\n")
+      : "Nothing was waiting to settle.");
   await loadAll();
 });
 
