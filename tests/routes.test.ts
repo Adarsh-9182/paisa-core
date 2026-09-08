@@ -46,7 +46,9 @@ const call = async (
     get statusCode() { return status; },
     setHeader: (k: string, v: string | string[]) => headers.set(k.toLowerCase(), v),
     getHeader: (k: string) => headers.get(k.toLowerCase()),
-    end: (chunk?: string) => { payload = chunk ?? ""; },
+    // Buffers as well as strings: the icon routes end with raw PNG bytes,
+    // and a harness that assumes text cannot test them at all.
+    end: (chunk?: string | Buffer) => { payload = chunk === undefined ? "" : Buffer.isBuffer(chunk) ? chunk.toString("binary") : chunk; },
   };
 
   await handle(req, res);
@@ -279,5 +281,43 @@ describe("the console can actually reach the authority", () => {
   it("redirects an anonymous visitor to sign in rather than showing the console", async () => {
     const page = await call("GET", "/erp");
     expect(page.status).toBe(302);
+  });
+});
+
+describe("the mark a browser actually shows", () => {
+  /**
+   * The tab icon was an SVG data URI on the page plus an SVG served at
+   * /favicon.ico. Chrome takes the data URI and never asks. Safari does not
+   * render SVG favicons at all, so it asked for /favicon.ico and got SVG
+   * bytes at a URL that promises an icon format — which it cannot decode, so
+   * the tab fell back to the browser's own placeholder.
+   *
+   * The bytes matter more than the header here, so this checks the PNG
+   * signature rather than trusting Content-Type.
+   */
+  const PNG_MAGIC = "\x89PNG";
+
+  it("serves real PNG bytes at /favicon.ico, not SVG", async () => {
+    const reply = await call("GET", "/favicon.ico");
+    expect(reply.status).toBe(200);
+    expect(String(reply.body).startsWith(PNG_MAGIC), "must be a PNG, not an SVG document").toBe(true);
+    expect(String(reply.body)).not.toContain("<svg");
+  });
+
+  it("serves the home-screen icon too", async () => {
+    const reply = await call("GET", "/apple-touch-icon.png");
+    expect(reply.status).toBe(200);
+    expect(String(reply.body).startsWith(PNG_MAGIC)).toBe(true);
+  });
+
+  it("points every shell at the raster fallback, not only the SVG", async () => {
+    // One page per shell: the app, the login page, the console, and the
+    // marketing site — which carried no icon link of any kind.
+    for (const path of ["/", "/login", "/site/product/paisa-ai"]) {
+      const page = await call("GET", path);
+      const html = String(page.body);
+      expect(html, path).toContain('rel="icon" type="image/png"');
+      expect(html, path).toContain("apple-touch-icon");
+    }
   });
 });

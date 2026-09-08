@@ -174,6 +174,8 @@ ${noindex
 <meta name="twitter:description" content="${description}">
 <meta name="twitter:image" content="${SITE_URL}/og.png">
 <link rel="icon" href="${FAVICON}">
+<link rel="icon" type="image/png" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 ${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ""}
 <style>${TOKENS}${extraCss}</style>
 </head>
