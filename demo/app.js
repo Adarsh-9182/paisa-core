@@ -17,6 +17,7 @@
 
 import { readFile } from "node:fs/promises";
 import { erpApi, ERP_READS, CONTROLLER, CLOSE_PERIOD } from "./erp-console.js";
+import { FAVICON_PNG, APPLE_TOUCH_PNG } from "./mark.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
 import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
@@ -480,6 +481,8 @@ const page = () => `<!doctype html>
 <title>Paisa — Your AI CFO</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F26B1D'/%3E%3Ctext x='16' y='23' font-family='-apple-system,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   :root {
     /* Mission Control — cool graphite ground, electric blue + violet identity */
@@ -1602,12 +1605,26 @@ export const handle = async (req, res) => {
     // to the catch-all 404, and what a visitor saw in the tab was whatever
     // their browser shows for a missing icon, never Paisa's.
     if (path === "/favicon.ico") {
+      // A real PNG, not the SVG this used to return.
+      //
+      // Safari does not render SVG favicons at all, so it ignores the
+      // <link rel="icon"> data URI and falls back to this path — and what it
+      // got back was SVG bytes under image/svg+xml at a URL that promises an
+      // icon format. It cannot decode that, so the tab showed the browser's
+      // own placeholder rather than the mark. Chrome hid the bug by
+      // preferring the link tag.
       res.statusCode = 200;
-      res.setHeader("Content-Type", "image/svg+xml");
+      res.setHeader("Content-Type", "image/png");
       res.setHeader("Cache-Control", "public, max-age=86400");
-      return res.end(
-        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#F26B1D"/><text x="16" y="23" font-family="-apple-system,sans-serif" font-size="20" font-weight="700" fill="white" text-anchor="middle">₹</text></svg>`
-      );
+      return res.end(FAVICON_PNG);
+    }
+
+    // Home-screen and bookmark icon. Same mark, sized for it.
+    if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      return res.end(APPLE_TOUCH_PNG);
     }
 
     // vercel.json rewrites every path into this function, so the social card
