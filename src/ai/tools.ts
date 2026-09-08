@@ -224,17 +224,29 @@ export const TOOLS: Record<string, ToolFn> = {
     return `holdings_count=${s.holdings.length} invested=${formatINR(s.totalCostBasis)} marked_value=${formatINR(s.markedValue)} unrealized_pnl=${formatINR(s.unrealizedPnl)} realized_pnl=${formatINR(s.realizedPnl)} allocation: ${alloc} holdings: ${rows}${unmarked}`;
   },
 
+  /*
+   * The queue, with why each line is in it.
+   *
+   * "No rule matches this" and "two rules disagree about this" are different
+   * questions with different answers — the first wants a new rule, the
+   * second wants one of the existing pair narrowed. Reporting both as
+   * "awaiting categorisation" sends the assistant to propose a third rule
+   * that will tie with the other two.
+   */
   list_review_queue: (org) => {
-    const lines = org.banking.pendingReview();
-    if (lines.length === 0)
+    const queued = org.banking.reviewQueueWithReasons();
+    if (queued.length === 0)
       return `review_count=0 note="Nothing awaits review — every imported line is categorised."`;
-    const rows = lines
-      .map(
-        (l) =>
-          `reference="${l.reference}" date=${l.date} description="${l.description}" amount=${formatINR(l.amount)} direction=${l.amount < 0n ? "out" : "in"}`,
-      )
+    const rows = queued
+      .map(({ line: l, reason }) => {
+        const why =
+          reason.kind === "ambiguous"
+            ? ` reason=ambiguous conflicting_keywords="${reason.keywords.join(", ")}" candidate_accounts="${reason.accounts.join(", ")}"`
+            : " reason=no_rule";
+        return `reference="${l.reference}" date=${l.date} description="${l.description}" amount=${formatINR(l.amount)} direction=${l.amount < 0n ? "out" : "in"}${why}`;
+      })
       .join("; ");
-    return `review_count=${lines.length} lines: ${rows}`;
+    return `review_count=${queued.length} lines: ${rows}`;
   },
 
   propose_categorization: (org, args) => {
@@ -485,7 +497,7 @@ export const TOOL_SPECS: readonly ToolSpec[] = [
   { name: "simulate_scenario", description: "Simulate a change (hire, new client, big purchase) and see the effect on burn and runway.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), label: { type: "string", description: "Short scenario name" }, monthlyRevenueDeltaINR: { type: "string", description: "Monthly revenue change in INR (optional)" }, monthlyExpenseDeltaINR: { type: "string", description: "Monthly expense change in INR (optional)" }, oneTimeCostINR: { type: "string", description: "One-time cost in INR (optional)" } }, required: ["asOf", "label"], additionalProperties: false } },
   { name: "get_recommendations", description: "Pending AI-CFO recommendations with impact, confidence, and risk.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "get_portfolio", description: "Investment portfolio: holdings with cost basis and marked market value, unrealized/realized P&L, and allocation by instrument kind. Unmarked holdings are declared, never priced by guesswork.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date") }, required: ["asOf"], additionalProperties: false } },
-  { name: "list_review_queue", description: "Bank statement lines awaiting human categorisation (the review queue): reference, date, description, amount, direction. Check this before proposing categorisations.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+  { name: "list_review_queue", description: "Bank statement lines awaiting human categorisation (the review queue): reference, date, description, amount, direction, and why each is waiting. reason=no_rule means nothing matched and a new rule would help; reason=ambiguous means two equally specific rules disagree, and the fix is narrowing one of the conflicting keywords rather than adding a third. Check this before proposing categorisations.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "propose_categorization", description: "Draft a categorisation for ONE review-queue line. This never posts anything — the user gets an Approve button and the journal entry is created only after their explicit approval. Money out needs an EXPENSE account code, money in a REVENUE code (e.g. 5300 Software, 5400 Travel, 4000 Sales).", inputSchema: { type: "object", properties: { reference: { type: "string", description: "The line's bank reference, exactly as list_review_queue printed it" }, accountCode: { type: "string", description: "Chart of accounts code to categorise into" } }, required: ["reference", "accountCode"], additionalProperties: false } },
   { name: "propose_payment_reminder", description: "Draft a payment-chasing message for ONE overdue invoice. This only drafts — the user sees an Approve button and nothing is recorded or sent until they click it. Use for questions about chasing, following up on, or collecting an overdue invoice.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), invoiceNumber: { type: "string", description: "The invoice number exactly as list_overdue_invoices printed it" } }, required: ["asOf", "invoiceNumber"], additionalProperties: false } },
   { name: "list_pending_actions", description: "Everything waiting on the user, from both queues: drafts the AI proposed in conversation (these expire), and open agent findings about the books such as a missing accrual or a receivable going bad (these do not, and approving one posts a journal entry). Check this before proposing something similar, and whenever asked what needs their attention, what is pending, or what is blocking the close.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },  { name: "get_morning_brief", description: "The full morning brief: health, cash, month metrics, overdue invoices, filings, recommendations.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), periodFrom: dateArg("Period start") }, required: ["asOf", "periodFrom"], additionalProperties: false } },
