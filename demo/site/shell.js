@@ -70,8 +70,9 @@ export const TOKENS = `
   nav.top .inner { display:flex; align-items:center; gap:22px; height:62px; }
   .logo { display:flex; align-items:center; gap:9px; font-weight:700; font-size:17.5px;
           letter-spacing:-.02em; color:var(--night-ink); }
-  .logo-mark { width:27px; height:27px; border-radius:8px; background:var(--orange); color:#fff;
-               display:grid; place-items:center; font-size:16px; font-weight:700;
+  /* A percentage radius, not 8px: the mark's own rounded corners were cropped
+     away with its edges, and this restores them at whatever size it renders. */
+  .logo-mark { width:27px; height:27px; border-radius:22%; display:block;
                transition:transform .5s cubic-bezier(.19,1,.22,1); }
   .logo:hover .logo-mark { transform:rotateY(180deg); }
   .navlinks { display:flex; gap:3px; margin-left:4px; font-size:14px; font-weight:500; }
@@ -139,9 +140,6 @@ export const TOKENS = `
   }
 `;
 
-const FAVICON =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F26B1D'/%3E%3Ctext x='16' y='23' font-family='-apple-system,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'%3E%E2%82%B9%3C/text%3E%3C/svg%3E";
-
 /**
  * `path` is what makes a page addressable to a crawler: it fixes the
  * canonical and og:url, so "/" and "/site" stop reading as two pages with
@@ -173,7 +171,7 @@ ${noindex
 <meta name="twitter:title" content="${title}">
 <meta name="twitter:description" content="${description}">
 <meta name="twitter:image" content="${SITE_URL}/og.png">
-<link rel="icon" href="${FAVICON}">
+<link rel="icon" type="image/png" href="/logo.png">
 <link rel="icon" type="image/png" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 ${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ""}
@@ -214,7 +212,7 @@ const compareMega = () =>
 export const nav = () => `
 <nav class="top" id="nav">
   <div class="wrap inner">
-    <a class="logo" href="/"><span class="logo-mark">₹</span>paisa</a>
+    <a class="logo" href="/"><img class="logo-mark" src="/logo.png" alt="" width="27" height="27">paisa</a>
     <div class="navlinks">
       <div class="navitem" data-menu>
         <button type="button" aria-expanded="false">What it does <i class="chev"></i></button>
@@ -279,7 +277,7 @@ export const footer = () => `
   <div class="wrap">
     <div class="fgrid">
       <div>
-        <div class="logo" style="margin-bottom:12px"><span class="logo-mark">₹</span>paisa</div>
+        <div class="logo" style="margin-bottom:12px"><img class="logo-mark" src="/logo.png" alt="" width="27" height="27">paisa</div>
         <p style="max-width:270px;line-height:1.55">The AI-native ERP for finance teams. A perpetual
           ledger, a close that proves itself, and an assistant that cannot invent a number.</p>
       </div>

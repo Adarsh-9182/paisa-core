@@ -207,8 +207,7 @@ export const loginPage = (
   @media (min-width:700px) { header { padding:24px 34px; } }
 
   .mark { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--ink); }
-  .mark .box { width:27px; height:27px; border-radius:8px; background:var(--orange); color:#fff;
-               display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px; }
+  .mark .box { width:27px; height:27px; border-radius:22%; display:block; }
   .mark b { font-weight:640; font-size:13px; letter-spacing:.30em; text-transform:uppercase; }
   .mark .div { width:1px; height:13px; background:#3A3128; }
   .mark .kind { font-size:10px; letter-spacing:.26em; text-transform:uppercase; color:var(--ink-3); }
@@ -349,7 +348,7 @@ export const loginPage = (
 
   <header>
     <a class="mark" href="/">
-      <div class="box">₹</div><b>Paisa</b>
+      <img class="box" src="/logo.png" alt="" width="27" height="27"><b>Paisa</b>
       <span class="div"></span><span class="kind">AI CFO</span>
     </a>
     <div class="head-right">

@@ -28,8 +28,7 @@ export const erpPage = () => `<!doctype html>
   .wrap { max-width:1180px; margin:0 auto; padding:28px 24px 60px; }
   header { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px; flex-wrap:wrap; gap:12px; }
   .logo { display:flex; align-items:center; gap:9px; font-weight:700; font-size:17px; letter-spacing:-.01em; }
-  .logo-mark { width:26px; height:26px; border-radius:8px; background:var(--orange); color:#fff;
-               display:grid; place-items:center; font-size:14px; }
+  .logo-mark { width:26px; height:26px; border-radius:22%; display:block; }
   .sub { color:var(--ink-2); margin-bottom:22px; }
   .sub a { color:var(--orange-deep); }
   h2 { font-size:15px; font-weight:650; letter-spacing:-.01em; }
@@ -95,7 +94,7 @@ export const erpPage = () => `<!doctype html>
 <body>
 <div class="wrap">
   <header>
-    <div class="logo"><span class="logo-mark">₹</span>paisa <span style="color:var(--ink-3);font-weight:500">ERP</span></div>
+    <div class="logo"><img class="logo-mark" src="/logo.png" alt="" width="26" height="26">paisa <span style="color:var(--ink-3);font-weight:500">ERP</span></div>
     <div class="muted">Nimbus Labs Pvt Ltd · period <b id="period">–</b></div>
   </header>
   <div class="sub">Close management, ASC 606 revenue, subledgers and continuous agents. <a href="/app">← AI CFO dashboard</a></div>
