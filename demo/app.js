@@ -482,7 +482,7 @@ const page = () => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paisa — Your AI CFO</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232F6BFF'/%3E%3Ctext x='16' y='23' font-family='-apple-system,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="/logo.png">
 <link rel="icon" type="image/png" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
@@ -1831,14 +1831,9 @@ export const handle = async (req, res) => {
     // to the catch-all 404, and what a visitor saw in the tab was whatever
     // their browser shows for a missing icon, never Paisa's.
     if (path === "/favicon.ico") {
-      // A real PNG, not the SVG this used to return.
-      //
-      // Safari does not render SVG favicons at all, so it ignores the
-      // <link rel="icon"> data URI and falls back to this path — and what it
-      // got back was SVG bytes under image/svg+xml at a URL that promises an
-      // icon format. It cannot decode that, so the tab showed the browser's
-      // own placeholder rather than the mark. Chrome hid the bug by
-      // preferring the link tag.
+      // A real PNG. This route once returned SVG bytes under image/svg+xml,
+      // which Safari cannot decode at a path that promises an icon format,
+      // so the tab showed its placeholder rather than the mark.
       res.statusCode = 200;
       res.setHeader("Content-Type", "image/png");
       res.setHeader("Cache-Control", "public, max-age=86400");
