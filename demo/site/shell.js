@@ -63,10 +63,14 @@ export const TOKENS = `
   .progress { position:fixed; top:0; left:0; height:2px; width:0%; background:var(--orange); z-index:60; }
 
   /* ---------- nav ---------- */
-  nav.top { position:sticky; top:0; z-index:50; background:rgba(22,19,15,.88);
-            backdrop-filter:saturate(160%) blur(12px); border-bottom:1px solid var(--night-line);
-            transition:background .25s ease; }
-  nav.top.stuck { background:rgba(22,19,15,.96); }
+  /* Opaque, not translucent. A translucent bar blends with whatever is behind
+     it, and behind it at rest is the body's cream --bg — which turned the
+     header grey while the hero immediately below stayed solid --night. Depth
+     on scroll comes from a shadow instead, which cannot change the colour. */
+  nav.top { position:sticky; top:0; z-index:50; background:var(--night);
+            border-bottom:1px solid var(--night-line);
+            transition:box-shadow .25s ease; }
+  nav.top.stuck { box-shadow:0 10px 30px rgba(0,0,0,.35); }
   nav.top .inner { display:flex; align-items:center; gap:22px; height:62px; }
   .logo { display:flex; align-items:center; gap:9px; font-weight:700; font-size:17.5px;
           letter-spacing:-.02em; color:var(--night-ink); }
@@ -134,6 +138,12 @@ export const TOKENS = `
   .fbottom { margin-top:26px; padding-top:20px; border-top:1px solid var(--night-line);
              display:flex; justify-content:space-between; gap:14px; flex-wrap:wrap; font-size:12.5px; }
 
+  :focus-visible { outline:2px solid var(--orange); outline-offset:3px; border-radius:6px; }
+  .skip { position:absolute; left:12px; top:-56px; z-index:80; background:var(--night);
+          color:var(--night-ink); border:1px solid var(--night-line); border-radius:9px;
+          padding:10px 15px; font-weight:600; transition:top .18s ease; }
+  .skip:focus { top:12px; }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration:.001ms !important; animation-iteration-count:1 !important;
                              transition-duration:.001ms !important; }
@@ -178,6 +188,7 @@ ${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ""}
 <style>${TOKENS}${extraCss}</style>
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 <div class="progress" id="progress"></div>`;
 
 const megaLink = (href, name, blurb) =>

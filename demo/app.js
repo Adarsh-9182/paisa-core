@@ -517,6 +517,17 @@ const page = () => `<!doctype html>
   button, input, textarea { font: inherit; color: inherit; }
   ::selection { background: var(--accent); color: #fff; }
 
+  /* Every control here is restyled, which drops the browser's own focus ring.
+     :focus-visible puts it back for keyboard use without ringing on click. */
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+  /* The thread scrolls smoothly and the waiting dots bounce. Both are motion
+     a visitor may have asked their system not to show. */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important; scroll-behavior: auto !important; }
+  }
+
   /* ---------------- shell ---------------- */
   .shell { display: grid; grid-template-columns: 264px 1fr; height: 100vh; }
   .shell.collapsed { grid-template-columns: 0 1fr; }
@@ -1144,9 +1155,12 @@ $("suggest").addEventListener("click", (e) => { if (e.target.tagName === "BUTTON
 $("ask-brief").addEventListener("click", () => sendChat("Summarize business performance"));
 
 /* ---------------- thread rendering ---------------- */
+// A CSS scroll-behavior rule cannot override an explicit behavior passed to
+// scrollTo, so the reduced-motion preference is read here rather than assumed.
+const noMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const scrollDown = (smooth = true) => {
   const el = $("scroll");
-  el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  el.scrollTo({ top: el.scrollHeight, behavior: smooth && !noMotion() ? "smooth" : "auto" });
 };
 
 function addUser(text) {

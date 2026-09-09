@@ -53,8 +53,10 @@ export const sitePage = () => head({
   .btn-dark:hover { background:var(--night-2); }
 
   /* ---------- nav ---------- */
-  nav.top { position:sticky; top:0; z-index:50; background:rgba(22,19,15,.86);
-            backdrop-filter:saturate(160%) blur(12px); border-bottom:1px solid var(--night-line); }
+  /* Opaque. Translucent here blended with the body's cream --bg behind it,
+     so the header read grey against a hero that is solid --night. */
+  nav.top { position:sticky; top:0; z-index:50; background:var(--night);
+            border-bottom:1px solid var(--night-line); }
   nav.top .inner { display:flex; align-items:center; gap:26px; height:62px; }
   .logo { display:flex; align-items:center; gap:9px; font-weight:700; font-size:17.5px;
           letter-spacing:-.02em; color:var(--night-ink); }
@@ -302,7 +304,7 @@ export const sitePage = () => head({
   nav.top { transition:height .25s ease, background .25s ease, border-color .25s ease; }
   nav.top .inner { transition:height .25s ease; }
   nav.top.stuck .inner { height:54px; }
-  nav.top.stuck { background:rgba(22,19,15,.95); box-shadow:0 1px 0 var(--night-line); }
+  nav.top.stuck { box-shadow:0 10px 30px rgba(0,0,0,.35); }
 
   /* mobile menu */
   .menu-btn { display:none; background:none; border:1px solid var(--night-line); border-radius:9px;
@@ -364,7 +366,7 @@ export const sitePage = () => head({
 ${nav()}
 
 <!-- ---------------- HERO ---------------- -->
-<header class="hero">
+<header class="hero" id="main">
   <canvas id="fx" aria-hidden="true"></canvas>
   <div class="glow" id="glow" aria-hidden="true"></div>
   <div class="wrap">
