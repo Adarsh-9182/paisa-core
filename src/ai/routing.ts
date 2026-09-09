@@ -53,15 +53,22 @@ interface Topic {
 
 const TOPICS: readonly Topic[] = [
   {
-    triggers: ["cash", "bank", "balance", "money", "liquid", "reserve"],
+    triggers: ["cash", "bank", "balance", "money", "liquid", "reserve",
+               // Hinglish. The product is for Indian SMB owners, who type this
+               // way; with no Hindi stems at all, every such question missed
+               // every topic and fell through to the whole toolset.
+               "paisa", "paise", "khata", "rakam", "account me", "bank me"],
     tools: ["get_cash_position", "get_balance_sheet", "get_cash_forecast", "get_account_balance"],
   },
   {
-    triggers: ["burn", "runway", "survive", "last", "out of money", "afford", "hire", "hiring", "salary"],
+    triggers: ["burn", "runway", "survive", "last", "out of money", "afford", "hire", "hiring", "salary",
+               "how fast", "how long", "spending it", "rate we", "kab tak", "kitne din",
+               "chalega", "bachega", "kharch", "kharcha"],
     tools: ["get_burn_and_runway", "get_cash_position", "check_affordability", "simulate_scenario", "get_cash_forecast"],
   },
   {
-    triggers: ["profit", "loss", "revenue", "income", "earn", "margin", "p&l", "pnl", "expense", "spend", "spending", "cost", "costs"],
+    triggers: ["profit", "loss", "revenue", "income", "earn", "margin", "p&l", "pnl", "expense", "spend", "spending", "cost", "costs",
+               "munafa", "nuksan", "kamai", "aamdani", "kharche"],
     tools: ["get_profit_and_loss", "get_recurring_payments", "get_account_balance"],
   },
   {
@@ -69,11 +76,16 @@ const TOPICS: readonly Topic[] = [
     tools: ["get_recurring_payments", "get_profit_and_loss"],
   },
   {
-    triggers: ["invoice", "invoices", "overdue", "unpaid", "receivable", "receivables", "owe", "owes", "customer", "collect", "chase", "aging", "ageing", "debtor"],
+    triggers: ["invoice", "invoices", "overdue", "unpaid", "receivable", "receivables", "owe", "owes", "customer", "collect", "chase", "aging", "ageing", "debtor",
+               // "reminder" and "payment" were on no topic anywhere, so even
+               // "send a payment reminder to Acme" reached no reminder tool.
+               "reminder", "reminders", "remind", "payment", "payments", "pay", "paid", "dues", "outstanding",
+               "bakaya", "udhaar", "vasooli", "client", "nahi kiya", "nahi diya", "bhej do"],
     tools: ["list_overdue_invoices", "get_receivables_aging", "propose_payment_reminder"],
   },
   {
-    triggers: ["gst", "tax", "taxes", "filing", "filings", "gstr", "return", "returns", "itc", "compliance", "deadline"],
+    triggers: ["gst", "tax", "taxes", "filing", "filings", "gstr", "return", "returns", "itc", "compliance", "deadline",
+               "bharna", "bharna hai", "jama"],
     tools: ["get_gst_position", "get_upcoming_gst_filings", "lookup_regulation"],
   },
   {
@@ -89,7 +101,8 @@ const TOPICS: readonly Topic[] = [
     tools: ["get_health_score", "get_morning_brief", "get_profit_and_loss"],
   },
   {
-    triggers: ["invest", "investment", "investments", "portfolio", "holding", "holdings", "stock", "stocks", "mutual", "shares"],
+    triggers: ["invest", "investment", "investments", "portfolio", "holding", "holdings", "stock", "stocks", "mutual", "shares",
+               "kharidna", "nivesh"],
     tools: ["get_portfolio"],
   },
   {
