@@ -580,16 +580,6 @@ const page = () => `<!doctype html>
   .convo .x:hover { background: var(--red-soft); color: var(--red); }
   .empty-convos { padding: 10px; font-size: 13px; color: var(--ink-3); }
 
-  .health {
-    margin: 8px 10px; padding: 12px; border-radius: 12px; background: var(--surface);
-    border: 1px solid var(--line-2);
-  }
-  .health .label { font-size: 10.5px; font-weight: 650; letter-spacing: .06em; color: var(--ink-3); }
-  .health-row { display: flex; align-items: baseline; gap: 8px; margin: 4px 0 8px; }
-  .health-score { font-size: 24px; font-weight: 700; letter-spacing: -.5px; }
-  .health-grade { font-size: 12px; font-weight: 600; color: var(--ink-2); }
-  .health-bar { height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
-  .health-bar div { height: 100%; background: var(--green); border-radius: 99px; transition: width .5s ease; }
 
   .profile { border-top: 1px solid var(--line-2); padding: 10px; }
   .profile a, .profile .who-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px;
@@ -640,35 +630,12 @@ const page = () => `<!doctype html>
   .hello p { color: var(--ink-2); margin-top: 6px; font-size: 15px; }
   .hello .mark { width: 46px; height: 46px; border-radius: 22%; display: block; margin: 0 auto 16px; }
 
-  .brief { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; background: var(--surface); }
-  .brief-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-  .tag { font-size: 10.5px; font-weight: 700; letter-spacing: .07em; color: var(--accent);
-    background: var(--accent-soft); padding: 3px 8px; border-radius: 6px; }
-  .when { font-size: 11.5px; color: var(--ink-3); }
-  .brief p { font-size: 14.5px; color: var(--ink-2); }
   .hl-g { color: var(--green); font-weight: 650; } .hl-o { color: var(--accent); font-weight: 650; }
-  .brief-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .btn { border-radius: 9px; padding: 8px 13px; font-size: 13.5px; font-weight: 550; cursor: pointer; border: 1px solid transparent; }
   .btn-primary { background: var(--accent); color: #fff; }
   .btn-ghost { background: transparent; border-color: var(--line); color: var(--ink-2); }
   .btn-ghost:hover { background: var(--side-hover); }
 
-  .recs { display: none; flex-direction: column; gap: 10px; margin-top: 12px; }
-  .recs.open { display: flex; }
-  .rec { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--surface); }
-  .rec-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
-  .rec-head b { font-size: 14px; }
-  .rec-badges { display: flex; gap: 5px; flex-wrap: wrap; }
-  .chip { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 5px; background: var(--side-hover); color: var(--ink-2); }
-  .chip.risk-low { background: var(--green-soft); color: var(--green); }
-  .chip.risk-medium { background: var(--amber-soft); color: var(--amber); }
-  .chip.risk-high { background: var(--red-soft); color: var(--red); }
-  .chip.approval { background: var(--accent-soft); color: var(--accent); }
-  .rec p { font-size: 13.5px; color: var(--ink-2); }
-  .impact { font-size: 12px; color: var(--ink-3); margin-top: 6px; }
-  .rec-actions { display: flex; gap: 8px; margin-top: 10px; }
-  .btn-approve { background: var(--green); color: #fff; }
-  .btn-dismiss { background: transparent; border-color: var(--line); color: var(--ink-2); }
 
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; justify-content: center; }
   .chips button {
@@ -793,11 +760,6 @@ const page = () => `<!doctype html>
       <nav class="side-nav" id="navmenu"></nav>
       <div class="side-label">Chats</div>
       <div id="convos"></div>
-      <div class="health">
-        <div class="label">FINANCIAL HEALTH</div>
-        <div class="health-row"><span class="health-score" id="hscore">–</span><span class="health-grade" id="hgrade"></span></div>
-        <div class="health-bar"><div id="hbar" style="width:0%"></div></div>
-      </div>
     </div>
     <div class="profile" id="profile"></div>
   </aside>
@@ -821,15 +783,6 @@ const page = () => `<!doctype html>
             <h1 id="greeting">Hi, I&#39;m Paisa</h1>
             <p>Your AI CFO. Ask me anything about your money.</p>
           </div>
-          <section class="brief">
-            <div class="brief-top"><span class="tag">MORNING BRIEF</span><span class="when" id="briefwhen"></span></div>
-            <p id="brief-text">Loading your morning brief…</p>
-            <div class="brief-actions">
-              <button class="btn btn-primary" id="toggle-recs">Review AI recommendations</button>
-              <button class="btn btn-ghost" id="ask-brief">Ask about this</button>
-            </div>
-            <section class="recs" id="recs"></section>
-          </section>
           <div class="chips" id="suggest"></div>
         </div>
         <div class="thread" id="thread" hidden></div>
@@ -1103,44 +1056,6 @@ async function loadIdentity() {
   });
 }
 
-/* ---------------- brief + health ---------------- */
-async function loadBrief() {
-  const b = await j("/api/brief");
-  $("hscore").textContent = b.health.score;
-  $("hgrade").textContent = b.health.grade;
-  $("hbar").style.width = b.health.score + "%";
-  $("briefwhen").textContent = new Date().toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
-  let i = 0;
-  $("brief-text").innerHTML = esc(b.headline)
-    .replace(/₹[\\d,]+(?:\\.\\d{2})?/g, (m) => '<span class="' + (i++ === 0 ? "hl-g" : "hl-o") + '">' + m + "</span>");
-}
-
-async function loadRecs() {
-  const r = await j("/api/recommendations");
-  $("recs").innerHTML = r.items.map((it) => {
-    const badges =
-      '<span class="chip">' + it.confidence + " confidence</span>" +
-      '<span class="chip risk-' + it.risk + '">' + it.risk + " risk</span>" +
-      (it.requiresApproval ? '<span class="chip approval">needs approval</span>' : "") +
-      (it.status !== "pending" ? '<span class="chip">' + it.status + "</span>" : "");
-    const impact = [it.impact ? "Impact: " + it.impact : null,
-      it.estimatedSavings ? "Est. savings: " + it.estimatedSavings + "/yr" : null].filter(Boolean).join(" · ");
-    const actions = it.status === "pending"
-      ? '<div class="rec-actions"><button class="btn btn-approve" data-act="approve" data-id="' + it.id + '">Approve</button>' +
-        '<button class="btn btn-dismiss" data-act="dismiss" data-id="' + it.id + '">Dismiss</button></div>'
-      : "";
-    return '<div class="rec"><div class="rec-head"><b>' + esc(it.title) + '</b><div class="rec-badges">' + badges +
-      "</div></div><p>" + esc(it.problem) + " " + esc(it.reason) + '</p><div class="impact">' + impact + "</div>" + actions + "</div>";
-  }).join("");
-}
-$("toggle-recs").addEventListener("click", () => $("recs").classList.toggle("open"));
-$("recs").addEventListener("click", async (e) => {
-  const btn = e.target.closest("button[data-act]");
-  if (!btn) return;
-  await fetch("/api/recommendations/" + btn.dataset.id + "/" + btn.dataset.act, { method: "POST" });
-  await Promise.all([loadRecs(), loadBrief()]);
-});
-
 /* ---------------- suggestions ---------------- */
 const SUGGESTIONS = [
   "How long can we survive?",
@@ -1151,7 +1066,6 @@ const SUGGESTIONS = [
 ];
 $("suggest").innerHTML = SUGGESTIONS.map((s) => "<button type='button'>" + esc(s) + "</button>").join("");
 $("suggest").addEventListener("click", (e) => { if (e.target.tagName === "BUTTON") sendChat(e.target.textContent); });
-$("ask-brief").addEventListener("click", () => sendChat("Summarize business performance"));
 
 /* ---------------- thread rendering ---------------- */
 // A CSS scroll-behavior rule cannot override an explicit behavior passed to
@@ -1253,7 +1167,6 @@ $("thread").addEventListener("click", async (e) => {
     if (!out.ok) throw new Error(out.error || "refused");
     row.outerHTML = '<div class="done">' +
       (btn.dataset.do === "approve" ? "Approved — " + esc(out.result || "done") : "Dismissed. Nothing was posted.") + "</div>";
-    if (btn.dataset.do === "approve") await loadBrief();
   } catch {
     row.outerHTML = '<div class="done">That did not go through — nothing was posted.</div>';
   }
@@ -1348,7 +1261,7 @@ async function sendChat(text) {
 }
 
 loadChats(); renderConvos(); autosize();
-loadIdentity(); loadBrief(); loadRecs();
+loadIdentity();
 </script>
 </body>
 </html>`;
