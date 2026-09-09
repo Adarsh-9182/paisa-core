@@ -11,9 +11,8 @@ export const erpPage = () => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paisa ERP — Close & Revenue</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/png" href="/logo.png">
-<link rel="icon" type="image/png" href="/favicon.ico">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="any" href="/logo.png?v=2">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
 <style>
   :root {
     --bg:#FAF7F2; --surface:#FFFFFF; --line:#EDE7DD;

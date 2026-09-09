@@ -20,7 +20,7 @@ export const callbackPage = () => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Signing you in — Paisa</title>
 <meta name="robots" content="noindex">
-<link rel="icon" type="image/png" href="/logo.png">
+<link rel="icon" type="image/png" sizes="any" href="/logo.png?v=2">
 <style>
   body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          background:#16130F; color:#A79C8D; min-height:100vh; margin:0;

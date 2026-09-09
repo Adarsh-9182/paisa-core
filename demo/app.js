@@ -482,9 +482,8 @@ const page = () => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paisa — Your AI CFO</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/png" href="/logo.png">
-<link rel="icon" type="image/png" href="/favicon.ico">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="any" href="/logo.png?v=2">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
 <style>
   :root {
     --bg: #FFFFFF; --side: #F9F9F9; --side-hover: #ECECEC; --surface: #FFFFFF;

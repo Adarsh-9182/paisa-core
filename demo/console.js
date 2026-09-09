@@ -22,9 +22,8 @@ export const consolePage = () => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paisa — Console</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/png" href="/logo.png">
-<link rel="icon" type="image/png" href="/favicon.ico">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="any" href="/logo.png?v=2">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
 <style>
   :root {
     --bg:#F7F6F3; --surface:#FFFFFF; --line:#E6E2DA; --line-2:#F0EDE7;

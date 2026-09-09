@@ -112,9 +112,8 @@ export const loginPage = (
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${view === "signup" ? "Create your account" : "Sign in"} — Paisa</title>
 <meta name="robots" content="noindex">
-<link rel="icon" type="image/png" href="/logo.png">
-<link rel="icon" type="image/png" href="/favicon.ico">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="any" href="/logo.png?v=2">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
 <style>
   :root {
     --bg:#0E0C09; --wash:#16130F; --surface:#1E1913; --raised:#272018;
