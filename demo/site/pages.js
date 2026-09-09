@@ -120,7 +120,7 @@ export const productPage = (slug) => {
     p.sub,
     `/site/product/${slug}`,
     `
-<header class="phero">
+<header class="phero" id="main">
   <div class="wrap">
     <div class="crumb"><a href="/">Paisa</a> · What it does</div>
     <div class="eyebrow on-dark">${p.eyebrow}</div>
@@ -187,7 +187,7 @@ export const solutionPage = (slug) => {
     s.sub,
     `/site/solution/${slug}`,
     `
-<header class="phero">
+<header class="phero" id="main">
   <div class="wrap">
     <div class="crumb"><a href="/">Paisa</a> · Who runs it</div>
     <div class="eyebrow on-dark">${s.eyebrow}</div>
@@ -253,7 +253,7 @@ export const comparePage = (slug) => {
     c.sub,
     `/site/compare/${slug}`,
     `
-<header class="phero">
+<header class="phero" id="main">
   <div class="wrap">
     <div class="crumb"><a href="/">Paisa</a> · Instead of</div>
     <div class="eyebrow on-dark">${c.eyebrow}</div>
@@ -310,7 +310,7 @@ export const partnersPage = () =>
     "Implementation partners, advisory firms and technology partners building on Paisa.",
     "/site/partners",
     `
-<header class="phero">
+<header class="phero" id="main">
   <div class="wrap">
     <div class="crumb"><a href="/">Paisa</a> · Partners</div>
     <div class="eyebrow on-dark">Partners</div>
@@ -377,7 +377,7 @@ export const resourcesPage = () =>
     "Specifications, architecture notes and the live demo surfaces.",
     "/site/resources",
     `
-<header class="phero">
+<header class="phero" id="main">
   <div class="wrap">
     <div class="crumb"><a href="/">Paisa</a> · Resources</div>
     <div class="eyebrow on-dark">Resources</div>
@@ -442,7 +442,7 @@ export const aboutPage = () =>
     "Why Paisa exists, and the three rules it is built on.",
     "/site/about",
     `
-<header class="phero">
+<header class="phero" id="main">
   <div class="wrap">
     <div class="crumb"><a href="/">Paisa</a> · Company</div>
     <div class="eyebrow on-dark">About</div>
@@ -509,7 +509,7 @@ export const customersPage = () =>
     "Paisa has no customers yet. Here is what early access involves instead.",
     "/site/customers",
     `
-<header class="phero">
+<header class="phero" id="main">
   <div class="wrap">
     <div class="crumb"><a href="/">Paisa</a> · Company</div>
     <div class="eyebrow on-dark">Customers</div>
@@ -564,7 +564,7 @@ export const contactPage = () =>
     "How to reach the team building Paisa.",
     "/site/contact",
     `
-<header class="phero">
+<header class="phero" id="main">
   <div class="wrap">
     <div class="crumb"><a href="/">Paisa</a> · Company</div>
     <div class="eyebrow on-dark">Contact</div>
@@ -601,7 +601,7 @@ export const continuousClosePage = () =>
     "Why the close should happen as the month happens, not after it.",
     "/site/continuous-close",
     `
-<header class="phero">
+<header class="phero" id="main">
   <div class="wrap">
     <div class="crumb"><a href="/">Paisa</a> · Concept</div>
     <div class="eyebrow on-dark">Continuous close</div>
@@ -664,7 +664,7 @@ export const docsPage = () =>
     "The engine API, the command registry and how to run Paisa yourself.",
     "/site/docs",
     `
-<header class="phero">
+<header class="phero" id="main">
   <div class="wrap">
     <div class="crumb"><a href="/">Paisa</a> · Developers</div>
     <div class="eyebrow on-dark">Documentation</div>
