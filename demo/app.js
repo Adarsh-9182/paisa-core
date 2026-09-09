@@ -528,8 +528,18 @@ const page = () => `<!doctype html>
         transition-duration: .001ms !important; scroll-behavior: auto !important; }
   }
 
+  /* ---------------- the sky ----------------
+     Behind everything and inert. The chat has to stay readable on top of it,
+     so the canvas is dimmed hard and the surfaces above it keep their own
+     opaque backgrounds; this is atmosphere, not a layer to read through. */
+  #space { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0;
+           pointer-events: none; opacity: .55; transition: opacity .8s ease; }
+  :root[data-theme="dark"] #space { opacity: 1; }
+  #space.dimmed { opacity: .18; }
+  :root[data-theme="dark"] #space.dimmed { opacity: .42; }
+
   /* ---------------- shell ---------------- */
-  .shell { display: grid; grid-template-columns: 264px 1fr; height: 100vh; }
+  .shell { position: relative; z-index: 1; display: grid; grid-template-columns: 264px 1fr; height: 100vh; }
   .shell.collapsed { grid-template-columns: 0 1fr; }
 
   /* ---------------- sidebar ---------------- */
@@ -754,6 +764,8 @@ const page = () => `<!doctype html>
 </head>
 <body>
 
+<canvas id="space" aria-hidden="true"></canvas>
+
 <div class="shell" id="shell">
   <div class="scrim" id="scrim"></div>
 
@@ -831,6 +843,174 @@ const page = () => `<!doctype html>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const j = (url, opts) => fetch(url, opts).then((r) => r.json());
+
+/* ---------------- the sky ----------------
+   A star field, a currency solar system, and a CFO crossing it.
+
+   Three things keep it from being a liability. It never intercepts a click,
+   so it cannot swallow a press on the composer. It stops entirely when the
+   tab is hidden and when the visitor has asked for reduced motion, so it is
+   not burning a laptop battery behind a page nobody is looking at. And it
+   dims once a conversation is open, because the answer is the point and
+   moving pixels behind small text is how you make it unreadable. */
+(function sky() {
+  const cv = document.getElementById("space");
+  const ctx = cv.getContext("2d");
+  if (!ctx) return;
+
+  // The money this thing is about, orbiting the thing it orbits.
+  const BODIES = [
+    { sym: "\u20B9", code: "INR", r: 0.17, size: 15, speed: 0.052, tone: "#F26B1D" },
+    { sym: "$",       code: "USD", r: 0.26, size: 13, speed: -0.038, tone: "#3FA96B" },
+    { sym: "\u20AC", code: "EUR", r: 0.34, size: 12, speed: 0.029, tone: "#5B8CFF" },
+    { sym: "\u00A3", code: "GBP", r: 0.43, size: 12, speed: -0.023, tone: "#A78BFA" },
+    { sym: "\u00A5", code: "JPY", r: 0.52, size: 11, speed: 0.018, tone: "#E8618C" },
+    { sym: "\u20BF", code: "BTC", r: 0.62, size: 11, speed: -0.014, tone: "#F7931A" },
+    { sym: "\u062F.\u0625", code: "AED", r: 0.72, size: 10, speed: 0.011, tone: "#37B6A9" },
+  ];
+
+  let w = 0, h = 0, cx = 0, cy = 0, unit = 0, stars = [], dpr = 1;
+
+  function resize() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    w = innerWidth; h = innerHeight;
+    cv.width = Math.floor(w * dpr); cv.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // The sun sits off to the right so the orbits sweep behind the column of
+    // text rather than colliding with it.
+    cx = w * 0.78; cy = h * 0.42;
+    unit = Math.max(w, h) * 0.52;
+    const count = Math.round((w * h) / 14000);
+    stars = [];
+    for (let i = 0; i < count; i++) {
+      stars.push({
+        x: Math.random() * w, y: Math.random() * h,
+        z: Math.random(),                    // depth: drives size, speed, twinkle
+        p: Math.random() * Math.PI * 2,      // twinkle phase
+      });
+    }
+  }
+
+  const dark = () => document.documentElement.getAttribute("data-theme") === "dark";
+
+  function draw(t) {
+    const d = dark();
+    ctx.clearRect(0, 0, w, h);
+
+    // stars, drifting slowly leftward with depth parallax
+    for (const s of stars) {
+      s.x -= (0.03 + s.z * 0.16);
+      if (s.x < -2) { s.x = w + 2; s.y = Math.random() * h; }
+      const tw = 0.55 + 0.45 * Math.sin(t * 0.0013 + s.p);
+      const a = (d ? 0.22 + s.z * 0.62 : 0.16 + s.z * 0.36) * tw;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = d ? "#EAF0FF" : "#2F3A57";
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.z * 1.5 + 0.35, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // the sun
+    const pulse = 1 + 0.045 * Math.sin(t * 0.0009);
+    const sr = unit * 0.085 * pulse;
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, sr * 5.5);
+    glow.addColorStop(0, d ? "rgba(242,107,29,.42)" : "rgba(242,107,29,.24)");
+    glow.addColorStop(0.45, d ? "rgba(242,107,29,.10)" : "rgba(242,107,29,.07)");
+    glow.addColorStop(1, "rgba(242,107,29,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(cx, cy, sr * 5.5, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = d ? "#FFB169" : "#F0842F";
+    ctx.beginPath(); ctx.arc(cx, cy, sr, 0, Math.PI * 2); ctx.fill();
+
+    // orbits and the currencies riding them
+    ctx.font = "600 11px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+    for (const b of BODIES) {
+      const rx = unit * b.r, ry = unit * b.r * 0.42;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(-0.36);
+
+      ctx.globalAlpha = d ? 0.16 : 0.11;
+      ctx.strokeStyle = d ? "#9FB0D8" : "#4A5670";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+
+      const ang = t * 0.0004 * b.speed * 12 + b.r * 9;
+      const x = Math.cos(ang) * rx, y = Math.sin(ang) * ry;
+      // Far side of the ellipse reads as further away.
+      const depth = (Math.sin(ang) + 1) / 2;
+      ctx.globalAlpha = (d ? 0.5 : 0.42) + depth * 0.5;
+
+      ctx.beginPath();
+      ctx.fillStyle = b.tone;
+      ctx.arc(x, y, b.size * (0.62 + depth * 0.38) * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = d ? "#0B0E14" : "#FFFFFF";
+      ctx.font = "700 " + Math.round(b.size * 0.62) + "px -apple-system, sans-serif";
+      ctx.fillText(b.sym, x, y + 0.5);
+
+      ctx.globalAlpha = (d ? 0.34 : 0.3) + depth * 0.34;
+      ctx.fillStyle = d ? "#C7D2EA" : "#3C4761";
+      ctx.font = "600 9.5px -apple-system, sans-serif";
+      ctx.fillText(b.code, x, y + b.size * 0.72 + 6);
+
+      ctx.restore();
+    }
+
+    // the CFO, crossing on a long ellipse of its own
+    const ca = t * 0.00016;
+    const crx = unit * 0.95, cry = unit * 0.5;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(0.22);
+    const px = Math.cos(ca) * crx, py = Math.sin(ca) * cry;
+    // heading, so the craft points where it is going
+    const hx = -Math.sin(ca) * crx, hy = Math.cos(ca) * cry;
+    ctx.translate(px, py);
+    ctx.rotate(Math.atan2(hy, hx));
+
+    ctx.globalAlpha = d ? 0.85 : 0.6;
+    // trail
+    const trail = ctx.createLinearGradient(-46, 0, 0, 0);
+    trail.addColorStop(0, "rgba(47,107,255,0)");
+    trail.addColorStop(1, d ? "rgba(120,160,255,.75)" : "rgba(47,107,255,.5)");
+    ctx.strokeStyle = trail; ctx.lineWidth = 2; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(-46, 0); ctx.lineTo(-6, 0); ctx.stroke();
+
+    ctx.fillStyle = d ? "#DCE6FF" : "#2F6BFF";
+    ctx.beginPath();
+    ctx.moveTo(9, 0); ctx.lineTo(-6, 4.6); ctx.lineTo(-3, 0); ctx.lineTo(-6, -4.6);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  let raf = null;
+  const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function frame(t) { draw(t); raf = requestAnimationFrame(frame); }
+  function start() {
+    if (raf !== null) return;
+    if (still()) { draw(0); return; }   // one static frame, then nothing moves
+    raf = requestAnimationFrame(frame);
+  }
+  function stop() { if (raf !== null) { cancelAnimationFrame(raf); raf = null; } }
+
+  addEventListener("resize", () => { resize(); if (raf === null) draw(0); });
+  // Nothing to animate behind a hidden tab.
+  document.addEventListener("visibilitychange", () => (document.hidden ? stop() : start()));
+
+  resize();
+  start();
+
+  // Exposed so opening a conversation can pull the sky back.
+  window.dimSky = (on) => cv.classList.toggle("dimmed", on);
+})();
 
 /* ---------------- theme ----------------
    The choice is the visitor's and it belongs to this browser, so it lives in
@@ -990,6 +1170,7 @@ function startNew() {
   $("thread").hidden = true;
   $("empty").hidden = false;
   $("threadtitle").textContent = "New chat";
+  dimSky(false);
   renderConvos();
   closeMobile();
   $("chatbox").focus();
@@ -1002,6 +1183,7 @@ function openChat(id) {
   currentId = id;
   $("empty").hidden = true;
   $("thread").hidden = false;
+  dimSky(true);
   $("thread").innerHTML = "";
   $("threadtitle").textContent = c.title;
   c.messages.forEach((m) => { if (m.role === "user") addUser(m.text); else addAI(m); });
@@ -1106,6 +1288,7 @@ $("stmtfile").addEventListener("change", async (e) => {
   label.classList.add("busy");
   $("empty").hidden = true;
   $("thread").hidden = false;
+  dimSky(true);
 
   let c = current();
   if (!c) {
@@ -1316,6 +1499,7 @@ async function sendChat(text) {
   }
   $("empty").hidden = true;
   $("thread").hidden = false;
+  dimSky(true);
   renderConvos();
 
   addUser(text);
