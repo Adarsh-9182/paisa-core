@@ -482,464 +482,590 @@ const page = () => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paisa — Your AI CFO</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23F26B1D'/%3E%3Ctext x='16' y='23' font-family='-apple-system,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232F6BFF'/%3E%3Ctext x='16' y='23' font-family='-apple-system,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'%3E%E2%82%B9%3C/text%3E%3C/svg%3E">
 <link rel="icon" type="image/png" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   :root {
-    /* Mission Control — cool graphite ground, electric blue + violet identity */
-    --bg: #F5F6F9; --surface: #FFFFFF; --surface-2: #F0F2F6; --line: rgba(12,15,22,0.09);
-    --line-strong: rgba(12,15,22,0.13);
-    --ink: #0B0E14; --ink-2: #495264; --ink-3: #878FA1;
-    --orange: #2F6BFF; --orange-soft: #E9F0FF; --orange-deep: #1C4FE0;
-    --violet: #6A49F2;
-    --green: #0E9C72; --green-soft: #DFF5EC; --amber: #B3770F; --red: #DD4360; --red-soft: #FCE9EC;
-    --radius: 18px;
-    --shadow-sm: 0 1px 2px rgba(12,15,22,0.05), 0 4px 12px rgba(12,15,22,0.05);
-    --shadow-md: 0 2px 5px rgba(12,15,22,0.05), 0 12px 30px rgba(12,15,22,0.08);
-    --glow: 0 6px 22px rgba(47,107,255,0.26);
+    --bg: #FFFFFF; --side: #F9F9F9; --side-hover: #ECECEC; --surface: #FFFFFF;
+    --user-bub: #F4F4F4; --line: rgba(13,16,23,0.10); --line-2: rgba(13,16,23,0.06);
+    --ink: #0D1017; --ink-2: #4A5162; --ink-3: #8A91A0;
+    --accent: #2F6BFF; --accent-ink: #FFFFFF; --accent-soft: #EDF2FF;
+    --green: #0E9C72; --green-soft: #E3F6EF; --amber: #B3770F; --amber-soft: #FDF3E2;
+    --red: #DC3E5E; --red-soft: #FDEBEF;
+    --code-bg: #0D1017; --code-ink: #E7EAF0;
+    --radius: 14px; --shadow: 0 1px 2px rgba(13,16,23,.05), 0 8px 24px rgba(13,16,23,.07);
+  }
+  :root[data-theme="dark"] {
+    --bg: #212121; --side: #171717; --side-hover: #2A2A2A; --surface: #2A2A2A;
+    --user-bub: #303030; --line: rgba(255,255,255,0.13); --line-2: rgba(255,255,255,0.07);
+    --ink: #ECECEC; --ink-2: #B4B4B4; --ink-3: #8E8E8E;
+    --accent: #5B8CFF; --accent-ink: #0D1017; --accent-soft: #1E2A47;
+    --green: #3FD3A3; --green-soft: #16302A; --amber: #E0A64B; --amber-soft: #33280F;
+    --red: #FF7C93; --red-soft: #3A1C24;
+    --code-bg: #0B0D12; --code-ink: #E7EAF0;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
   }
   * { box-sizing: border-box; margin: 0; }
-  /* the landing/thread swap toggles [hidden]; class display rules would win without this */
   [hidden] { display: none !important; }
   html, body { height: 100%; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    background: var(--bg); color: var(--ink); font-size: 14px; -webkit-font-smoothing: antialiased;
+    background: var(--bg); color: var(--ink); font-size: 15px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
   }
-  /* ambient mission-control backdrop */
-  body::before {
-    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-    background:
-      radial-gradient(60% 50% at 12% 0%, rgba(47,107,255,0.10), transparent 70%),
-      radial-gradient(50% 45% at 100% 6%, rgba(106,73,242,0.09), transparent 72%);
-  }
-  .app { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr; height: 100vh; }
+  button, input, textarea { font: inherit; color: inherit; }
+  ::selection { background: var(--accent); color: #fff; }
 
-  /* ---------- floating nav (hamburger) ---------- */
-  .hamburger {
-    position: fixed; top: 16px; left: 16px; z-index: 60; width: 42px; height: 42px;
-    border-radius: 13px; border: 1px solid var(--line); background: var(--surface);
-    box-shadow: var(--shadow-sm); display: grid; place-items: center; cursor: pointer;
-  }
-  .hamburger:hover { border-color: var(--line-strong); }
-  .hamburger i { display: block; width: 17px; height: 2px; border-radius: 2px; background: var(--ink-2); position: relative; }
-  .hamburger i::before, .hamburger i::after {
-    content: ""; position: absolute; left: 0; width: 17px; height: 2px; border-radius: 2px; background: var(--ink-2);
-    transition: transform 0.18s cubic-bezier(.22,.7,.16,1);
-  }
-  .hamburger i::before { top: -6px; } .hamburger i::after { top: 6px; }
-  .brandpill {
-    position: fixed; top: 16px; left: 70px; z-index: 60; display: flex; align-items: center; gap: 8px;
-    height: 42px; padding: 0 14px 0 8px; border-radius: 13px; border: 1px solid var(--line);
-    background: var(--surface); box-shadow: var(--shadow-sm); font-weight: 750; letter-spacing: -0.02em;
-  }
-  .logo-mark { width: 26px; height: 26px; border-radius: 8px; color: #fff; display: grid; place-items: center;
-    font-size: 15px; font-weight: 800; background: linear-gradient(150deg, var(--orange), var(--violet)); box-shadow: var(--glow); }
+  /* ---------------- shell ---------------- */
+  .shell { display: grid; grid-template-columns: 264px 1fr; height: 100vh; }
+  .shell.collapsed { grid-template-columns: 0 1fr; }
 
-  /* ---------- the account, top right ----------
-     Opposite the brand, in the corner every application puts it, and visible
-     without opening anything: whether you are signed in is the first thing a
-     page like this has to answer, and it was previously hidden inside the
-     hamburger. */
-  .authpill { position: fixed; top: 16px; right: 16px; z-index: 60; }
-  .auth-btn { display: flex; align-items: center; gap: 9px; height: 42px; padding: 0 14px;
-    border-radius: 13px; border: 1px solid var(--line); background: var(--surface);
-    box-shadow: var(--shadow-sm); font-family: inherit; font-size: 13.5px; font-weight: 650;
-    color: var(--ink); cursor: pointer; text-decoration: none; }
-  .auth-btn:hover { border-color: var(--line-strong); }
-  .auth-btn .avatar-sm { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
-    font-size: 11.5px; font-weight: 800; color: #fff;
-    background: linear-gradient(150deg, var(--orange), var(--violet)); }
-  .auth-btn .caret { font-size: 10px; color: var(--ink-3); }
-  .auth-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* ---------------- sidebar ---------------- */
+  .sidebar {
+    background: var(--side); border-right: 1px solid var(--line-2);
+    display: flex; flex-direction: column; overflow: hidden; transition: transform .22s ease;
+  }
+  .shell.collapsed .sidebar { transform: translateX(-100%); }
+  .side-top { display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; letter-spacing: -.2px; padding: 6px 8px; flex: 1; }
+  .logo-mark {
+    width: 26px; height: 26px; border-radius: 8px; background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-weight: 700; font-size: 15px;
+  }
+  .icon-btn {
+    width: 32px; height: 32px; border-radius: 8px; border: 0; background: transparent;
+    color: var(--ink-2); display: grid; place-items: center; cursor: pointer; flex: none;
+  }
+  .icon-btn:hover { background: var(--side-hover); color: var(--ink); }
+  .icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+  .newchat {
+    margin: 4px 10px 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink); font-weight: 550; font-size: 14px;
+    display: flex; align-items: center; gap: 9px; cursor: pointer; text-align: left;
+  }
+  .newchat:hover { background: var(--side-hover); }
+  .newchat svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
 
-  /* Signed out, the corner is two doors rather than one icon.
-     A lone circle with an arrow in it is not a word: it does not say "sign
-     in", it does not offer signing up at all, and on a phone — where the
-     name beside it was being hidden — that circle was the entire control. */
-  .auth-actions { display: flex; align-items: center; gap: 8px; }
-  .auth-door { display: inline-flex; align-items: center; justify-content: center; height: 42px;
-    padding: 0 15px; border-radius: 13px; font-family: inherit; font-size: 13.5px; font-weight: 650;
-    text-decoration: none; white-space: nowrap; }
-  .auth-door.ghost { border: 1px solid var(--line); background: var(--surface); color: var(--ink);
-    box-shadow: var(--shadow-sm); }
-  .auth-door.ghost:hover { border-color: var(--line-strong); }
-  .auth-door.solid { border: 0; color: #fff;
-    background: linear-gradient(150deg, var(--orange), var(--violet)); box-shadow: var(--glow); }
-  .auth-door.solid:active { transform: scale(0.97); }
+  .side-scroll { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+  .side-label { font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-3); padding: 12px 10px 6px; }
+  .side-nav a {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px;
+    color: var(--ink-2); text-decoration: none; font-size: 14px;
+  }
+  .side-nav a:hover { background: var(--side-hover); color: var(--ink); }
+  .side-nav svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; flex: none; }
 
-  .auth-menu { position: absolute; top: 50px; right: 0; min-width: 214px; padding: 6px;
-    border-radius: 14px; border: 1px solid var(--line); background: var(--surface);
-    box-shadow: var(--shadow-md); }
-  .auth-menu[hidden] { display: none; }
-  .auth-head { padding: 9px 10px 10px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
-  .auth-head b { display: block; font-size: 13px; }
-  .auth-head span { display: block; font-size: 11.5px; color: var(--ink-3);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .auth-item { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 9px;
-    background: none; font-family: inherit; font-size: 13px; color: var(--ink-2);
-    text-align: left; text-decoration: none; cursor: pointer; }
-  .auth-item:hover { background: var(--surface-2); color: var(--ink); }
+  .convo {
+    display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 9px;
+    color: var(--ink-2); font-size: 14px; cursor: pointer; position: relative;
+  }
+  .convo:hover { background: var(--side-hover); color: var(--ink); }
+  .convo.active { background: var(--side-hover); color: var(--ink); font-weight: 550; }
+  .convo .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .convo .x { opacity: 0; width: 24px; height: 24px; border-radius: 6px; border: 0; background: transparent;
+    color: var(--ink-3); cursor: pointer; flex: none; display: grid; place-items: center; }
+  .convo:hover .x { opacity: 1; }
+  .convo .x:hover { background: var(--red-soft); color: var(--red); }
+  .empty-convos { padding: 10px; font-size: 13px; color: var(--ink-3); }
+
+  .health {
+    margin: 8px 10px; padding: 12px; border-radius: 12px; background: var(--surface);
+    border: 1px solid var(--line-2);
+  }
+  .health .label { font-size: 10.5px; font-weight: 650; letter-spacing: .06em; color: var(--ink-3); }
+  .health-row { display: flex; align-items: baseline; gap: 8px; margin: 4px 0 8px; }
+  .health-score { font-size: 24px; font-weight: 700; letter-spacing: -.5px; }
+  .health-grade { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+  .health-bar { height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
+  .health-bar div { height: 100%; background: var(--green); border-radius: 99px; transition: width .5s ease; }
+
+  .profile { border-top: 1px solid var(--line-2); padding: 10px; }
+  .profile a, .profile .who-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px;
+    border-radius: 9px; text-decoration: none; color: inherit; }
+  .profile a:hover, .profile .who-row:hover { background: var(--side-hover); }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-size: 12px; font-weight: 650; flex: none; }
+  .avatar.guest { background: var(--ink-3); }
+  .who { display: flex; flex-direction: column; min-width: 0; }
+  .who b { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who span { font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ---------------- main ---------------- */
+  .main { display: flex; flex-direction: column; min-width: 0; position: relative; }
+  .topbar {
+    height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+    border-bottom: 1px solid var(--line-2); background: var(--bg); position: sticky; top: 0; z-index: 20;
+  }
+  .topbar .title { font-weight: 600; font-size: 14.5px; flex: 1; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .auth-actions { display: flex; gap: 8px; }
+  .auth-door { font-size: 13px; font-weight: 550; padding: 7px 14px; border-radius: 9px; text-decoration: none; }
+  .auth-door.ghost { color: var(--ink-2); border: 1px solid var(--line); }
+  .auth-door.ghost:hover { background: var(--side-hover); }
+  .auth-door.solid { background: var(--accent); color: #fff; }
+  .auth-btn { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line);
+    background: transparent; border-radius: 99px; padding: 4px 10px 4px 4px; cursor: pointer; font-size: 13px; }
+  .auth-btn:hover { background: var(--side-hover); }
+  .avatar-sm { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-size: 10.5px; font-weight: 650; }
+  .auth-menu { position: absolute; right: 12px; top: 50px; width: 240px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 6px; z-index: 60; }
+  .auth-head { padding: 10px; border-bottom: 1px solid var(--line-2); margin-bottom: 4px; display: flex; flex-direction: column; }
+  .auth-head b { font-size: 13.5px; } .auth-head span { font-size: 11.5px; color: var(--ink-3); }
+  .auth-item { display: block; width: 100%; text-align: left; padding: 9px 10px; border-radius: 8px;
+    border: 0; background: transparent; text-decoration: none; color: var(--ink); font-size: 13.5px; cursor: pointer; }
+  .auth-item:hover { background: var(--side-hover); }
   .auth-item.danger { color: var(--red); }
-  /* The name goes on a narrow screen — the initials still identify the
-     account. The words "Sign in" and "Sign up" never go: they are the
-     control, not a label on one. */
-  @media (max-width: 720px) {
-    .auth-name { display: none; }
-    .auth-btn { padding: 0 10px; }
-    .authpill { top: 16px; right: 12px; }
-    .auth-actions { gap: 6px; }
-    .auth-door { height: 40px; padding: 0 12px; font-size: 13px; }
-  }
-  @media (max-width: 360px) { .auth-door { padding: 0 10px; font-size: 12.5px; } }
-  .nav-menu {
-    position: fixed; top: 66px; left: 16px; z-index: 59; width: 252px; padding: 10px;
-    background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
-    box-shadow: var(--shadow-md); display: none; flex-direction: column; gap: 2px;
-    transform-origin: top left; animation: popIn 0.16s cubic-bezier(.34,1.56,.64,1);
-  }
-  .nav-menu.open { display: flex; }
-  @keyframes popIn { from { opacity: 0; transform: scale(0.97) translateY(-4px); } to { opacity: 1; transform: none; } }
-  .nav-menu a { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 11px; color: var(--ink-2); text-decoration: none; font-weight: 500; font-size: 13.5px; }
-  .nav-menu a svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.7; }
-  .nav-menu a.active { background: var(--orange-soft); color: var(--orange-deep); font-weight: 650; }
-  .nav-menu a:hover:not(.active) { background: var(--surface-2); }
-  .nav-divider { height: 1px; background: var(--line); margin: 8px 2px; }
-  .health-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; padding: 13px; margin-bottom: 8px; }
-  .health-card .label { font-size: 10.5px; letter-spacing: 0.09em; font-weight: 700; color: var(--ink-3); }
-  .health-row { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 8px; }
-  .health-score { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
-  .health-grade { font-size: 11.5px; font-weight: 650; color: var(--green); background: var(--green-soft); border-radius: 99px; padding: 2px 9px; }
-  .health-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
-  .health-bar > div { height: 100%; border-radius: 3px; background: var(--green); }
-  .profile { display: flex; gap: 10px; align-items: center; padding: 6px 8px; }
-  .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--green-soft); color: var(--green); font-weight: 700; font-size: 12.5px; display: grid; place-items: center; flex-shrink: 0; }
-  .avatar.guest { background: var(--surface-2); color: var(--ink-3); }
-  .profile b { display: block; font-size: 13px; }
-  .profile span { display: block; font-size: 11.5px; color: var(--ink-3); }
-  /* the signed-out card is the way in, so the whole row is the target */
-  .profile.guest { padding: 0; }
-  .profile.guest a { display: flex; gap: 10px; align-items: center; width: 100%;
-    padding: 6px 8px; border-radius: 11px; text-decoration: none; color: inherit; }
-  .profile.guest a:hover { background: var(--surface-2); }
-  .profile .who { min-width: 0; }
-  .profile .who b, .profile .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  .date-line { color: var(--ink-3); font-size: 13px; margin-bottom: 5px; }
-  h1 { font-size: 31px; letter-spacing: -0.032em; font-weight: 700; }
-  .btn { border: 0; border-radius: 99px; padding: 10px 18px; font-weight: 650; font-size: 13px; cursor: pointer; font-family: inherit; }
-  .btn-primary { background: var(--orange); color: #fff; }
-  .btn-primary:hover { background: var(--orange-deep); }
-  .btn-ghost { background: transparent; color: var(--orange-deep); }
-  .btn-quiet { background: var(--surface-2); color: var(--ink-2); padding: 7px 13px; }
+  .scroll { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
+  .col { max-width: 760px; margin-inline: auto; padding: 0 24px; }
 
-  .brief { position: relative; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 22px; margin-bottom: 16px; box-shadow: var(--shadow-md); }
-  /* animated gradient hairline — the brief is the page's one flourish */
-  .brief::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
-    background: linear-gradient(90deg, var(--orange), var(--violet), #0E97B4, var(--orange));
-    background-size: 300% 100%; animation: panGradient 8s ease-in-out infinite; }
-  @keyframes panGradient { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
-  .brief-top { display: flex; justify-content: space-between; margin-bottom: 10px; }
-  .brief-top .tag { font-size: 10.5px; letter-spacing: 0.1em; font-weight: 800; color: var(--orange-deep); }
-  .brief-top .when { font-size: 11.5px; color: var(--ink-3); }
-  .brief p { font-size: 16.5px; line-height: 1.55; max-width: 60ch; }
-  .brief p .hl-g { color: var(--green); font-weight: 700; }
-  .brief p .hl-o { color: var(--orange-deep); font-weight: 700; }
-  .brief-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+  /* ---------------- empty state ---------------- */
+  .empty { min-height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 48px 0 32px; }
+  .hello { text-align: center; margin-bottom: 28px; }
+  .hello .dateline { font-size: 12.5px; color: var(--ink-3); letter-spacing: .02em; margin-bottom: 10px; }
+  .hello h1 { font-size: 30px; font-weight: 650; letter-spacing: -.7px; line-height: 1.25; }
+  .hello p { color: var(--ink-2); margin-top: 6px; font-size: 15px; }
+  .hello .mark { width: 46px; height: 46px; border-radius: 14px; background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-size: 24px; font-weight: 700; margin: 0 auto 16px; }
 
-  .recs { display: none; margin: -8px 0 20px; flex-direction: column; gap: 10px; }
+  .brief { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; background: var(--surface); }
+  .brief-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .tag { font-size: 10.5px; font-weight: 700; letter-spacing: .07em; color: var(--accent);
+    background: var(--accent-soft); padding: 3px 8px; border-radius: 6px; }
+  .when { font-size: 11.5px; color: var(--ink-3); }
+  .brief p { font-size: 14.5px; color: var(--ink-2); }
+  .hl-g { color: var(--green); font-weight: 650; } .hl-o { color: var(--accent); font-weight: 650; }
+  .brief-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .btn { border-radius: 9px; padding: 8px 13px; font-size: 13.5px; font-weight: 550; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-ghost { background: transparent; border-color: var(--line); color: var(--ink-2); }
+  .btn-ghost:hover { background: var(--side-hover); }
+
+  .recs { display: none; flex-direction: column; gap: 10px; margin-top: 12px; }
   .recs.open { display: flex; }
-  .rec { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
-  .rec-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+  .rec { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--surface); }
+  .rec-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
   .rec-head b { font-size: 14px; }
-  .rec-badges { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
-  .chip { font-size: 10.5px; font-weight: 700; border-radius: 99px; padding: 3px 9px; }
-  .chip.conf { background: #EEF2FA; color: #3B5BA5; }
+  .rec-badges { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chip { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 5px; background: var(--side-hover); color: var(--ink-2); }
   .chip.risk-low { background: var(--green-soft); color: var(--green); }
-  .chip.risk-medium { background: #FBF3D9; color: var(--amber); }
+  .chip.risk-medium { background: var(--amber-soft); color: var(--amber); }
   .chip.risk-high { background: var(--red-soft); color: var(--red); }
-  .chip.approval { background: var(--orange-soft); color: var(--orange-deep); }
-  .chip.done { background: #F0EDE7; color: var(--ink-3); }
-  .rec p { color: var(--ink-2); font-size: 13px; margin-top: 6px; line-height: 1.5; }
-  .rec .impact { margin-top: 6px; font-size: 12.5px; color: var(--ink); font-weight: 600; }
+  .chip.approval { background: var(--accent-soft); color: var(--accent); }
+  .rec p { font-size: 13.5px; color: var(--ink-2); }
+  .impact { font-size: 12px; color: var(--ink-3); margin-top: 6px; }
   .rec-actions { display: flex; gap: 8px; margin-top: 10px; }
-  .btn-approve { background: var(--green); color: #fff; padding: 7px 14px; }
-  .btn-dismiss { background: var(--surface-2); color: var(--ink-2); padding: 7px 14px; }
+  .btn-approve { background: var(--green); color: #fff; }
+  .btn-dismiss { background: transparent; border-color: var(--line); color: var(--ink-2); }
 
-  /* ---------- centre: landing → conversation ---------- */
-  .centre { grid-area: 1 / 1; min-width: 0; display: flex; flex-direction: column; height: 100vh; }
-
-  /* landing: everything centred, the ask bar sitting low like a fresh chat */
-  .landing { flex: 1; overflow-y: auto; display: flex; flex-direction: column; justify-content: center; padding: 88px 24px 40px; }
-  .landing-inner { width: 100%; max-width: 660px; margin-inline: auto; }
-  .landing .date-line, .landing h1 { text-align: center; }
-  .landing h1 { margin-bottom: 22px; }
-
-  /* ---------- the cosmos hero ----------
-     A star with belts of collectors turning around it, and the light they
-     throw. All of it is CSS and one inline SVG: no canvas, no 3D library,
-     nothing to download before the greeting is readable.
-
-     It is a contained panel rather than a page backdrop on purpose. The rest
-     of this console is a light instrument panel, and a moving light source
-     behind live figures makes them harder to read; behind a greeting it
-     costs nothing. */
-  .cosmos {
-    position: relative; overflow: hidden; border-radius: 22px; margin-bottom: 22px;
-    padding: 38px 26px 34px; background: #0A0D16; isolation: isolate;
-    box-shadow: var(--shadow-md);
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; justify-content: center; }
+  .chips button {
+    border: 1px solid var(--line); background: var(--surface); border-radius: 99px;
+    padding: 8px 14px; font-size: 13px; color: var(--ink-2); cursor: pointer;
   }
-  .cosmos-scene { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+  .chips button:hover { background: var(--side-hover); color: var(--ink); border-color: var(--line-strong, var(--line)); }
 
-  /* One anchor at the star's centre; every layer centres on it, which is the
-     only way the core and the belts share an origin instead of drifting. */
-  .cos-star { position: absolute; left: 50%; top: 132%; width: 0; height: 0; }
-  .cos-corona, .cos-core, .cos-hot, .cos-rings {
-    position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
+  /* ---------------- thread ---------------- */
+  .thread { padding: 24px 0 8px; }
+  .turn { display: flex; gap: 14px; margin-bottom: 26px; }
+  .turn.user { justify-content: flex-end; }
+  .turn.user .body {
+    background: var(--user-bub); border-radius: 18px; padding: 10px 15px; max-width: 78%;
+    white-space: pre-wrap; overflow-wrap: anywhere;
   }
-  .cos-corona {
-    width: 760px; height: 760px; border-radius: 50%; filter: blur(64px);
-    background: radial-gradient(circle, rgba(47,107,255,0.42) 0%, rgba(106,73,242,0.22) 38%,
-                                rgba(47,107,255,0.06) 62%, transparent 76%);
-    animation: cos-breathe 9s ease-in-out infinite;
+  .turn.ai .mark {
+    width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-size: 14px; font-weight: 700; flex: none; margin-top: 1px;
   }
-  .cos-core {
-    width: 150px; height: 150px; border-radius: 50%; filter: blur(22px);
-    background: radial-gradient(circle at 50% 45%, #fff 0%, #E4EDFF 22%, #7FA6FF 46%,
-                                #2F6BFF 68%, rgba(28,79,224,0.32) 84%, transparent 92%);
-    animation: cos-pulse 6.5s ease-in-out infinite;
+  .turn.ai .body { min-width: 0; flex: 1; }
+  .body > *:first-child { margin-top: 0; } .body > *:last-child { margin-bottom: 0; }
+  .body p { margin: 0 0 12px; overflow-wrap: anywhere; }
+  .body h1, .body h2, .body h3 { line-height: 1.35; margin: 20px 0 8px; font-weight: 650; letter-spacing: -.3px; }
+  .body h1 { font-size: 20px; } .body h2 { font-size: 17.5px; } .body h3 { font-size: 15.5px; }
+  .body ul, .body ol { margin: 0 0 12px; padding-left: 22px; }
+  .body li { margin-bottom: 5px; }
+  .body a { color: var(--accent); }
+  .body hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
+  .body blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--ink-2); margin: 0 0 12px; }
+  .body code.inline { background: var(--side-hover); padding: 1.5px 5px; border-radius: 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em; }
+  .codeblock { position: relative; margin: 0 0 14px; border-radius: 12px; overflow: hidden; background: var(--code-bg); }
+  .codeblock .cb-top { display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 12px; font-size: 11.5px; color: #9AA3B2; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .codeblock .cb-copy { border: 0; background: transparent; color: #9AA3B2; cursor: pointer; font-size: 11.5px; }
+  .codeblock .cb-copy:hover { color: #fff; }
+  .codeblock pre { margin: 0; padding: 13px; overflow-x: auto; }
+  .codeblock code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.8px;
+    color: var(--code-ink); line-height: 1.55; }
+  .tablewrap { overflow-x: auto; margin: 0 0 14px; }
+  .body table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  .body th, .body td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; }
+  .body th { background: var(--side-hover); font-weight: 650; }
+
+  .msgbar { display: flex; gap: 2px; margin-top: 8px; opacity: 0; transition: opacity .15s; }
+  .turn.ai:hover .msgbar, .msgbar.stuck { opacity: 1; }
+  .msgbar button { border: 0; background: transparent; color: var(--ink-3); cursor: pointer;
+    padding: 5px 7px; border-radius: 7px; font-size: 12px; display: flex; align-items: center; gap: 5px; }
+  .msgbar button:hover { background: var(--side-hover); color: var(--ink); }
+  .msgbar svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+  .tools { display: block; margin-top: 10px; font-size: 11.5px; color: var(--ink-3); }
+  .badge-unverified { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px;
+    color: var(--amber); background: var(--amber-soft); padding: 3px 8px; border-radius: 6px; margin-top: 8px; }
+
+  /* thinking */
+  .thinking { display: flex; align-items: center; gap: 9px; color: var(--ink-3); font-size: 14px; }
+  .dots { display: inline-flex; gap: 3px; }
+  .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-3); animation: bounce 1.3s infinite; }
+  .dots i:nth-child(2) { animation-delay: .18s; } .dots i:nth-child(3) { animation-delay: .36s; }
+  @keyframes bounce { 0%,60%,100% { opacity:.25; transform: translateY(0) } 30% { opacity:1; transform: translateY(-3px) } }
+
+  /* action cards */
+  .act { border: 1px solid var(--line); border-radius: 12px; padding: 13px; margin-top: 12px; background: var(--surface); }
+  .act .kind { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); }
+  .act .what { font-size: 14px; margin: 5px 0 10px; }
+  .act .row { display: flex; gap: 8px; }
+  .act .row button { border-radius: 9px; padding: 7px 13px; font-size: 13px; font-weight: 550; cursor: pointer; border: 1px solid transparent; }
+  .act .row button[data-do="approve"] { background: var(--green); color: #fff; }
+  .act .row button[data-do="dismiss"] { background: transparent; border-color: var(--line); color: var(--ink-2); }
+  .act .done { font-size: 13px; color: var(--ink-2); background: var(--side-hover); padding: 8px 11px; border-radius: 9px; }
+
+  /* ---------------- composer ---------------- */
+  .composer-wrap { padding: 10px 0 14px; background: linear-gradient(to top, var(--bg) 62%, transparent); }
+  .composer {
+    display: flex; align-items: flex-end; gap: 8px; border: 1px solid var(--line);
+    background: var(--surface); border-radius: 24px; padding: 8px 8px 8px 16px; box-shadow: var(--shadow);
   }
-  .cos-hot {
-    width: 74px; height: 74px; border-radius: 50%; filter: blur(13px);
-    background: radial-gradient(circle, #fff 0%, #F2F6FF 55%, transparent 78%);
-    animation: cos-pulse 6.5s ease-in-out infinite;
+  .composer:focus-within { border-color: var(--accent); }
+  .composer textarea {
+    flex: 1; border: 0; outline: 0; background: transparent; resize: none; max-height: 200px;
+    padding: 7px 0; font-size: 15px; line-height: 1.5;
   }
-  .cos-rings { width: 720px; height: 720px; animation: cos-drift 150s linear infinite; }
-
-  /* The dashes travel along the orbit rather than the ring spinning as a
-     shape — that is what reads as collectors moving around a star. */
-  .cos-belt { fill: none; stroke: #8FB0FF; stroke-linecap: round;
-              animation: cos-travel var(--dur, 26s) linear infinite; }
-  .cos-spark { position: absolute; width: 3px; height: 3px; border-radius: 50%;
-               background: #CBDBFF; animation: cos-spark var(--sd, 9s) ease-out infinite; }
-  /* The copy has to stay readable across a moving light source, so the panel
-     gets a scrim rather than the star getting dimmed into nothing. */
-  .cos-scrim { position: absolute; inset: 0;
-               background: linear-gradient(to top, rgba(10,13,22,0.10) 0%, rgba(10,13,22,0.62) 46%, rgba(10,13,22,0.86) 100%); }
-
-  @keyframes cos-travel  { to { stroke-dashoffset: -2000; } }
-  @keyframes cos-drift   { to { transform: translate(-50%, -50%) rotate(360deg); } }
-  @keyframes cos-pulse   { 0%, 100% { opacity: .94; } 50% { opacity: 1; } }
-  @keyframes cos-breathe { 0%, 100% { opacity: .62; } 50% { opacity: .88; } }
-  @keyframes cos-spark   { 0%   { opacity: 0; transform: translate3d(0,0,0) scale(.6); }
-                           15%  { opacity: .9; }
-                           100% { opacity: 0; transform: translate3d(var(--sx,40px), var(--sy,-90px), 0) scale(1); } }
-
-  .cosmos-copy { position: relative; z-index: 1; }
-  .cosmos .date-line { color: rgba(233,240,255,0.66); }
-  .cosmos h1 { color: #fff; margin-bottom: 0; }
-  /* The invitation, not a caption — it is the question the ask bar below
-     answers, so it carries the weight of one. */
-  .cosmos .since { margin-top: 11px; font-size: 15.5px; text-align: center; color: rgba(233,240,255,0.72); }
-
-  /* A moving light source is decoration, and decoration is the first thing
-     that should stop when somebody has asked for less motion. */
-  @media (prefers-reduced-motion: reduce) {
-    .cos-corona, .cos-core, .cos-hot, .cos-rings, .cos-belt, .cos-spark { animation: none !important; }
-    .cos-spark { opacity: .5; }
+  .composer textarea::placeholder { color: var(--ink-3); }
+  .send {
+    width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--accent); color: #fff;
+    cursor: pointer; display: grid; place-items: center; flex: none; transition: opacity .15s;
   }
-  @media (max-width: 720px) { .cosmos { padding: 30px 20px 28px; border-radius: 18px; } }
+  .send:disabled { opacity: .3; cursor: default; }
+  .send svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.2; }
+  .send.stop { background: var(--ink); }
+  .send.stop svg { fill: currentColor; }
+  .disclaimer { text-align: center; font-size: 11.5px; color: var(--ink-3); margin-top: 8px; }
 
-  /* conversation: a scrolling thread with the ask bar pinned under it */
-  .thread { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
-  .thread-log { max-width: 780px; margin-inline: auto; padding: 26px 20px 8px; display: flex; flex-direction: column; gap: 16px; }
-  .msg { max-width: 82%; border-radius: 16px; padding: 11px 14px; font-size: 14px; line-height: 1.6; }
-  .msg.user { align-self: flex-end; color: #fff; border-bottom-right-radius: 5px;
-    background: linear-gradient(150deg, var(--orange), var(--violet)); box-shadow: var(--glow); }
-  .msg.ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 5px; box-shadow: var(--shadow-sm); }
-  .msg.ai b { font-weight: 700; }
-  .msg .tools { display: block; margin-top: 8px; font-size: 10.5px; color: var(--ink-3); }
-  /* A drafted action. It reads as a distinct object inside the reply, not as
-     more prose, because approving it changes the books. */
-  .act { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--orange); border-radius: 8px; background: var(--bg); }
-  .act .what { font-size: 12px; line-height: 1.45; }
-  .act .kind { display: block; margin-bottom: 4px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
-  .act .row { display: flex; gap: 8px; margin-top: 9px; }
-  .act button { padding: 5px 12px; font: inherit; font-size: 11.5px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
-  .act button[data-do="approve"] { background: var(--orange); border-color: var(--orange-deep); color: #fff; font-weight: 600; }
-  .act button:disabled { opacity: .5; cursor: default; }
-  .act .done { margin-top: 9px; font-size: 11.5px; color: var(--ink-3); }
-  .msg.thinking { color: var(--ink-3); font-style: italic; }
-
-  /* the one ask bar — it starts in the landing and moves into the footer */
-  .ask { display: flex; gap: 9px; }
-  .ask input { flex: 1; border: 1px solid var(--line); border-radius: 99px; padding: 14px 20px; font-size: 14px;
-    font-family: inherit; background: var(--surface); color: var(--ink); outline: none; box-shadow: var(--shadow-sm); }
-  .ask input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
-  .ask .send { width: 46px; height: 46px; border-radius: 50%; border: 0; color: #fff; font-size: 17px; cursor: pointer; flex-shrink: 0;
-    background: linear-gradient(150deg, var(--orange), var(--violet)); box-shadow: var(--glow); }
-  .ask .send:active { transform: scale(0.96); }
-  .askdock { flex-shrink: 0; border-top: 1px solid var(--line); background: var(--bg); padding: 14px 20px 20px; }
-  .askdock .ask { max-width: 780px; margin-inline: auto; }
-
-  .chips { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; margin-bottom: 18px; }
-  .chips button { border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 7px 13px;
-    font-size: 12px; color: var(--ink-2); cursor: pointer; font-family: inherit; }
-  .chips button:hover { border-color: var(--orange); color: var(--orange-deep); }
-
-  @media (max-width: 720px) { .brandpill { display: none; } .landing { padding-top: 76px; } }
+  .scrim { display: none; }
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    .sidebar { position: fixed; inset: 0 auto 0 0; width: 272px; z-index: 70; transform: translateX(-100%); }
+    .shell.mobile-open .sidebar { transform: translateX(0); }
+    .shell.collapsed .sidebar { transform: translateX(-100%); }
+    .shell.mobile-open .scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 60; }
+    .col { padding: 0 16px; }
+    .hello h1 { font-size: 25px; }
+    .turn.user .body { max-width: 88%; }
+  }
 </style>
 </head>
 <body>
-<button class="hamburger" id="menubtn" aria-label="Open menu" aria-expanded="false"><i></i></button>
-<div class="brandpill"><span class="logo-mark">₹</span>paisa</div>
-<nav class="nav-menu" id="navmenu"></nav>
-<div class="authpill" id="authpill"></div>
 
-<div class="app">
+<div class="shell" id="shell">
+  <div class="scrim" id="scrim"></div>
 
-  <section class="centre">
-    <div class="landing" id="landing">
-      <div class="landing-inner">
-        <div class="cosmos">
-          <div class="cosmos-scene" aria-hidden="true">
-            <div class="cos-star">
-              <div class="cos-corona"></div>
-              <svg class="cos-rings" viewBox="0 0 960 960">
-                <ellipse class="cos-belt" cx="480" cy="480" rx="404" ry="128" transform="rotate(-18 480 480)"
-                         stroke-width="1.1" stroke-dasharray="2 15" opacity=".55" style="--dur:26s"/>
-                <ellipse class="cos-belt" cx="480" cy="480" rx="330" ry="202" transform="rotate(26 480 480)"
-                         stroke-width="1.1" stroke-dasharray="2 19" opacity=".42" style="--dur:34s"/>
-                <ellipse class="cos-belt" cx="480" cy="480" rx="452" ry="70" transform="rotate(8 480 480)"
-                         stroke-width="1.1" stroke-dasharray="2 23" opacity=".34" style="--dur:44s"/>
-              </svg>
-              <div class="cos-core"></div>
-              <div class="cos-hot"></div>
-            </div>
-            <span class="cos-spark" style="left:18%; top:62%; --sx:60px;  --sy:-130px; --sd:9s;  animation-delay:0s"></span>
-            <span class="cos-spark" style="left:72%; top:70%; --sx:-40px; --sy:-150px; --sd:11s; animation-delay:1.6s"></span>
-            <span class="cos-spark" style="left:44%; top:78%; --sx:30px;  --sy:-170px; --sd:13s; animation-delay:3.1s"></span>
-            <span class="cos-spark" style="left:62%; top:40%; --sx:50px;  --sy:-100px; --sd:10s; animation-delay:4.4s"></span>
-            <span class="cos-spark" style="left:30%; top:36%; --sx:-30px; --sy:-120px; --sd:12s; animation-delay:2.2s"></span>
-            <div class="cos-scrim"></div>
-          </div>
-          <div class="cosmos-copy">
-            <div class="date-line" id="dateline"></div>
+  <aside class="sidebar">
+    <div class="side-top">
+      <div class="brand"><span class="logo-mark">₹</span>paisa</div>
+      <button class="icon-btn" id="collapse" aria-label="Hide sidebar" title="Hide sidebar">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+      </button>
+    </div>
+    <button class="newchat" id="newchat">
+      <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New chat
+    </button>
+    <div class="side-scroll">
+      <div class="side-label">Jump to</div>
+      <nav class="side-nav" id="navmenu"></nav>
+      <div class="side-label">Chats</div>
+      <div id="convos"></div>
+      <div class="health">
+        <div class="label">FINANCIAL HEALTH</div>
+        <div class="health-row"><span class="health-score" id="hscore">–</span><span class="health-grade" id="hgrade"></span></div>
+        <div class="health-bar"><div id="hbar" style="width:0%"></div></div>
+      </div>
+    </div>
+    <div class="profile" id="profile"></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <button class="icon-btn" id="menubtn" aria-label="Show sidebar">
+        <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <div class="title" id="threadtitle">New chat</div>
+      <button class="icon-btn" id="themebtn" aria-label="Toggle theme" title="Toggle theme"></button>
+      <div id="authpill"></div>
+    </div>
+
+    <div class="scroll" id="scroll">
+      <div class="col">
+        <div class="empty" id="empty">
+          <div class="hello">
+            <div class="mark">₹</div>
+            <div class="dateline" id="dateline"></div>
             <h1 id="greeting">Hi, I&#39;m Paisa</h1>
-            <div class="since">How can I help with your finances?</div>
+            <p>Your AI CFO. Ask me anything about your money.</p>
           </div>
+          <section class="brief">
+            <div class="brief-top"><span class="tag">MORNING BRIEF</span><span class="when" id="briefwhen"></span></div>
+            <p id="brief-text">Loading your morning brief…</p>
+            <div class="brief-actions">
+              <button class="btn btn-primary" id="toggle-recs">Review AI recommendations</button>
+              <button class="btn btn-ghost" id="ask-brief">Ask about this</button>
+            </div>
+            <section class="recs" id="recs"></section>
+          </section>
+          <div class="chips" id="suggest"></div>
         </div>
-
-        <section class="brief">
-          <div class="brief-top"><span class="tag">YOUR AI CFO</span><span class="when">Updated 6:00 AM</span></div>
-          <p id="brief-text">Loading your morning brief…</p>
-          <div class="brief-actions">
-            <button class="btn btn-primary" id="toggle-recs">Review AI recommendations</button>
-            <button class="btn btn-ghost" id="ask-brief">Ask about this</button>
-          </div>
-        </section>
-
-        <section class="recs" id="recs"></section>
-
-        <div class="chips" id="suggest"></div>
-
-        <form class="ask" id="chatform">
-          <input id="chatbox" placeholder="Ask anything about your money…" autocomplete="off">
-          <button class="send" type="submit" aria-label="Send">↑</button>
-        </form>
+        <div class="thread" id="thread" hidden></div>
       </div>
     </div>
 
-    <div class="thread" id="thread" hidden>
-      <div class="thread-log" id="log"></div>
+    <div class="composer-wrap">
+      <div class="col">
+        <form class="composer" id="chatform">
+          <textarea id="chatbox" rows="1" placeholder="Ask anything about your money…"></textarea>
+          <button class="send" id="sendbtn" type="submit" aria-label="Send" disabled>
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
+        </form>
+        <div class="disclaimer">Paisa verifies every figure against your ledger. Nothing is sent or posted without your approval.</div>
+      </div>
     </div>
-
-    <div class="askdock" id="askdock" hidden></div>
-  </section>
-
+  </main>
 </div>
-
 <script>
 const $ = (id) => document.getElementById(id);
-const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
-/* tiny markdown: **bold**, _italic_, bullets, line breaks — applied after escaping */
-const md = (s) => esc(s)
-  .replace(/\\*\\*(.+?)\\*\\*/g, "<b>$1</b>")
-  .replace(/_(.+?)_/g, "<i>$1</i>")
-  .replace(/^  • /gm, "&nbsp;&nbsp;• ")
-  .replace(/\\n/g, "<br>");
-
-/* Every section is the same chat, asked a different question — there is no
-   separate Money/Invoices/Taxes page, so a click sends its prompt to
-   sendChat() instead of navigating. Home and Ask AI just focus the chat. */
-const NAV = [
-  ["Home", "M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z", true, null],
-  ["Ask AI", "M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1M7.7 16.3l-2.1 2.1", false, null],
-  ["Money", "M3 7h18v10H3zM7 12h.01M17 12h.01M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", false, "Show my cash position, burn rate, and recent transactions"],
-  ["Invoices", "M7 3h10a1 1 0 0 1 1 1v16l-3-2-3 2-3-2-3 2V4a1 1 0 0 1 1-1zM9 8h6M9 12h6", false, "Show unpaid invoices and receivables aging"],
-  ["Taxes & GST", "M4 5h16v14H4zM8 3v4m8-4v4M4 11h16", false, "What's my GST position and upcoming filings?"],
-  ["Investments", "M4 17 10 11l4 4 6-7M20 8v4h-4", false, "Show my investment portfolio"],
-  ["Reports", "M5 21V9m7 12V3m7 18v-8", false, "Give me the full morning brief"],
-  ["Settings", "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12", false, null],
-];
-$("navmenu").innerHTML =
-  NAV.map(([name, d, active]) =>
-    '<a href="#" class="' + (active ? "active" : "") + '"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>' + name + "</a>"
-  ).join("") +
-  '<div class="nav-divider"></div>' +
-  '<div class="health-card">' +
-    '<div class="label">FINANCIAL HEALTH</div>' +
-    '<div class="health-row"><span class="health-score" id="hscore">–</span><span class="health-grade" id="hgrade"></span></div>' +
-    '<div class="health-bar"><div id="hbar" style="width:0%"></div></div>' +
-  "</div>" +
-  '<div class="profile" id="profile"></div>';
-
-const navLinks = [...$("navmenu").querySelectorAll("a")];
-const closeMenu = () => { $("navmenu").classList.remove("open"); $("menubtn").setAttribute("aria-expanded", "false"); };
-$("menubtn").addEventListener("click", (e) => {
-  e.stopPropagation();
-  const open = $("navmenu").classList.toggle("open");
-  $("menubtn").setAttribute("aria-expanded", open ? "true" : "false");
-});
-document.addEventListener("click", (e) => { if (!$("navmenu").contains(e.target) && !$("menubtn").contains(e.target)) closeMenu(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
-navLinks.forEach((a, i) => {
-  a.addEventListener("click", (e) => {
-    e.preventDefault();
-    navLinks.forEach((el) => el.classList.remove("active"));
-    a.classList.add("active");
-    closeMenu();
-    const prompt = NAV[i][3];
-    if (prompt) sendChat(prompt);
-    else { openThread(); $("chatbox").focus(); }
-  });
-});
-
-$("dateline").textContent = new Date("${AS_OF}T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
-
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const j = (url, opts) => fetch(url, opts).then((r) => r.json());
 
-/* ---- who is looking ----
+/* ---------------- theme ----------------
+   The choice is the visitor's and it belongs to this browser, so it lives in
+   localStorage. With nothing stored we follow the OS rather than assuming. */
+const SUN = '<svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4m0-14.2-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>';
+const MOON = '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>';
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  $("themebtn").innerHTML = t === "dark" ? SUN : MOON;
+}
+let theme = localStorage.getItem("paisa.theme")
+  || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+applyTheme(theme);
+$("themebtn").addEventListener("click", () => {
+  theme = theme === "dark" ? "light" : "dark";
+  localStorage.setItem("paisa.theme", theme);
+  applyTheme(theme);
+});
 
-   The page renders for two kinds of visitor: a signed-in member, who sees
-   their own name and workspace, and everyone else, who is looking at demo
-   books and is offered a way in. The cookie decides which — never the client,
-   which is why this asks the server rather than reading anything local. */
-const initials = (name) =>
-  name.trim().split(/\\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+/* ---------------- markdown ----------------
+   Escaped first, then marked up, so a model that emits raw HTML cannot
+   inject it. Code fences are pulled out before anything else runs, or the
+   inline rules would rewrite the code they contain. */
+function md(src) {
+  const blocks = [];
+  let s = String(src == null ? "" : src).replace(/\\r\\n/g, "\\n");
+
+  s = s.replace(/\`\`\`(\\w*)\\n?([\\s\\S]*?)\`\`\`/g, (_m, lang, code) => {
+    blocks.push({ lang: lang || "text", code: code.replace(/\\n$/, "") });
+    return "\\n\\n@@CB" + (blocks.length - 1) + "@@\\n\\n";
+  });
+
+  s = esc(s);
+
+  const inline = (t) => t
+    .replace(/\`([^\`]+)\`/g, '<code class="inline">$1</code>')
+    .replace(/\\*\\*([^*]+)\\*\\*/g, "<b>$1</b>")
+    .replace(/(^|[\\s(])\\*([^*\\n]+)\\*/g, "$1<i>$2</i>")
+    .replace(/(^|[\\s(])_([^_\\n]+)_/g, "$1<i>$2</i>")
+    .replace(/\\[([^\\]]+)\\]\\((https?:[^)\\s]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  const lines = s.split("\\n");
+  const out = [];
+  let list = null, para = [], table = null;
+
+  const flushPara = () => { if (para.length) { out.push("<p>" + inline(para.join(" ")) + "</p>"); para = []; } };
+  const flushList = () => {
+    if (list) {
+      out.push("<" + list.tag + ">" + list.items.map((i) => "<li>" + inline(i) + "</li>").join("") + "</" + list.tag + ">");
+      list = null;
+    }
+  };
+  const flushTable = () => {
+    if (!table) return;
+    const cells = (r) => r.replace(/^\\||\\|$/g, "").split("|").map((c) => c.trim());
+    const head = "<tr>" + cells(table[0]).map((c) => "<th>" + inline(c) + "</th>").join("") + "</tr>";
+    const rows = table.slice(2).map((r) => "<tr>" + cells(r).map((c) => "<td>" + inline(c) + "</td>").join("") + "</tr>").join("");
+    out.push('<div class="tablewrap"><table>' + head + rows + "</table></div>");
+    table = null;
+  };
+  const flushAll = () => { flushPara(); flushList(); flushTable(); };
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].trim();
+
+    if (/^@@CB\\d+@@$/.test(raw)) { flushAll(); out.push(raw); continue; }
+    if (!raw) { flushAll(); continue; }
+
+    // A table needs its separator row to be a table at all.
+    if (/^\\|.*\\|$/.test(raw) && !table && /^\\|[\\s:|-]+\\|$/.test((lines[i + 1] || "").trim())) {
+      flushPara(); flushList(); table = [raw]; continue;
+    }
+    if (table) {
+      if (/^\\|.*\\|$/.test(raw)) { table.push(raw); continue; }
+      flushTable();
+    }
+
+    const h = raw.match(/^(#{1,3})\\s+(.*)$/);
+    if (h) { flushAll(); out.push("<h" + h[1].length + ">" + inline(h[2]) + "</h" + h[1].length + ">"); continue; }
+    if (/^(---|\\*\\*\\*|___)$/.test(raw)) { flushAll(); out.push("<hr>"); continue; }
+    if (/^&gt;\\s?/.test(raw)) { flushAll(); out.push("<blockquote>" + inline(raw.replace(/^&gt;\\s?/, "")) + "</blockquote>"); continue; }
+
+    const ul = raw.match(/^[-*•]\\s+(.*)$/);
+    const ol = raw.match(/^\\d+[.)]\\s+(.*)$/);
+    if (ul || ol) {
+      const tag = ul ? "ul" : "ol";
+      flushPara();
+      if (list && list.tag !== tag) flushList();
+      if (!list) list = { tag, items: [] };
+      list.items.push((ul || ol)[1]);
+      continue;
+    }
+    flushList();
+    para.push(raw);
+  }
+  flushAll();
+
+  return out.join("").replace(/@@CB(\\d+)@@/g, (_m, n) => {
+    const b = blocks[+n];
+    return '<div class="codeblock"><div class="cb-top"><span>' + esc(b.lang) +
+      '</span><button class="cb-copy" type="button">Copy</button></div><pre><code>' +
+      esc(b.code) + "</code></pre></div>";
+  });
+}
+
+/* ---------------- conversations ----------------
+   The server is stateless, so the browser is the only place a past chat can
+   live. Kept per-browser in localStorage; a signed-in member's history does
+   not follow them to another device yet. */
+const KEY = "paisa.chats.v1";
+let chats = [];
+let currentId = null;
+
+function loadChats() {
+  try { chats = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { chats = []; }
+  if (!Array.isArray(chats)) chats = [];
+}
+function saveChats() {
+  try { localStorage.setItem(KEY, JSON.stringify(chats.slice(0, 60))); } catch {}
+}
+const current = () => chats.find((c) => c.id === currentId) || null;
+
+function titleFrom(text) {
+  const t = text.trim().replace(/\\s+/g, " ");
+  return t.length > 42 ? t.slice(0, 42).trim() + "…" : t;
+}
+
+function renderConvos() {
+  const box = $("convos");
+  if (!chats.length) { box.innerHTML = '<div class="empty-convos">No chats yet.</div>'; return; }
+  box.innerHTML = chats.map((c) =>
+    '<div class="convo' + (c.id === currentId ? " active" : "") + '" data-id="' + esc(c.id) + '">' +
+      '<span class="t">' + esc(c.title) + "</span>" +
+      '<button class="x" data-del="' + esc(c.id) + '" aria-label="Delete chat">' +
+        '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+      "</button></div>"
+  ).join("");
+}
+
+$("convos").addEventListener("click", (e) => {
+  const del = e.target.closest("button[data-del]");
+  if (del) {
+    e.stopPropagation();
+    const id = del.dataset.del;
+    chats = chats.filter((c) => c.id !== id);
+    saveChats();
+    if (currentId === id) startNew(); else renderConvos();
+    return;
+  }
+  const row = e.target.closest(".convo");
+  if (row) openChat(row.dataset.id);
+});
+
+function startNew() {
+  currentId = null;
+  $("thread").innerHTML = "";
+  $("thread").hidden = true;
+  $("empty").hidden = false;
+  $("threadtitle").textContent = "New chat";
+  renderConvos();
+  closeMobile();
+  $("chatbox").focus();
+}
+$("newchat").addEventListener("click", startNew);
+
+function openChat(id) {
+  const c = chats.find((x) => x.id === id);
+  if (!c) return;
+  currentId = id;
+  $("empty").hidden = true;
+  $("thread").hidden = false;
+  $("thread").innerHTML = "";
+  $("threadtitle").textContent = c.title;
+  c.messages.forEach((m) => { if (m.role === "user") addUser(m.text); else addAI(m); });
+  renderConvos();
+  closeMobile();
+  scrollDown(false);
+}
+
+/* ---------------- sidebar ---------------- */
+const closeMobile = () => $("shell").classList.remove("mobile-open");
+$("menubtn").addEventListener("click", () => {
+  if (matchMedia("(max-width: 860px)").matches) $("shell").classList.toggle("mobile-open");
+  else $("shell").classList.toggle("collapsed");
+});
+$("collapse").addEventListener("click", () => {
+  if (matchMedia("(max-width: 860px)").matches) closeMobile();
+  else $("shell").classList.add("collapsed");
+});
+$("scrim").addEventListener("click", closeMobile);
+
+/* Every section is the same chat asked a different question - there is no
+   separate Money/Invoices page, so a click sends its prompt. */
+const NAV = [
+  ["Money", "M3 7h18v10H3zM7 12h.01M17 12h.01M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", "Show my cash position, burn rate, and recent transactions"],
+  ["Invoices", "M7 3h10a1 1 0 0 1 1 1v16l-3-2-3 2-3-2-3 2V4a1 1 0 0 1 1-1zM9 8h6M9 12h6", "Show unpaid invoices and receivables aging"],
+  ["Taxes &amp; GST", "M4 5h16v14H4zM8 3v4m8-4v4M4 11h16", "What's my GST position and upcoming filings?"],
+  ["Investments", "M4 17 10 11l4 4 6-7M20 8v4h-4", "Show my investment portfolio"],
+  ["Reports", "M5 21V9m7 12V3m7 18v-8", "Give me the full morning brief"],
+];
+$("navmenu").innerHTML = NAV.map(([name, d]) =>
+  '<a href="#"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>' + name + "</a>"
+).join("");
+[...$("navmenu").querySelectorAll("a")].forEach((a, i) => {
+  a.addEventListener("click", (e) => { e.preventDefault(); closeMobile(); sendChat(NAV[i][2]); });
+});
+
+$("dateline").textContent = new Date("${AS_OF}T00:00:00")
+  .toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
+
+/* ---------------- identity ---------------- */
+const initials = (name) => name.trim().split(/\\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
 
 async function loadIdentity() {
   const res = await fetch("/api/me");
   if (!res.ok) {
-    $("profile").className = "profile guest";
     $("profile").innerHTML =
-      '<a href="/login"><div class="avatar guest">→</div>' +
+      '<a href="/login?next=%2Fapp"><div class="avatar guest">→</div>' +
       '<div class="who"><b>Sign in</b><span>You are viewing demo books</span></div></a>';
-    // A visitor with no session is looking at the demo books, and the corner
-    // says so and offers the way out of them. The next= param brings them back
-    // here rather than to whatever the login page's default happens to be.
     $("authpill").innerHTML =
       '<div class="auth-actions">' +
         '<a class="auth-door ghost" href="/login?next=%2Fapp">Sign in</a>' +
@@ -949,61 +1075,56 @@ async function loadIdentity() {
   }
   const me = await res.json();
   const name = me.user.displayName || me.user.email;
-  $("profile").className = "profile";
   $("profile").innerHTML =
-    '<div class="avatar">' + esc(initials(name)) + "</div>" +
-    '<div class="who"><b>' + esc(name) + "</b><span>" + esc(me.workspace) + "</span></div>";
-
+    '<div class="who-row"><div class="avatar">' + esc(initials(name)) + "</div>" +
+    '<div class="who"><b>' + esc(name) + "</b><span>" + esc(me.workspace) + "</span></div></div>";
   $("authpill").innerHTML =
     '<button class="auth-btn" id="authBtn" type="button" aria-haspopup="menu" aria-expanded="false">' +
-      '<span class="avatar-sm">' + esc(initials(name)) + "</span>" +
-      '<span class="auth-name">' + esc(name) + '</span><span class="caret">▾</span>' +
-    "</button>" +
+      '<span class="avatar-sm">' + esc(initials(name)) + "</span></button>" +
     '<div class="auth-menu" id="authMenu" hidden role="menu">' +
       '<div class="auth-head"><b>' + esc(name) + "</b><span>" + esc(me.user.email || me.workspace) + "</span></div>" +
       '<a class="auth-item" role="menuitem" href="/console">Console</a>' +
       '<button class="auth-item danger" role="menuitem" id="authOut" type="button">Sign out</button>' +
     "</div>";
-
   const menu = $("authMenu"), btn = $("authBtn");
   const setOpen = (open) => { menu.hidden = !open; btn.setAttribute("aria-expanded", open ? "true" : "false"); };
   btn.addEventListener("click", (e) => { e.stopPropagation(); setOpen(menu.hidden); });
   menu.addEventListener("click", (e) => e.stopPropagation());
   document.addEventListener("click", () => setOpen(false));
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
-
-  // The cookie is the only session state, so signing out ends with a fresh
-  // request rather than with a route change in JavaScript.
   $("authOut").addEventListener("click", () => {
     fetch("/api/logout", { method: "POST" }).finally(() => { location.href = "/login"; });
   });
 }
 
-/* ---- brief + health ---- */
+/* ---------------- brief + health ---------------- */
 async function loadBrief() {
   const b = await j("/api/brief");
   $("hscore").textContent = b.health.score;
   $("hgrade").textContent = b.health.grade;
   $("hbar").style.width = b.health.score + "%";
-  // highlight rupee amounts in green/orange like the design
+  $("briefwhen").textContent = new Date().toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
   let i = 0;
-  $("brief-text").innerHTML = esc(b.headline).replace(/₹[\\d,]+(?:\\.\\d{2})?/g, (m) => '<span class="' + (i++ === 0 ? "hl-g" : "hl-o") + '">' + m + "</span>");
+  $("brief-text").innerHTML = esc(b.headline)
+    .replace(/₹[\\d,]+(?:\\.\\d{2})?/g, (m) => '<span class="' + (i++ === 0 ? "hl-g" : "hl-o") + '">' + m + "</span>");
 }
 
-/* ---- recommendations ---- */
 async function loadRecs() {
   const r = await j("/api/recommendations");
   $("recs").innerHTML = r.items.map((it) => {
     const badges =
-      '<span class="chip conf">' + it.confidence + " confidence</span>" +
+      '<span class="chip">' + it.confidence + " confidence</span>" +
       '<span class="chip risk-' + it.risk + '">' + it.risk + " risk</span>" +
       (it.requiresApproval ? '<span class="chip approval">needs approval</span>' : "") +
-      (it.status !== "pending" ? '<span class="chip done">' + it.status + "</span>" : "");
-    const impact = [it.impact ? "Impact: " + it.impact : null, it.estimatedSavings ? "Est. savings: " + it.estimatedSavings + "/yr" : null].filter(Boolean).join(" · ");
+      (it.status !== "pending" ? '<span class="chip">' + it.status + "</span>" : "");
+    const impact = [it.impact ? "Impact: " + it.impact : null,
+      it.estimatedSavings ? "Est. savings: " + it.estimatedSavings + "/yr" : null].filter(Boolean).join(" · ");
     const actions = it.status === "pending"
-      ? '<div class="rec-actions"><button class="btn btn-approve" data-act="approve" data-id="' + it.id + '">Approve</button><button class="btn btn-dismiss" data-act="dismiss" data-id="' + it.id + '">Dismiss</button></div>'
+      ? '<div class="rec-actions"><button class="btn btn-approve" data-act="approve" data-id="' + it.id + '">Approve</button>' +
+        '<button class="btn btn-dismiss" data-act="dismiss" data-id="' + it.id + '">Dismiss</button></div>'
       : "";
-    return '<div class="rec"><div class="rec-head"><b>' + esc(it.title) + '</b><div class="rec-badges">' + badges + "</div></div><p>" + esc(it.problem) + " " + esc(it.reason) + '</p><div class="impact">' + impact + "</div>" + actions + "</div>";
+    return '<div class="rec"><div class="rec-head"><b>' + esc(it.title) + '</b><div class="rec-badges">' + badges +
+      "</div></div><p>" + esc(it.problem) + " " + esc(it.reason) + '</p><div class="impact">' + impact + "</div>" + actions + "</div>";
   }).join("");
 }
 $("toggle-recs").addEventListener("click", () => $("recs").classList.toggle("open"));
@@ -1014,61 +1135,105 @@ $("recs").addEventListener("click", async (e) => {
   await Promise.all([loadRecs(), loadBrief()]);
 });
 
-/* ---- chat ---- */
+/* ---------------- suggestions ---------------- */
 const SUGGESTIONS = [
   "How long can we survive?",
   "Show unpaid invoices",
   "Prepare GST",
   "What subscriptions should I cancel?",
-  "Can I hire an engineer at ₹1 lakh/month?",
   "Why did profit change last month?",
 ];
-$("suggest").innerHTML = SUGGESTIONS.map((s) => "<button type='button'>" + s + "</button>").join("");
+$("suggest").innerHTML = SUGGESTIONS.map((s) => "<button type='button'>" + esc(s) + "</button>").join("");
 $("suggest").addEventListener("click", (e) => { if (e.target.tagName === "BUTTON") sendChat(e.target.textContent); });
 $("ask-brief").addEventListener("click", () => sendChat("Summarize business performance"));
-$("chatform").addEventListener("submit", (e) => { e.preventDefault(); const v = $("chatbox").value.trim(); if (v) sendChat(v); $("chatbox").value = ""; });
 
-/* The landing is the empty state. The first question retires it: the ask bar
-   moves out of the hero and docks under a scrolling thread, which then keeps
-   itself pinned to the newest message. */
-let threadOpen = false;
-function openThread() {
-  if (threadOpen) return;
-  threadOpen = true;
-  $("askdock").appendChild($("chatform"));
-  $("askdock").hidden = false;
-  $("landing").hidden = true;
-  $("thread").hidden = false;
+/* ---------------- thread rendering ---------------- */
+const scrollDown = (smooth = true) => {
+  const el = $("scroll");
+  el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+};
+
+function addUser(text) {
+  $("thread").insertAdjacentHTML("beforeend",
+    '<div class="turn user"><div class="body">' + esc(text) + "</div></div>");
 }
-const scrollThread = () => { const t = $("thread"); t.scrollTop = t.scrollHeight; };
 
-/* The conversation so far. The handler is stateless, so the browser holds
-   this and returns it each turn — that is what lets "and last month?" mean
-   anything. Only completed turns go in: a failed request would otherwise
-   leave the model reading its own error message back as context. */
-const history = [];
-const HISTORY_TURNS = 12;
+const COPY_ICON = '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const REDO_ICON = '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
 
-/* An action the agent drafted this turn. Nothing has happened to the books
-   yet — the card is the approval step, and it is rendered from the server's
-   list rather than parsed out of the answer text, so a model that describes
-   an action it never queued cannot produce a button. */
 function actionCards(actions) {
   if (!actions || !actions.length) return "";
-  return actions
-    .map(
-      (a) =>
-        '<div class="act" data-id="' + esc(a.id) + '">' +
-        '<span class="kind">' + esc(a.kind.replace(/_/g, " ")) + " · needs your approval</span>" +
-        '<div class="what">' + esc(a.summary) + "</div>" +
-        '<div class="row"><button data-do="approve">Approve</button>' +
-        '<button data-do="dismiss">Dismiss</button></div></div>',
-    )
-    .join("");
+  return actions.map((a) =>
+    '<div class="act" data-id="' + esc(a.id) + '">' +
+    '<span class="kind">' + esc(a.kind.replace(/_/g, " ")) + " · needs your approval</span>" +
+    '<div class="what">' + esc(a.summary) + "</div>" +
+    '<div class="row"><button data-do="approve">Approve</button><button data-do="dismiss">Dismiss</button></div></div>'
+  ).join("");
 }
 
-/* Decisions are delegated from the thread, so cards added later still work. */
-$("log").addEventListener("click", async (e) => {
+function addAI(m) {
+  const tools = m.tools && m.tools.length
+    ? '<span class="tools">Verified against: ' + esc(m.tools.join(", ")) + "</span>" : "";
+  const unverified = m.verified === false
+    ? '<div class="badge-unverified">Not fully verified against the ledger</div>' : "";
+  $("thread").insertAdjacentHTML("beforeend",
+    '<div class="turn ai"><div class="mark">₹</div><div class="body">' +
+      '<div class="answer">' + md(m.text) + "</div>" +
+      actionCards(m.actions) + unverified + tools +
+      '<div class="msgbar"><button data-copy type="button">' + COPY_ICON + "<span>Copy</span></button>" +
+      '<button data-redo type="button">' + REDO_ICON + "<span>Try again</span></button></div>" +
+    "</div></div>");
+}
+
+function addThinking() {
+  $("thread").insertAdjacentHTML("beforeend",
+    '<div class="turn ai" id="pending"><div class="mark">₹</div><div class="body">' +
+    '<div class="thinking">Checking the ledger<span class="dots"><i></i><i></i><i></i></span></div></div></div>');
+}
+
+/* Copy, retry, and approvals are delegated so messages rendered later work. */
+$("thread").addEventListener("click", async (e) => {
+  const copyCode = e.target.closest(".cb-copy");
+  if (copyCode) {
+    const code = copyCode.closest(".codeblock").querySelector("code").textContent;
+    navigator.clipboard.writeText(code).then(() => {
+      copyCode.textContent = "Copied";
+      setTimeout(() => { copyCode.textContent = "Copy"; }, 1400);
+    });
+    return;
+  }
+
+  const copy = e.target.closest("button[data-copy]");
+  if (copy) {
+    const label = copy.querySelector("span");
+    navigator.clipboard.writeText(copy.closest(".body").querySelector(".answer").innerText).then(() => {
+      const bar = copy.closest(".msgbar");
+      bar.classList.add("stuck");
+      label.textContent = "Copied";
+      setTimeout(() => { label.textContent = "Copy"; bar.classList.remove("stuck"); }, 1400);
+    });
+    return;
+  }
+
+  const redo = e.target.closest("button[data-redo]");
+  if (redo) {
+    const c = current();
+    if (!c) return;
+    // Drop this answer and the question that produced it, then ask again.
+    const turn = redo.closest(".turn");
+    let lastUser = null;
+    for (let i = c.messages.length - 1; i >= 0; i--) {
+      if (c.messages[i].role === "user") { lastUser = c.messages[i].text; c.messages.splice(i); break; }
+    }
+    if (!lastUser) return;
+    const prev = turn.previousElementSibling;
+    turn.remove();
+    if (prev && prev.classList.contains("user")) prev.remove();
+    saveChats();
+    sendChat(lastUser);
+    return;
+  }
+
   const btn = e.target.closest(".act button[data-do]");
   if (!btn) return;
   const card = btn.closest(".act");
@@ -1076,41 +1241,104 @@ $("log").addEventListener("click", async (e) => {
   card.querySelectorAll("button").forEach((b) => (b.disabled = true));
   try {
     const out = await j("/api/actions/" + encodeURIComponent(card.dataset.id) + "/" + btn.dataset.do, { method: "POST" });
-    // j() resolves whatever the status was, so a refusal arrives here as a
-    // body, not a rejection. Read it, or a failed approval renders as done.
     if (!out.ok) throw new Error(out.error || "refused");
-    row.outerHTML =
-      '<div class="done">' +
-      (btn.dataset.do === "approve" ? "Approved — " + esc(out.result || "done") : "Dismissed. Nothing was posted.") +
-      "</div>";
-    // Approving posts to the books, so the brief that summarises them is stale.
+    row.outerHTML = '<div class="done">' +
+      (btn.dataset.do === "approve" ? "Approved — " + esc(out.result || "done") : "Dismissed. Nothing was posted.") + "</div>";
     if (btn.dataset.do === "approve") await loadBrief();
   } catch {
     row.outerHTML = '<div class="done">That did not go through — nothing was posted.</div>';
   }
 });
 
-async function sendChat(text) {
-  openThread();
-  const log = $("log");
-  log.insertAdjacentHTML("beforeend", '<div class="msg user">' + esc(text) + "</div>");
-  log.insertAdjacentHTML("beforeend", '<div class="msg ai thinking" id="pending">Checking the ledger…</div>');
-  scrollThread();
-  try {
-    const res = await j("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, history: history.slice(-HISTORY_TURNS) }),
-    });
-    const tools = res.tools && res.tools.length ? '<span class="tools">verified against: ' + res.tools.join(", ") + "</span>" : "";
-    $("pending").outerHTML = '<div class="msg ai">' + md(res.answer) + actionCards(res.actions) + tools + "</div>";
-    history.push({ role: "user", text }, { role: "assistant", text: res.answer });
-  } catch {
-    $("pending").outerHTML = '<div class="msg ai">Something went wrong reaching the engine — try again.</div>';
-  }
-  scrollThread();
+/* ---------------- composer ---------------- */
+const box = $("chatbox"), sendbtn = $("sendbtn");
+const SEND_ICON = sendbtn.innerHTML;
+const STOP_ICON = '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
+
+function autosize() {
+  box.style.height = "auto";
+  box.style.height = Math.min(box.scrollHeight, 200) + "px";
+}
+box.addEventListener("input", () => { autosize(); if (!busy) sendbtn.disabled = !box.value.trim(); });
+box.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("chatform").requestSubmit(); }
+});
+$("chatform").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (busy) { if (controller) controller.abort(); return; }
+  const v = box.value.trim();
+  if (!v) return;
+  box.value = ""; autosize(); sendbtn.disabled = true;
+  sendChat(v);
+});
+
+/* ---------------- asking ---------------- */
+const HISTORY_TURNS = 12;
+let busy = false, controller = null;
+
+function setBusy(on) {
+  busy = on;
+  sendbtn.disabled = on ? false : !box.value.trim();
+  sendbtn.classList.toggle("stop", on);
+  sendbtn.innerHTML = on ? STOP_ICON : SEND_ICON;
+  sendbtn.setAttribute("aria-label", on ? "Stop" : "Send");
 }
 
+async function sendChat(text) {
+  if (busy) return;
+
+  let c = current();
+  if (!c) {
+    c = { id: String(Date.now()) + Math.random().toString(36).slice(2, 7), title: titleFrom(text), messages: [] };
+    chats.unshift(c);
+    currentId = c.id;
+    $("threadtitle").textContent = c.title;
+  }
+  $("empty").hidden = true;
+  $("thread").hidden = false;
+  renderConvos();
+
+  addUser(text);
+  c.messages.push({ role: "user", text });
+  saveChats();
+  addThinking();
+  scrollDown();
+  setBusy(true);
+
+  controller = new AbortController();
+  try {
+    // Only completed turns become context: a failed request would otherwise
+    // feed the model its own error message back as history. The turn just
+    // pushed is dropped, because it is sent as the message field.
+    const history = c.messages
+      .slice(-HISTORY_TURNS - 1)
+      .slice(0, -1)
+      .map((m) => ({ role: m.role, text: m.text }));
+
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, history }),
+      signal: controller.signal,
+    }).then((r) => r.json());
+
+    const msg = { role: "assistant", text: res.answer, tools: res.tools, actions: res.actions, verified: res.verified };
+    $("pending").remove();
+    addAI(msg);
+    c.messages.push(msg);
+    saveChats();
+  } catch (err) {
+    const p = $("pending");
+    if (p) p.remove();
+    const stopped = err && err.name === "AbortError";
+    addAI({ role: "assistant", text: stopped ? "_Stopped._" : "Something went wrong reaching the engine — try again." });
+  }
+  setBusy(false);
+  controller = null;
+  scrollDown();
+}
+
+loadChats(); renderConvos(); autosize();
 loadIdentity(); loadBrief(); loadRecs();
 </script>
 </body>
