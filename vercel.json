@@ -13,5 +13,11 @@
       "source": "/(.*)",
       "destination": "/api/index"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/sweep",
+      "schedule": "30 3 * * *"
+    }
   ]
 }
