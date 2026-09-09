@@ -230,8 +230,31 @@ export const seedAll = async (exec, rt) => {
     }
   }
 
+  /* ---------------- the June plan ---------------- */
+
+  /*
+   * Set before the scan, because a budget is only useful ahead of the spend.
+   * Two lines here are deliberately off plan and the rest are not: a demo
+   * where every account breaches teaches nothing about which ones matter.
+   */
+  await exec("budget.set", {
+    period: "2026-06",
+    lines: [
+      { accountId: "acc_subscription_revenue", amount: parseINR("6,00,000") },
+      { accountId: "acc_salary", amount: parseINR("3,00,000") },
+      { accountId: "acc_rent", amount: parseINR("80,000") },
+      { accountId: "acc_marketing", amount: parseINR("20,000") },
+      { accountId: "acc_software", amount: parseINR("1,20,000") },
+      { accountId: "acc_professional", amount: parseINR("20,000") },
+    ],
+  }, CONTROLLER);
+
   /* ---------------- June: exceptions raised, close still open ---------------- */
 
-  await exec("agents.scan", { period: "2026-06" });
+  // The close runs first because it is what posts June's revenue
+  // recognition. Scanning before it would measure the month's revenue
+  // against plan while the month's revenue was still unrecognised, and open
+  // the demo on a 100% miss that the very next step disproves.
   await exec("close.run", { period: "2026-06" }, CONTROLLER);
+  await exec("agents.scan", { period: "2026-06" });
 };

@@ -134,6 +134,18 @@ export const erpPage = () => `<!doctype html>
   </div>
 
   <div class="card">
+    <div class="card-head"><h2>The standing agent</h2><button class="btn btn-primary" id="sweep">Run a sweep</button></div>
+    <div class="card-sub">Runs unasked: works the close, chases what is late, watches runway. It drafts and settles only what a grant already covers — it never waives a check.</div>
+    <div id="cfo"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Budget vs actual</h2><button class="btn" id="set-budget">Set a budget</button></div>
+    <div class="card-sub">The plan the agents measure against — only accounts someone actually planned appear</div>
+    <div id="budgets"></div>
+  </div>
+
+  <div class="card">
     <div class="card-head"><h2>Continuous agents</h2><span class="pill neutral" id="prop-count">–</span></div>
     <div class="card-sub">Agents propose; a human approves. Approving is what posts the entry.</div>
     <div id="proposals"></div>
@@ -273,6 +285,55 @@ async function loadAgents() {
       }).join("");
 }
 
+async function loadCfo() {
+  const d = await get("cfo");
+  if (!d.hasRun) {
+    $("cfo").innerHTML = '<div class="muted">' + d.digest + "</div>";
+    return;
+  }
+  $("cfo").innerHTML =
+    '<div class="prop"><div class="prop-why">' + d.digest + "</div>" +
+    '<div class="task-detail">last swept ' + d.ranAt + " · as of " + d.asOf + "</div></div>" +
+    d.plays.map((p) => {
+      // An unchanged play is named, not re-explained. The whole point of the
+      // fingerprint is that a person can skim past what did not move.
+      const state = p.unchanged
+        ? '<span class="pill neutral">unchanged</span>'
+        : p.headline
+          ? '<span class="pill warn">new</span>'
+          : '<span class="pill ok">clear</span>';
+      return (
+        '<div class="prop"><div class="prop-head">' + state +
+        '<span class="prop-title">' + p.title + "</span></div>" +
+        (p.headline ? '<div class="prop-why">' + p.headline + "</div>" : "") +
+        p.did.map((x) => '<div class="task-detail">✓ ' + x + "</div>").join("") +
+        p.forYou.map((f) => '<div class="blocker">↳ ' + f.what + " — needs " + f.needs + "</div>").join("") +
+        "</div>"
+      );
+    }).join("");
+}
+
+async function loadBudgets() {
+  const d = await get("budgets");
+  $("budgets").innerHTML = d.lines.length === 0
+    ? '<div class="muted">No budget set for ' + d.period + " — nothing to measure against yet.</div>"
+    : "<table><thead><tr><th>Account</th><th class=\"num\">Budget</th><th class=\"num\">Actual</th>" +
+      '<th class="num">Variance</th><th></th></tr></thead><tbody>' +
+      d.lines.map((l) =>
+        "<tr><td>" + l.name + "</td><td class=\"num\">" + l.budget + '</td><td class="num">' + l.actual +
+        '</td><td class="num">' + l.variance + (l.pct === null ? "" : " (" + l.pct + "%)") + "</td><td>" +
+        // Only a breach gets a colour. Marking every unfavourable line red
+        // trains people to read past red.
+        (l.breach
+          ? '<span class="pill bad">RAISED</span>'
+          : l.unfavourable
+            ? '<span class="pill neutral">over, within tolerance</span>'
+            : '<span class="pill ok">on plan</span>') +
+        "</td></tr>",
+      ).join("") +
+      "</tbody></table>";
+}
+
 async function loadSubledgers() {
   const d = await get("subledgers");
   $("ties").innerHTML =
@@ -328,7 +389,7 @@ async function loadAuthority() {
       ).join("");
 }
 
-const loadAll = () => Promise.all([loadClose(), loadRevenue(), loadMetrics(), loadAgents(), loadAuthority(), loadSubledgers(), loadContracts()]);
+const loadAll = () => Promise.all([loadClose(), loadRevenue(), loadMetrics(), loadAgents(), loadCfo(), loadBudgets(), loadAuthority(), loadSubledgers(), loadContracts()]);
 
 $("proposals").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-act]");
@@ -381,6 +442,37 @@ $("grant").addEventListener("click", async () => {
     body: JSON.stringify({ id: "auth_" + Date.now(), kind, maxAmount, maxPerSweep, note }),
   }).then((x) => x.json());
   if (!r.ok) alert(r.error || "Could not grant that.");
+  await loadAll();
+});
+
+$("sweep").addEventListener("click", async () => {
+  const btn = $("sweep");
+  btn.disabled = true;
+  btn.textContent = "Sweeping…";
+  try {
+    const r = await fetch("/api/erp/cfo/run", { method: "POST" }).then((x) => x.json());
+    if (!r.ok) alert(r.error || "The sweep could not run.");
+    await loadAll();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run a sweep";
+  }
+});
+
+$("set-budget").addEventListener("click", async () => {
+  // Same prompt style as a grant, for the same reason: two questions someone
+  // reads beats a form they fill in without looking.
+  const accountId = prompt("Which account?\n\ne.g. acc_marketing", "acc_marketing");
+  if (!accountId) return;
+  const amount = prompt("Planned amount for the period", "20,000");
+  if (!amount) return;
+
+  const r = await fetch("/api/erp/budgets", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ lines: [{ accountId, amount }] }),
+  }).then((x) => x.json());
+  if (!r.ok) alert(r.error || "Could not set that budget.");
   await loadAll();
 });
 

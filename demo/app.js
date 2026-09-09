@@ -1948,6 +1948,48 @@ export const handle = async (req, res) => {
       }
     }
 
+    /**
+     * Run the standing agent now.
+     *
+     * The same permission as working the close, because a sweep contains
+     * one — plus drafting, which is harmless, and settling, which is not.
+     */
+    if (path === "/api/erp/cfo/run" && req.method === "POST") {
+      const { books, refusal } = await booksForWrite(req, res, "post_journal");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        const body = JSON.parse((await readBody(req)) || "{}");
+        await books.exec("cfo.run", { asOf: body.asOf || AS_OF }, "cfo-agent");
+        return send(200, { ok: true, cfo: erpApi(books.org, books.org.erp).cfo() });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
+    /**
+     * Setting the plan the agents measure against.
+     *
+     * Through `books.exec` like every other write, so a budget survives a
+     * restart — and behind `set_budget`, which admins and owners hold but
+     * accountants do not: whoever can move the budget line can silence the
+     * variance that fires on it.
+     */
+    if (path === "/api/erp/budgets" && req.method === "POST") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const { books, refusal } = await booksForWrite(req, res, "set_budget");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        const lines = (Array.isArray(body.lines) ? body.lines : []).map((l) => ({
+          accountId: String(l.accountId ?? ""),
+          amount: parseINR(String(l.amount ?? "0")),
+        }));
+        await books.exec("budget.set", { period: body.period || CLOSE_PERIOD, lines }, CONTROLLER);
+        return send(200, { ok: true, budgets: erpApi(books.org, books.org.erp).budgets() });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
     if (path === "/api/erp/close/run" && req.method === "POST") {
       const { books, refusal } = await booksForWrite(req, res, "close_period");
       if (refusal) return send(refusal.code, refusal.body);

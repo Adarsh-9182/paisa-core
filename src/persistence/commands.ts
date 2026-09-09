@@ -343,6 +343,20 @@ export const COMMANDS: Record<string, CommandHandler> = {
   "recommendations.approve": (ctx, pl, actor) => ctx.org.recommendations.approve(p(pl, "id"), actor),
   "recommendations.dismiss": (ctx, pl, actor) => ctx.org.recommendations.dismiss(p(pl, "id"), actor),
 
+  /* ---------------- the standing agent ---------------- */
+
+  /*
+   * A sweep is a write: it drafts, it settles what a grant covers, it runs
+   * the close. Recording it is also what gives the agent its memory — replay
+   * rebuilds what it had already seen, so a restarted process does not
+   * re-announce yesterday or queue a second copy of the same reminder.
+   */
+  "cfo.run": (ctx, pl, actor) => ctx.erp.cfo.run(p(pl, "asOf"), actor),
+
+  /* ---------------- budgets ---------------- */
+
+  "budget.set": (ctx, pl, actor) => ctx.erp.budgets.set(p(pl, "period"), p(pl, "lines"), actor),
+
   /* ---------------- connectors ---------------- */
 
   "connector.register": (ctx, pl) => ctx.erp.connectors.register(p(pl, "source"), p(pl, "kind")),

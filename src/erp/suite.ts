@@ -21,11 +21,14 @@ import { ScheduleEngine } from "./schedules.js";
 import { FxEngine } from "./fx.js";
 import { ReconciliationEngine } from "./reconciliation.js";
 import { MetricsEngine } from "./metrics.js";
+import { BudgetEngine, ActualLine, BudgetError, VarianceReport } from "./budgets.js";
 import { CloseEngine, CloseContext } from "./close.js";
 import { AgentEngine } from "./agents.js";
 import { AuthorityRegistry } from "./authority.js";
 import { ConnectorHub } from "./connectors.js";
 import { FlowEngine } from "./flow-engine.js";
+import { CfoAgent } from "./cfo-agent.js";
+import { draftPaymentReminder, REMINDER_KIND } from "../reminders.js";
 
 export interface SubledgerTieOut {
   readonly asOf: string;
@@ -44,17 +47,31 @@ export interface ErpSuite {
   readonly fx: FxEngine;
   readonly reconciliation: ReconciliationEngine;
   readonly metrics: MetricsEngine;
+  readonly budgets: BudgetEngine;
   readonly close: CloseEngine;
   readonly agents: AgentEngine;
   readonly authority: AuthorityRegistry;
   readonly connectors: ConnectorHub;
   readonly flows: FlowEngine;
   /**
+   * The standing agent: the one thing here that runs without being asked.
+   * It spends authority that already exists and drafts what it cannot do
+   * alone — see cfo-agent.ts for why that boundary is the whole design.
+   */
+  readonly cfo: CfoAgent;
+  /**
    * AR and AP as they stood on a date, against their GL control accounts.
    * The close checklist and any reporting surface must share this one
    * implementation — two copies of a tie-out is how they come to disagree.
    */
   readonly tieOut: (asOf: string) => { readonly ar: SubledgerTieOut; readonly ap: SubledgerTieOut };
+  /**
+   * Budget against actuals for a period, with the actuals already supplied
+   * from the P&L. Callers get the same figures the BUDGET_VARIANCE agent
+   * read — a reporting surface that assembles its own actuals is a second
+   * set of books waiting to disagree with the first.
+   */
+  readonly budgetReport: (period: PeriodKey) => VarianceReport;
 }
 
 export interface ErpOptions {
@@ -85,6 +102,22 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
   const fx = new FxEngine(org.orgId, opts.functionalCurrency ?? "INR", org.journal, org.bus);
   const reconciliation = new ReconciliationEngine(org.orgId, org.bus);
   const metrics = new MetricsEngine(contracts, revrec);
+  /*
+   * Only P&L accounts can be budgeted. Budgeting a bank balance is not a
+   * plan a variance report can speak about, and letting it through would put
+   * a line on the page whose "over" and "under" mean nothing.
+   */
+  const budgetAccount = (accountId: string) => {
+    const account = org.chart.get(accountId);
+    if (account.type !== "REVENUE" && account.type !== "EXPENSE") {
+      throw new BudgetError(
+        `${accountId} is a ${account.type} account — only revenue and expense accounts can be budgeted`,
+      );
+    }
+    return { name: account.name, type: account.type };
+  };
+
+  const budgets = new BudgetEngine(org.orgId, org.bus, budgetAccount);
   const flows = new FlowEngine(org.orgId, org.bus);
 
   const cashAccounts = opts.cashAccounts ?? [{ accountId: "acc_bank", name: "Bank" }];
@@ -123,6 +156,21 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
     };
     return { ar: build(arSubledgerTotal(asOf), "acc_ar"), ap: build(apSubledgerTotal(asOf), "acc_ap") };
   };
+
+  /**
+   * P&L accounts for a period, tagged with their direction. The close
+   * checklist and the budget report read the same numbers from here — a
+   * second way to total the P&L is a second set of figures to reconcile.
+   */
+  const plActuals = (period: PeriodKey): readonly ActualLine[] => {
+    const pl = org.statements.profitAndLoss(periodStart(period), periodEnd(period));
+    return [
+      ...pl.revenue.map((r) => ({ accountId: r.accountId, name: r.name, type: "REVENUE" as const, amount: r.amount })),
+      ...pl.expenses.map((e) => ({ accountId: e.accountId, name: e.name, type: "EXPENSE" as const, amount: e.amount })),
+    ];
+  };
+
+  const budgetReport = (period: PeriodKey): VarianceReport => budgets.variance(period, plActuals(period));
 
   const closeContext: CloseContext = {
     periods,
@@ -170,13 +218,7 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
       ).netGain,
     fxRevalued: (period) => fx.wasRevalued(period),
 
-    plAccounts: (period) => {
-      const pl = org.statements.profitAndLoss(periodStart(period), periodEnd(period));
-      return [
-        ...pl.revenue.map((r) => ({ accountId: r.accountId, name: r.name, amount: r.amount })),
-        ...pl.expenses.map((e) => ({ accountId: e.accountId, name: e.name, amount: e.amount })),
-      ];
-    },
+    plAccounts: (period) => plActuals(period).map(({ accountId, name, amount }) => ({ accountId, name, amount })),
   };
 
   const close = new CloseEngine(org.orgId, closeContext, org.bus);
@@ -219,6 +261,9 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
       // agent explains the movements; it does not get its own opinion about
       // which ones matter.
       materialFlux: (period) => close.flux(period),
+      // Same discipline for the plan: the budget engine decides what counts
+      // as off-plan, the agent only explains what drove it.
+      budgetVariance: (period) => budgetReport(period).lines,
       unreviewedBankLines: (asOf) => org.banking.pendingReview().filter((l) => l.date <= asOf),
       latestReconciliations: () =>
         cashAccounts
@@ -269,7 +314,32 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
     org.bus,
   );
 
-  const suite: ErpSuite = { periods, contracts, revrec, bills, schedules, fx, reconciliation, metrics, close, agents, authority, connectors, flows, tieOut };
+  /*
+   * The agent reaches the organization through these hooks and nothing else.
+   * Handing it `org` would give a scheduled process the run of the books;
+   * this way its blast radius is four functions long and reviewable.
+   */
+  const cfo = new CfoAgent({
+    close: { close, agents, authority },
+    overdueInvoices: (asOf, minDaysOverdue) =>
+      org.invoices
+        .overdue(asOf)
+        .filter((o) => o.daysOverdue >= minDaysOverdue)
+        .map((o) => ({
+          number: o.invoice.number,
+          customer: o.invoice.customer,
+          outstanding: o.outstanding,
+          daysOverdue: o.daysOverdue,
+        })),
+    pendingDrafts: () => org.actions.pending().map((a) => ({ kind: a.kind, summary: a.summary })),
+    draftReminder: (invoiceNumber, asOf) => draftPaymentReminder(org, invoiceNumber, asOf).summary,
+    cash: (asOf) => {
+      const m = org.cashflow.metrics(asOf);
+      return { cash: m.cashOnHand, runwayDays: m.runwayDays };
+    },
+  });
+
+  const suite: ErpSuite = { periods, contracts, revrec, bills, schedules, fx, reconciliation, metrics, budgets, close, agents, authority, connectors, flows, cfo, tieOut, budgetReport };
 
   /*
    * Record what was attached, on the org it was attached to.

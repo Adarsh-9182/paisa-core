@@ -71,6 +71,13 @@ const ROUTES: readonly Route[] = [
       "Paisa has no live market feed and never guesses or predicts a price — a valuation exists only when an explicit price mark is recorded. Here's your portfolio at its recorded marks.",
   },
   {
+    // Ahead of the spend rules below, because "are we over budget on
+    // marketing" is a budget question first and a spend question second.
+    match: /budget|over ?spen[dt]|\bon track\b|against (the )?plan|variance/i,
+    calls: (cfg) => [{ tool: "get_budget_variance", args: { period: cfg.asOf.slice(0, 7) } }],
+    intro: "Here's the month against plan — only accounts someone actually budgeted appear.",
+  },
+  {
     match: /fraud|suspicious|anomal|duplicate|unusual (spend|charge|transaction|activity|payment)|double.?(charged|paid|billed)/i,
     calls: (cfg) => [{ tool: "screen_transactions", args: { asOf: cfg.asOf } }],
     intro: "I screened your recent ledger for duplicate payments and out-of-pattern charges.",

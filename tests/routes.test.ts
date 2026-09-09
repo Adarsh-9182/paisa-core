@@ -154,6 +154,12 @@ describe("route authority", () => {
       ["/api/erp/authority/grant", "manage members"],
       ["/api/erp/authority/auth_x/revoke", "manage members"],
       ["/api/erp/authority/settle", "post journal"],
+      // The budget is what the variance queue fires on, so editing it is a
+      // deciding permission, not a recording one.
+      ["/api/erp/budgets", "set budget"],
+      // A sweep settles findings under a grant, which posts. It cannot be
+      // cheaper to ask for than the close it contains.
+      ["/api/erp/cfo/run", "post journal"],
     ] as const) {
       const reply = await call("POST", path, { cookie: viewer, body: {} });
       expect(reply.status, path).toBe(403);
@@ -163,6 +169,42 @@ describe("route authority", () => {
     // Reading is what a viewer is for, and it still works.
     const read = await call("GET", "/api/erp/revenue", { cookie: viewer });
     expect(read.status).toBe(200);
+  });
+
+  it("runs a sweep over the wire and leaves its digest behind", async () => {
+    const before = await call("GET", "/api/erp/cfo", { cookie: owner });
+    expect(before.status).toBe(200);
+
+    const run = await call("POST", "/api/erp/cfo/run", { cookie: owner, body: {} });
+    expect(run.body.ok, run.body.error).toBe(true);
+
+    const after = await call("GET", "/api/erp/cfo", { cookie: owner });
+    expect(after.body.hasRun).toBe(true);
+    expect(after.body.plays.map((p: { play: string }) => p.play)).toEqual(["close", "receivables", "runway"]);
+    expect(after.body.digest.length).toBeGreaterThan(0);
+  });
+
+  it("sets a budget over the wire, and the variance report picks it up", async () => {
+    const set = await call("POST", "/api/erp/budgets", {
+      cookie: owner,
+      body: { period: "2026-06", lines: [{ accountId: "acc_travel", amount: "1,00,000" }] },
+    });
+    expect(set.status).toBe(200);
+    expect(set.body.ok, set.body.error).toBe(true);
+
+    const report = await call("GET", "/api/erp/budgets", { cookie: owner });
+    const travel = report.body.lines.find((l: { accountId: string }) => l.accountId === "acc_travel");
+    expect(travel, "a budget set over the wire should appear on the report").toBeTruthy();
+    expect(travel.budget).toContain("1,00,000");
+  });
+
+  it("refuses a budget on an account that cannot carry one, rather than charting nonsense", async () => {
+    const set = await call("POST", "/api/erp/budgets", {
+      cookie: owner,
+      body: { period: "2026-06", lines: [{ accountId: "acc_bank", amount: "1,00,000" }] },
+    });
+    expect(set.body.ok).toBe(false);
+    expect(set.body.error).toContain("acc_bank");
   });
 
   it("still serves the close page after the period is locked", async () => {
