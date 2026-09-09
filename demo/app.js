@@ -529,10 +529,10 @@ const page = () => `<!doctype html>
   .shell.collapsed .sidebar { transform: translateX(-100%); }
   .side-top { display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px; }
   .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; letter-spacing: -.2px; padding: 6px 8px; flex: 1; }
-  .logo-mark {
-    width: 26px; height: 26px; border-radius: 8px; background: var(--accent); color: #fff;
-    display: grid; place-items: center; font-weight: 700; font-size: 15px;
-  }
+  /* The mark is a square bitmap whose own rounded corners were cropped off,
+     so the radius here is what restores them — a proportion, not a fixed
+     pixel value, or the two sizes it renders at would round differently. */
+  .logo-mark { width: 26px; height: 26px; border-radius: 22%; display: block; flex: none; }
   .icon-btn {
     width: 32px; height: 32px; border-radius: 8px; border: 0; background: transparent;
     color: var(--ink-2); display: grid; place-items: center; cursor: pointer; flex: none;
@@ -628,8 +628,7 @@ const page = () => `<!doctype html>
   .hello .dateline { font-size: 12.5px; color: var(--ink-3); letter-spacing: .02em; margin-bottom: 10px; }
   .hello h1 { font-size: 30px; font-weight: 650; letter-spacing: -.7px; line-height: 1.25; }
   .hello p { color: var(--ink-2); margin-top: 6px; font-size: 15px; }
-  .hello .mark { width: 46px; height: 46px; border-radius: 14px; background: var(--accent); color: #fff;
-    display: grid; place-items: center; font-size: 24px; font-weight: 700; margin: 0 auto 16px; }
+  .hello .mark { width: 46px; height: 46px; border-radius: 22%; display: block; margin: 0 auto 16px; }
 
   .brief { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; background: var(--surface); }
   .brief-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -676,10 +675,7 @@ const page = () => `<!doctype html>
     background: var(--user-bub); border-radius: 18px; padding: 10px 15px; max-width: 78%;
     white-space: pre-wrap; overflow-wrap: anywhere;
   }
-  .turn.ai .mark {
-    width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: #fff;
-    display: grid; place-items: center; font-size: 14px; font-weight: 700; flex: none; margin-top: 1px;
-  }
+  .turn.ai .mark { width: 28px; height: 28px; border-radius: 22%; display: block; flex: none; margin-top: 1px; }
   .turn.ai .body { min-width: 0; flex: 1; }
   .body > *:first-child { margin-top: 0; } .body > *:last-child { margin-bottom: 0; }
   .body p { margin: 0 0 12px; overflow-wrap: anywhere; }
@@ -774,7 +770,7 @@ const page = () => `<!doctype html>
 
   <aside class="sidebar">
     <div class="side-top">
-      <div class="brand"><span class="logo-mark">₹</span>paisa</div>
+      <div class="brand"><img class="logo-mark" src="/logo.png" alt="" width="26" height="26">paisa</div>
       <button class="icon-btn" id="collapse" aria-label="Hide sidebar" title="Hide sidebar">
         <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
       </button>
@@ -810,7 +806,7 @@ const page = () => `<!doctype html>
       <div class="col">
         <div class="empty" id="empty">
           <div class="hello">
-            <div class="mark">₹</div>
+            <img class="mark" src="/logo.png" alt="" width="46" height="46">
             <div class="dateline" id="dateline"></div>
             <h1 id="greeting">Hi, I&#39;m Paisa</h1>
             <p>Your AI CFO. Ask me anything about your money.</p>
@@ -1177,7 +1173,7 @@ function addAI(m) {
   const unverified = m.verified === false
     ? '<div class="badge-unverified">Not fully verified against the ledger</div>' : "";
   $("thread").insertAdjacentHTML("beforeend",
-    '<div class="turn ai"><div class="mark">₹</div><div class="body">' +
+    '<div class="turn ai"><img class="mark" src="/logo.png" alt="Paisa"><div class="body">' +
       '<div class="answer">' + md(m.text) + "</div>" +
       actionCards(m.actions) + unverified + tools +
       '<div class="msgbar"><button data-copy type="button">' + COPY_ICON + "<span>Copy</span></button>" +
@@ -1187,7 +1183,7 @@ function addAI(m) {
 
 function addThinking() {
   $("thread").insertAdjacentHTML("beforeend",
-    '<div class="turn ai" id="pending"><div class="mark">₹</div><div class="body">' +
+    '<div class="turn ai" id="pending"><img class="mark" src="/logo.png" alt="Paisa"><div class="body">' +
     '<div class="thinking">Checking the ledger<span class="dots"><i></i><i></i><i></i></span></div></div></div>');
 }
 
@@ -1859,6 +1855,17 @@ export const handle = async (req, res) => {
 
     // vercel.json rewrites every path into this function, so the social card
     // is served from here rather than trusted to static hosting.
+    // The brand mark, served from here for the same reason as the social
+    // card: vercel.json rewrites every path into this function, so nothing
+    // reaches static hosting on its own.
+    if (path === "/logo.png") {
+      const png = await readFile(new URL("../public/logo.png", import.meta.url));
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      return res.end(png);
+    }
+
     if (path === "/og.png") {
       const png = await readFile(new URL("../public/og.png", import.meta.url));
       res.statusCode = 200;
