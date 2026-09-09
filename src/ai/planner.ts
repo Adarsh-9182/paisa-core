@@ -18,6 +18,8 @@ export interface PlannerConfig {
 interface Route {
   readonly match: RegExp;
   readonly calls: (cfg: PlannerConfig, query: string) => ToolCallRequest[];
+  /** Dependent calls may use only identifiers returned by the first tools. */
+  readonly followUp?: (cfg: PlannerConfig, results: readonly string[]) => ToolCallRequest[];
   readonly intro: string; // no digits allowed here — narration figures must come from tools
 }
 
@@ -55,7 +57,7 @@ const ROUTES: readonly Route[] = [
     // the knowledge base; questions about THIS business's tax position fall
     // through to the live GST tools below.
     match:
-      /(what|which)[^.?]{0,40}(rate|slab|hsn|sac\b|section|threshold)|(gst|tax) rate|can (i|we) claim|\bitc\b.{0,20}(claim|block|eligib|allowed)|blocked (itc|credit)|composition scheme|reverse charge|\brcm\b|44ad\b|44ada\b|80c\b|80d\b|194[cij]\b|115bac|presumptive|advance tax|\btds\b|e.?invoic|new regime|old regime|tax slab|register for gst|registration (threshold|limit)|is .{0,40}(exempt|taxable)/i,
+      /(what|which)[^.?]{0,40}(rate|slab|hsn|sac\b|section|threshold)|(gst|tax) rate|can (i|we) claim|\bitc\b.{0,20}(claim|block|eligib|allowed)|blocked (itc|credit)|composition scheme|reverse charge|\brcm\b|44ad\b|44ada\b|80c\b|80d\b|194[cij]\b|115bac|presumptive|advance tax|\btds\b|\be[- ]?invoic(?:es?|ing)\b|new regime|old regime|tax slab|register for gst|registration (threshold|limit)|is .{0,40}(exempt|taxable)/i,
     calls: (_cfg, query) => [{ tool: "lookup_regulation", args: { query } }],
     intro: "Here's what the law says, from Paisa's regulation knowledge base — each entry carries its source and the date it was verified.",
   },
@@ -81,6 +83,19 @@ const ROUTES: readonly Route[] = [
     match: /fraud|suspicious|anomal|duplicate|unusual (spend|charge|transaction|activity|payment)|double.?(charged|paid|billed)/i,
     calls: (cfg) => [{ tool: "screen_transactions", args: { asOf: cfg.asOf } }],
     intro: "I screened your recent ledger for duplicate payments and out-of-pattern charges.",
+  },
+  {
+    // Only an explicit, singular instruction drafts. Questions about whether
+    // to chase, negation, and requests naming another invoice stay read-only.
+    match: /^\s*(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:chase|follow up on)\s+(?:the\s+)?(?:oldest\s+)?overdue invoice(?:\s+for me)?[.!?]?\s*$/i,
+    calls: (cfg) => [{ tool: "list_overdue_invoices", args: { asOf: cfg.asOf } }],
+    followUp: (cfg, results) => {
+      // The tool sorts by days overdue. Take its first identifier exactly;
+      // an empty list or a failed read must never turn into a guessed target.
+      const number = /^overdue_count=[1-9]\d* .*? invoices: (.+?) customer="/.exec(results[0] ?? "")?.[1];
+      return number ? [{ tool: "propose_payment_reminder", args: { asOf: cfg.asOf, invoiceNumber: number } }] : [];
+    },
+    intro: "I checked overdue invoices to prepare a reminder for the oldest one. Any draft below needs your approval; nothing has been sent.",
   },
   {
     // "owes us/me" is a receivables question; "do we owe" (GST, vendors) is not.
@@ -212,10 +227,13 @@ export class CfoPlanner implements LanguageModelProvider {
 
   async run(ctx: AgentContext): Promise<string> {
     const route = ROUTES.find((r) => r.match.test(ctx.userQuery)) ?? FALLBACK;
-    const sections = route
+    const outputs = route
       .calls(this.cfg, ctx.userQuery)
-      .map((call) => prettify(call.tool, ctx.executeTool(call.tool, { ...call.args })))
-      .join("\n\n");
+      .map((call) => ({ tool: call.tool, result: ctx.executeTool(call.tool, { ...call.args }) }));
+    for (const call of route.followUp?.(this.cfg, outputs.map((o) => o.result)) ?? []) {
+      outputs.push({ tool: call.tool, result: ctx.executeTool(call.tool, { ...call.args }) });
+    }
+    const sections = outputs.map((o) => prettify(o.tool, o.result)).join("\n\n");
     const outro =
       "\n\n_Every figure above comes straight from your ledger — ask me to drill into any of them._";
     return `${route.intro}\n\n${sections}${outro}`;

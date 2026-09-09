@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { Platform, parseINR } from "../src/index.js";
 import { attachErp } from "../src/erp/suite.js";
-import { CfoAgent, describeRun, CfoContext } from "../src/erp/cfo-agent.js";
+import { CfoAgent, describeRun, CfoContext, CfoRun } from "../src/erp/cfo-agent.js";
 import { ZERO } from "../src/money.js";
 import { PaisaRuntime } from "../src/persistence/runtime.js";
 import { MemoryActionStore } from "../src/persistence/store.js";
@@ -96,6 +96,7 @@ describe("CfoAgent", () => {
     const digest = describeRun(again);
     expect(digest).toContain("Nothing new");
     expect(digest).toContain("still waiting on you");
+    expect(digest).toContain("1 reminder awaiting approval");
   });
 
   it("treats an invoice getting older as news, not as the same news", () => {
@@ -124,15 +125,116 @@ describe("CfoAgent", () => {
     const run = erp.cfo.run(ASOF, "cfo-agent");
     const receivables = run.plays.find((p) => p.play === "receivables")!;
     expect(receivables.did).toHaveLength(3);
-    expect(receivables.headline).toContain("2 left for you");
+    expect(receivables.headline).toContain("Drafted 3 reminders this run; 2 still need reminders; 3 awaiting approval");
+
+    const second = erp.cfo.run(ASOF, "cfo-agent").plays.find((p) => p.play === "receivables")!;
+    expect(second.did).toHaveLength(2);
+    expect(second.headline).toContain("Drafted 2 reminders this run; 0 still need reminders; 5 awaiting approval");
+    expect(org.actions.pending()).toHaveLength(5);
+
+    const third = erp.cfo.run(ASOF, "cfo-agent");
+    expect(third.plays.find((p) => p.play === "receivables")!.did).toHaveLength(0);
+    expect(describeRun(third)).toContain("5 reminders awaiting approval");
+    expect(org.actions.pending()).toHaveLength(5);
   });
 
   it("never waives a close blocker to make its own report look better", () => {
     const { erp } = company("org_cfo7");
     erp.cfo.run(ASOF, "cfo-agent");
 
-    const waived = erp.close.status("2026-06")!.tasks.filter((t) => t.status === "WAIVED");
+    const waived = erp.close.status("2026-05")!.tasks.filter((t) => t.status === "WAIVED");
     expect(waived).toHaveLength(0);
+  });
+
+  it("works the completed month and leaves current-month invoice posting open", () => {
+    const { org, erp } = company("org_cfo_open");
+    const run = erp.cfo.run("2026-06-09", "cfo-agent");
+    expect(run.period).toBe("2026-05");
+    expect(erp.periods.status("2026-05")).toBe("SOFT_CLOSED");
+    expect(erp.periods.status("2026-06")).toBe("OPEN");
+    expect(() => overdueInvoice(org, "JUN-1", "Acme", "2026-06-09", "2026-06-30", "100")).not.toThrow();
+  });
+
+  it("skips periods before the books began and periods already closed", () => {
+    const { erp } = company("org_cfo_periods");
+    const beforeBooks = erp.cfo.run("2026-01-15", "cfo-agent");
+    expect(beforeBooks.plays.find((p) => p.play === "close")!.headline).toBeNull();
+    expect(erp.close.status("2025-12")).toBeNull();
+    expect(erp.periods.status("2026-01")).toBe("OPEN");
+
+    erp.periods.close("2026-01", ACTOR);
+    const alreadyClosed = erp.cfo.run("2026-02-15", "cfo-agent");
+    expect(alreadyClosed.plays.find((p) => p.play === "close")!.headline).toBeNull();
+    expect(erp.close.status("2026-01")).toBeNull();
+    expect(erp.periods.status("2026-02")).toBe("OPEN");
+  });
+
+  it("reports a partial payment as news even when the invoice and its age are unchanged", () => {
+    const { org, erp } = company("org_cfo_amount");
+    const invoice = overdueInvoice(org, "INV-AMOUNT", "Acme", "2026-04-01", "2026-04-20", "1,000");
+    erp.cfo.run(ASOF, "cfo-agent");
+    org.invoices.recordPayment(invoice.id, "2026-06-30", parseINR("100"), ACTOR);
+    const afterPayment = erp.cfo.run(ASOF, "cfo-agent").plays.find((p) => p.play === "receivables")!;
+    expect(afterPayment.unchanged).toBe(false);
+    expect(afterPayment.headline).toContain("₹1,080.00 outstanding");
+    expect(afterPayment.did).toHaveLength(0);
+  });
+
+  it("retains pending approval visibility after an invoice is fully paid", () => {
+    const { org, erp } = company("org_cfo_paid");
+    const invoice = overdueInvoice(org, "INV-PAID", "Acme", "2026-04-01", "2026-04-20", "1,000");
+    erp.cfo.run(ASOF, "cfo-agent");
+    org.invoices.recordPayment(invoice.id, "2026-06-30", invoice.total, ACTOR);
+    const afterPayment = erp.cfo.run(ASOF, "cfo-agent");
+    expect(afterPayment.plays.find((p) => p.play === "receivables")!.did).toHaveLength(0);
+    expect(describeRun(afterPayment)).toContain("1 reminder awaiting approval");
+  });
+
+  it("spends its attempt limit on failures too, and reports only successful drafts as done", () => {
+    const { erp } = company("org_cfo_failures");
+    const pending: { kind: string; summary: string }[] = [];
+    const attempted: string[] = [];
+    const agent = new CfoAgent({
+      close: { close: erp.close, agents: erp.agents, authority: erp.authority },
+      overdueInvoices: () => [1, 2, 3, 4, 5].map((n) => ({
+        number: `INV-${n}`, customer: `Customer ${n}`, daysOverdue: 60 - n, outstanding: parseINR("100"),
+      })),
+      pendingDrafts: () => pending,
+      draftReminder: (number) => {
+        attempted.push(number);
+        if (number !== "INV-2") throw new Error("invoice needs review");
+        const summary = "Send a reminder to Customer 2 for INV-2";
+        pending.push({ kind: "payment_reminder", summary });
+        return summary;
+      },
+      cash: () => ({ cash: ZERO, runwayDays: null, monthlyNetBurn: ZERO }),
+    });
+    const receivables = agent.run(ASOF, "cfo-agent").plays.find((p) => p.play === "receivables")!;
+    expect(attempted).toEqual(["INV-1", "INV-2", "INV-3"]);
+    expect(receivables.did).toHaveLength(1);
+    expect(receivables.headline).toContain("Drafted 1 reminder this run; 4 still need reminders; 1 awaiting approval");
+    expect(receivables.forYou.filter((f) => f.why === "invoice needs review")).toHaveLength(2);
+    expect(receivables.forYou.some((f) => f.what === "2 overdue invoices still need reminders")).toBe(true);
+  });
+
+  it("keeps unavailable runway visible and distinguishes known non-burning cash flow", () => {
+    const { org, erp } = company("org_cfo_missing_cash");
+    const missing = erp.cfo.run(ASOF, "cfo-agent").plays.find((p) => p.play === "runway")!;
+    expect(missing.headline).toContain("Cash runway is unavailable");
+    expect(missing.forYou[0]!.why).toContain("Insufficient transaction history");
+    expect(describeRun(erp.cfo.run(ASOF, "cfo-agent"))).toContain("Cash runway could not be assessed");
+
+    org.journal.post({
+      date: "2026-06-30", narration: "New capital", sourceModule: "manual", createdBy: ACTOR,
+      lines: [
+        { accountId: "acc_bank", side: "DEBIT", amount: parseINR("1,000") },
+        { accountId: "acc_capital", side: "CREDIT", amount: parseINR("1,000") },
+      ],
+    });
+    const notBurning = erp.cfo.run(ASOF, "cfo-agent").plays.find((p) => p.play === "runway")!;
+    expect(notBurning.headline).toBeNull();
+    expect(notBurning.forYou).toHaveLength(0);
+    expect(notBurning.fingerprint).toBe("runway|not-burning");
   });
 
   it("keeps running when one play throws, and reports the failure every time", () => {
@@ -255,8 +357,41 @@ describe("CfoAgent across a restart", () => {
     const restored = await PaisaRuntime.open({ ...OPTS, store });
     expect(restored.erp.cfo.runs(), "replay should rebuild the sweeps").toHaveLength(1);
 
-    const after = await restored.execute("cfo.run", { asOf: ASOF }, "cfo-agent");
-    expect(after.result.plays.find((p: { play: string }) => p.play === "receivables")!.unchanged).toBe(true);
+    const after = await restored.execute<CfoRun>("cfo.run", { asOf: ASOF }, "cfo-agent");
+    expect(after.result.plays.find((p) => p.play === "receivables")!.unchanged).toBe(true);
     expect(restored.org.actions.pending().length, "a restart must not queue a second reminder").toBe(drafted);
+    expect(describeRun(after.result)).toContain("1 reminder awaiting approval");
+    expect(store.all().filter((a) => a.action.type === "cfo.run").every((a) => a.action.payload.version === 2)).toBe(true);
+    expect(restored.erp.periods.status("2026-06")).toBe("OPEN");
+  });
+
+  it("replays unversioned sweeps with the original period and reminder selection", async () => {
+    const store = new MemoryActionStore();
+    const live = await PaisaRuntime.open({ ...OPTS, store });
+    await anOverdueInvoice(live);
+    for (const n of [2, 3, 4, 5]) {
+      const invoice = await live.execute<{ id: string }>("invoice.create", {
+        input: { number: `INV-30${n}`, customer: `Customer ${n}`, issueDate: "2026-04-01", dueDate: "2026-04-20",
+          lines: [{ description: "Retainer", amount: parseINR("1,000"), gstRatePct: 18 }] },
+      }, ACTOR);
+      await live.execute("invoice.send", { invoiceId: invoice.result.id }, ACTOR);
+    }
+    // Bypass execute's new-command version stamp to represent a historical log.
+    for (let n = 0; n < 2; n++)
+      await store.append(OPTS.orgId, { type: "cfo.run", payload: { asOf: ASOF }, actor: "cfo-agent" });
+
+    const restored = await PaisaRuntime.open({ ...OPTS, store });
+    expect(restored.skippedActions()).toHaveLength(0);
+    expect(restored.erp.periods.status("2026-06")).toBe("SOFT_CLOSED");
+    expect(restored.erp.periods.status("2026-05")).toBe("OPEN");
+    expect(restored.org.actions.pending()).toHaveLength(3);
+    expect(restored.erp.cfo.last()!.plays.find((p) => p.play === "receivables")!.did).toHaveLength(0);
+
+    await restored.execute("cfo.run", { asOf: ASOF }, "cfo-agent");
+    expect(restored.org.actions.pending()).toHaveLength(5);
+    const replayedAgain = await PaisaRuntime.open({ ...OPTS, store });
+    expect(replayedAgain.skippedActions()).toHaveLength(0);
+    expect(replayedAgain.org.actions.pending()).toHaveLength(5);
+    expect(replayedAgain.org.journal.all().length).toBe(restored.org.journal.all().length);
   });
 });

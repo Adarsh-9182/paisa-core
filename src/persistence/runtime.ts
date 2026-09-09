@@ -81,7 +81,10 @@ export class PaisaRuntime {
   async execute<T = unknown>(type: string, payload: Record<string, unknown>, actor: string): Promise<ExecuteResult<T>> {
     if (!isKnownCommand(type))
       throw new CommandError(`Unknown command "${type}" — it cannot be persisted, so it is refused`);
-    const action: Action = { type, payload, actor };
+    // New CFO policy must be recorded before execution; replay of older,
+    // unversioned sweeps keeps its original period and reminder selection.
+    const recordedPayload = type === "cfo.run" ? { ...payload, version: payload.version ?? 2 } : payload;
+    const action: Action = { type, payload: recordedPayload, actor };
     const logged = await this.store.append(this.orgId, action);
     this.lastSeq = logged.seq;
     const result = this.apply(logged, /* throwOnError */ true) as T;

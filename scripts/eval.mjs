@@ -20,7 +20,7 @@
 import { AnthropicProvider } from "../dist/src/ai/anthropic.js";
 import { OpenAIProvider } from "../dist/src/ai/openai.js";
 import { CfoPlanner } from "../dist/src/ai/planner.js";
-import { GOLDEN_CASES, formatReport, runEval } from "../dist/src/ai/eval.js";
+import { GOLDEN_CASES, formatReport, passesEvalReleaseGate, runEval } from "../dist/src/ai/eval.js";
 import { PaisaRuntime } from "../dist/src/index.js";
 import { seedAll } from "../demo/seed.js";
 
@@ -87,5 +87,5 @@ const report = await runEval(provider, GOLDEN_CASES, {
 
 console.log(`\n${formatReport(report, rates)}`);
 
-// Non-zero on failure so this can gate a deploy rather than only inform one.
-process.exit(report.passed === report.total ? 0 : 1);
+// Outages are excluded from quality scores, but cannot pass a release gate.
+process.exit(passesEvalReleaseGate(report, GOLDEN_CASES) ? 0 : 1);

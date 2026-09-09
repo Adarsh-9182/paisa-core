@@ -12,11 +12,11 @@ import { Platform, parseINR } from "../src/index.js";
 import { attachErp } from "../src/erp/suite.js";
 import { BudgetEngine, BudgetError } from "../src/erp/budgets.js";
 import { EventBus } from "../src/events.js";
-import { ZERO } from "../src/money.js";
+import { ZERO, type Paise } from "../src/money.js";
 
 const ACTOR = "priya";
 
-const spend = (org: ReturnType<Platform["createOrganization"]>, date: string, narration: string, amount: bigint, accountId = "acc_software") =>
+const spend = (org: ReturnType<Platform["createOrganization"]>, date: string, narration: string, amount: Paise, accountId = "acc_software") =>
   org.journal.post({
     date,
     narration,

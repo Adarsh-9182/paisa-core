@@ -182,14 +182,13 @@ describe("route authority", () => {
     expect((await call("GET", "/api/cron/sweep")).status).toBe(401);
     expect((await call("GET", "/api/cron/sweep", { headers: { authorization: "Bearer wrong" } })).status).toBe(401);
 
-    // And the schedule itself works, on the real books rather than a sandbox.
+    // Authentication is necessary, but an isolated process cannot run a
+    // durable schedule. Local/manual sweeps remain available separately.
     const swept = await call("GET", "/api/cron/sweep", { headers: { authorization: "Bearer s3cret" } });
-    expect(swept.status).toBe(200);
-    expect(swept.body.ok, swept.body.error).toBe(true);
-    expect(swept.body.digest.length).toBeGreaterThan(0);
-    // Whether a sweep's memory survives to tomorrow is a fact about the
-    // deployment, and the response says it rather than implying durability.
-    expect(typeof swept.body.durable).toBe("boolean");
+    expect(swept.status).toBe(503);
+    expect(swept.body.ok).toBe(false);
+    expect(swept.body.error).toContain("requires durable storage");
+    expect((await call("POST", "/api/cron/sweep", { headers: { authorization: "Bearer s3cret" } })).status).toBe(405);
 
     if (previous === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = previous;
