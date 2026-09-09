@@ -31,12 +31,12 @@ interface Reply {
 const call = async (
   method: string,
   url: string,
-  { cookie = "", body }: { cookie?: string; body?: unknown } = {},
+  { cookie = "", body, headers: extra = {} }: { cookie?: string; body?: unknown; headers?: Record<string, string> } = {},
 ): Promise<Reply> => {
   const req: any = Readable.from(body === undefined ? [] : [JSON.stringify(body)]);
   req.method = method;
   req.url = url;
-  req.headers = { host: "localhost:3000", ...(cookie ? { cookie } : {}) };
+  req.headers = { host: "localhost:3000", ...(cookie ? { cookie } : {}), ...extra };
 
   const headers = new Map<string, string | string[]>();
   let status = 200;
@@ -169,6 +169,30 @@ describe("route authority", () => {
     // Reading is what a viewer is for, and it still works.
     const read = await call("GET", "/api/erp/revenue", { cookie: viewer });
     expect(read.status).toBe(200);
+  });
+
+  it("refuses the scheduled sweep to anyone without the cron secret", async () => {
+    const previous = process.env.CRON_SECRET;
+
+    delete process.env.CRON_SECRET;
+    const off = await call("GET", "/api/cron/sweep");
+    expect(off.status, "no secret configured must not mean open to everyone").toBe(503);
+
+    process.env.CRON_SECRET = "s3cret";
+    expect((await call("GET", "/api/cron/sweep")).status).toBe(401);
+    expect((await call("GET", "/api/cron/sweep", { headers: { authorization: "Bearer wrong" } })).status).toBe(401);
+
+    // And the schedule itself works, on the real books rather than a sandbox.
+    const swept = await call("GET", "/api/cron/sweep", { headers: { authorization: "Bearer s3cret" } });
+    expect(swept.status).toBe(200);
+    expect(swept.body.ok, swept.body.error).toBe(true);
+    expect(swept.body.digest.length).toBeGreaterThan(0);
+    // Whether a sweep's memory survives to tomorrow is a fact about the
+    // deployment, and the response says it rather than implying durability.
+    expect(typeof swept.body.durable).toBe("boolean");
+
+    if (previous === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = previous;
   });
 
   it("runs a sweep over the wire and leaves its digest behind", async () => {
