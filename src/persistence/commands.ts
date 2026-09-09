@@ -351,7 +351,8 @@ export const COMMANDS: Record<string, CommandHandler> = {
    * rebuilds what it had already seen, so a restarted process does not
    * re-announce yesterday or queue a second copy of the same reminder.
    */
-  "cfo.run": (ctx, pl, actor) => ctx.erp.cfo.run(p(pl, "asOf"), actor),
+  // Unversioned historical commands retain their original decisions on replay.
+  "cfo.run": (ctx, pl, actor) => ctx.erp.cfo.run(p(pl, "asOf"), actor, opt<1 | 2>(pl, "version", 1)),
 
   /* ---------------- budgets ---------------- */
 

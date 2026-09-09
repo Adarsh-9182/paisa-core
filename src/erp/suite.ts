@@ -321,6 +321,7 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
    */
   const cfo = new CfoAgent({
     close: { close, agents, authority },
+    periods: { firstPeriod: periods.firstPeriod, status: (period) => periods.status(period) },
     overdueInvoices: (asOf, minDaysOverdue) =>
       org.invoices
         .overdue(asOf)
@@ -335,7 +336,7 @@ export const attachErp = (org: Organization, opts: ErpOptions): ErpSuite => {
     draftReminder: (invoiceNumber, asOf) => draftPaymentReminder(org, invoiceNumber, asOf).summary,
     cash: (asOf) => {
       const m = org.cashflow.metrics(asOf);
-      return { cash: m.cashOnHand, runwayDays: m.runwayDays };
+      return { cash: m.cashOnHand, runwayDays: m.runwayDays, monthlyNetBurn: m.monthlyNetBurn, note: m.note };
     },
   });
 

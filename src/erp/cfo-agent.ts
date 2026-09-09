@@ -27,7 +27,7 @@
  */
 
 import { Paise, formatINR } from "../money.js";
-import { PeriodKey, periodOf } from "./periods.js";
+import { PeriodKey, periodOf, prevPeriod } from "./periods.js";
 import { CloseAgentContext, workTheClose } from "./close-agent.js";
 import { REMINDER_KIND, reminderSummary } from "../reminders.js";
 
@@ -81,6 +81,10 @@ export interface CfoRun {
 export interface CfoContext {
   /** The close checklist, its findings, and the grants that settle them. */
   readonly close: CloseAgentContext;
+  readonly periods?: {
+    readonly firstPeriod: PeriodKey;
+    readonly status: (period: PeriodKey) => string;
+  };
   readonly overdueInvoices: (asOf: string, minDaysOverdue: number) => readonly {
     readonly number: string;
     readonly customer: string;
@@ -94,6 +98,9 @@ export interface CfoContext {
   readonly cash: (asOf: string) => {
     readonly cash: Paise;
     readonly runwayDays: number | null;
+    /** Null means missing history; a non-positive value means no net burn. */
+    readonly monthlyNetBurn?: Paise | null;
+    readonly note?: string;
   };
 }
 
@@ -115,7 +122,7 @@ const DEFAULT_THRESHOLDS: CfoThresholds = {
 interface Play {
   readonly id: string;
   readonly title: string;
-  run(ctx: CfoContext, asOf: string, actor: string, t: CfoThresholds): Omit<PlayResult, "play" | "title" | "unchanged">;
+  run(ctx: CfoContext, asOf: string, actor: string, t: CfoThresholds, version: 1 | 2): Omit<PlayResult, "play" | "title" | "unchanged">;
 }
 
 /* ------------------------------------------------------------------ */
@@ -133,8 +140,14 @@ interface Play {
 const closePlay: Play = {
   id: "close",
   title: "Month-end close",
-  run(ctx, asOf, actor) {
-    const period = periodOf(asOf);
+  run(ctx, asOf, actor, _t, version) {
+    // Old recorded commands must freeze the same period on replay. New
+    // sweeps only work a completed month; daily monitoring must leave this
+    // month's incoming invoices and bank feeds open.
+    const period = version === 1 ? periodOf(asOf) : prevPeriod(periodOf(asOf));
+    if (version === 2 && ctx.periods &&
+        (period < ctx.periods.firstPeriod || ctx.periods.status(period) === "CLOSED"))
+      return { headline: null, did: [], forYou: [], fingerprint: `close|${period}|ineligible` };
     const attempt = workTheClose(ctx.close, period, actor);
 
     // Deliberately not `describeAttempt`: that paragraph ends with its own
@@ -168,25 +181,30 @@ const closePlay: Play = {
 const receivablesPlay: Play = {
   id: "receivables",
   title: "Receivables",
-  run(ctx, asOf, _actor, t) {
+  run(ctx, asOf, _actor, t, version) {
     const overdue = [...ctx.overdueInvoices(asOf, t.chaseAfterDays)].sort((a, b) => b.daysOverdue - a.daysOverdue);
-    if (overdue.length === 0)
+    if (version === 1 && overdue.length === 0)
       return { headline: null, did: [], forYou: [], fingerprint: "receivables|none" };
-
     // A reminder already waiting on a person is a reminder. Drafting a
     // second one does not chase the customer any harder; it only makes the
     // queue look like work.
-    const alreadyDrafted = new Set(
-      ctx.pendingDrafts().filter((d) => d.kind === REMINDER_KIND).map((d) => d.summary),
+    const pending = ctx.pendingDrafts().filter((d) => d.kind === REMINDER_KIND);
+    const alreadyDrafted = new Set(pending.map((d) => d.summary));
+    const needsReminder = overdue.filter((invoice) =>
+      !alreadyDrafted.has(reminderSummary(invoice.customer, invoice.number)),
     );
+    // Version one is retained only for replay: changing its selection can
+    // create extra historical drafts and shift later action identifiers.
+    const attempted = version === 1
+      ? overdue.slice(0, t.maxRemindersPerRun).filter((invoice) =>
+          !alreadyDrafted.has(reminderSummary(invoice.customer, invoice.number)))
+      : needsReminder.slice(0, t.maxRemindersPerRun);
 
     const did: Did[] = [];
     const failed: ForYou[] = [];
-    for (const invoice of overdue.slice(0, t.maxRemindersPerRun)) {
-      // Asked BEFORE drafting, not after. Drafting first and discarding the
-      // duplicate still puts it in the queue — the run that was supposed to
-      // add nothing adds one more every morning.
-      if (alreadyDrafted.has(reminderSummary(invoice.customer, invoice.number))) continue;
+    // Apply the cap after excluding pending drafts, so later invoices can
+    // advance on the next sweep. Failures still spend an attempt.
+    for (const invoice of attempted) {
       try {
         ctx.draftReminder(invoice.number, asOf);
         did.push(`Drafted a reminder for ${invoice.customer} — ${invoice.number}, ${invoice.daysOverdue} days late`);
@@ -200,27 +218,58 @@ const receivablesPlay: Play = {
     }
 
     const total = overdue.reduce((acc, o) => acc + o.outstanding, 0n) as Paise;
-    const beyond = overdue.length - Math.min(overdue.length, t.maxRemindersPerRun);
+    const waitingApproval = pending.length + did.length;
+    const remaining = needsReminder.length - did.length;
+    const deferred = needsReminder.length - attempted.length;
+
+    if (version === 1) {
+      const beyond = overdue.length - Math.min(overdue.length, t.maxRemindersPerRun);
+      return {
+        headline: `${overdue.length} invoice${overdue.length === 1 ? "" : "s"} past ${t.chaseAfterDays} days — ` +
+          `${formatINR(total)} outstanding, oldest ${overdue[0]!.daysOverdue} days` +
+          (beyond > 0 ? `. Drafted the ${t.maxRemindersPerRun} oldest; ${beyond} left for you.` : "."),
+        did,
+        forYou: [...failed, ...(did.length > 0 ? [{
+          what: `${did.length} reminder${did.length === 1 ? "" : "s"} drafted`,
+          why: "nothing is sent until a person approves it",
+          needs: "approve or dismiss each draft",
+        }] : [])],
+        fingerprint: `receivables|${overdue.map((o) => `${o.number}@${o.daysOverdue}`).join(",")}`,
+      };
+    }
+
+    if (overdue.length === 0 && waitingApproval === 0)
+      return { headline: null, did: [], forYou: [], fingerprint: "receivables|none" };
 
     return {
       headline:
-        `${overdue.length} invoice${overdue.length === 1 ? "" : "s"} past ${t.chaseAfterDays} days — ` +
-        `${formatINR(total)} outstanding, oldest ${overdue[0]!.daysOverdue} days` +
-        (beyond > 0 ? `. Drafted the ${t.maxRemindersPerRun} oldest; ${beyond} left for you.` : "."),
+        (overdue.length > 0
+          ? `${overdue.length} invoice${overdue.length === 1 ? "" : "s"} past ${t.chaseAfterDays} days — ` +
+            `${formatINR(total)} outstanding, oldest ${overdue[0]!.daysOverdue} days. `
+          : "No invoices past the chase threshold. ") +
+        `Drafted ${did.length} reminder${did.length === 1 ? "" : "s"} this run; ` +
+        `${remaining} still need reminders; ${waitingApproval} awaiting approval.`,
       did,
       forYou: [
         ...failed,
-        ...(did.length > 0
+        ...(waitingApproval > 0
           ? [{
-              what: `${did.length} reminder${did.length === 1 ? "" : "s"} drafted`,
+              what: `${waitingApproval} reminder${waitingApproval === 1 ? "" : "s"} awaiting approval`,
               why: "nothing is sent until a person approves it",
               needs: "approve or dismiss each draft",
             }]
           : []),
+        ...(deferred > 0
+          ? [{
+              what: `${deferred} overdue invoice${deferred === 1 ? "" : "s"} still need reminders`,
+              why: "the reminder attempt limit was reached for this run",
+              needs: "run another sweep or prepare the remaining reminders",
+            }]
+          : []),
       ],
-      // Days overdue, not just the invoice numbers: the same invoice getting
-      // older is the news, and a set of numbers alone would call it unchanged.
-      fingerprint: `receivables|${overdue.map((o) => `${o.number}@${o.daysOverdue}`).join(",")}`,
+      // Partial payments and pending decisions change the work even when
+      // the invoice numbers and their age stay the same.
+      fingerprint: `receivables|${overdue.map((o) => `${o.number}@${o.daysOverdue}@${o.outstanding}`).join(",")}|pending:${waitingApproval}|remaining:${remaining}`,
     };
   },
 };
@@ -235,10 +284,30 @@ const receivablesPlay: Play = {
 const runwayPlay: Play = {
   id: "runway",
   title: "Cash runway",
-  run(ctx, asOf, _actor, t) {
-    const { cash, runwayDays } = ctx.cash(asOf);
+  run(ctx, asOf, _actor, t, version) {
+    const { cash, runwayDays, monthlyNetBurn, note } = ctx.cash(asOf);
 
-    if (runwayDays === null || runwayDays > t.runwayAlarmDays)
+    if (version === 1 && runwayDays === null)
+      return { headline: null, did: [], forYou: [], fingerprint: "runway|ok" };
+
+    if (runwayDays === null) {
+      if (monthlyNetBurn !== undefined && monthlyNetBurn !== null && monthlyNetBurn <= 0n)
+        return { headline: null, did: [], forYou: [], fingerprint: "runway|not-burning" };
+
+      const reason = note || "Insufficient cash-flow history to assess runway.";
+      return {
+        headline: `Cash runway is unavailable. ${reason}`,
+        did: [],
+        forYou: [{
+          what: "Cash runway could not be assessed",
+          why: reason,
+          needs: "check connected accounts and import the missing transaction history",
+        }],
+        fingerprint: `runway|unavailable|${reason}`,
+      };
+    }
+
+    if (runwayDays > t.runwayAlarmDays)
       return {
         headline: null,
         did: [],
@@ -298,12 +367,13 @@ export class CfoAgent {
    * means a bug in receivables silently stops the close from being worked,
    * and the person only finds out at month-end.
    */
-  run(asOf: string, actor: string): CfoRun {
+  run(asOf: string, actor: string, version: 1 | 2 = 2): CfoRun {
+    if (version !== 1 && version !== 2) throw new Error(`Unsupported CFO sweep version: ${version}`);
     const results: PlayResult[] = [];
 
     for (const play of this.plays) {
       try {
-        const outcome = play.run(this.ctx, asOf, actor, this.thresholds);
+        const outcome = play.run(this.ctx, asOf, actor, this.thresholds, version);
         const unchanged = this.seen.get(play.id) === outcome.fingerprint;
         this.seen.set(play.id, outcome.fingerprint);
         results.push({ play: play.id, title: play.title, ...outcome, unchanged });
@@ -332,7 +402,7 @@ export class CfoAgent {
 
     const run: CfoRun = {
       asOf,
-      period: periodOf(asOf),
+      period: version === 1 ? periodOf(asOf) : prevPeriod(periodOf(asOf)),
       actor,
       ranAt: new Date().toISOString(),
       plays: results,

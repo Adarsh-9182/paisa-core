@@ -133,6 +133,38 @@ export interface EvalReport {
 }
 
 /**
+ * Release acceptance requires the whole suite, including every repeated
+ * attempt. Quality metrics exclude outages; that must never turn an
+ * incomplete run into permission to release.
+ */
+export function passesEvalReleaseGate(report: EvalReport, expectedCases: readonly EvalCase[]): boolean {
+  const expectedIds = new Set(expectedCases.map((c) => c.id));
+  const results = new Map(report.cases.map((r) => [r.id, r]));
+  if (
+    expectedCases.length === 0 ||
+    expectedIds.size !== expectedCases.length ||
+    results.size !== report.cases.length ||
+    report.cases.length !== expectedCases.length ||
+    report.unreached !== 0 ||
+    report.total !== expectedCases.length ||
+    report.passed !== expectedCases.length
+  ) return false;
+
+  return expectedCases.every((c) => {
+    const result = results.get(c.id);
+    const attempts = Math.max(1, c.repeat ?? 1);
+    return (
+      Number.isSafeInteger(attempts) &&
+      result !== undefined &&
+      result.ok &&
+      result.error === undefined &&
+      (result.attempts ?? 1) === attempts &&
+      (result.passes ?? Number(result.ok)) === attempts
+    );
+  });
+}
+
+/**
  * The golden set.
  *
  * Deliberately small and hand-written. A large generated eval measures the

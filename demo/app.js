@@ -18,6 +18,7 @@
 import { readFile } from "node:fs/promises";
 import { erpApi, ERP_READS, CONTROLLER, CLOSE_PERIOD } from "./erp-console.js";
 import { describeRun } from "../dist/src/erp/cfo-agent.js";
+import { indiaBusinessDate, runScheduledCfo, CfoScheduleUnavailableError } from "../dist/src/erp/cfo-schedule.js";
 import { FAVICON_PNG, APPLE_TOUCH_PNG } from "./mark.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
@@ -1714,30 +1715,18 @@ export const handle = async (req, res) => {
      * sweeping stale books would chase an invoice that is already paid.
      */
     if (path === "/api/cron/sweep") {
+      if (req.method !== "GET") {
+        res.setHeader("Allow", "GET");
+        return send(405, { ok: false, error: "Use GET for the scheduled sweep." });
+      }
       const secret = process.env.CRON_SECRET;
       if (!secret) return send(503, { ok: false, error: "No CRON_SECRET is configured, so the schedule is off." });
       if (req.headers.authorization !== `Bearer ${secret}`) return send(401, { ok: false, error: "Not authorised." });
 
-      await ready;
-      await sync();
       try {
-        const run = await runtime.execute("cfo.run", { asOf: AS_OF }, "cfo-agent");
-        const digest = describeRun(run.result);
-        return send(200, {
-          ok: true,
-          // Said plainly, because it decides whether this schedule means
-          // anything: without a database each instance holds its own books,
-          // so a sweep's memory of what it already said dies with the
-          // instance and tomorrow's run repeats today's.
-          persistence: persistence.mode,
-          durable: persistence.mode !== "memory" && persistence.mode !== "memory-fallback",
-          acted: run.result.acted,
-          waiting: run.result.waiting,
-          quiet: run.result.quiet,
-          digest,
-        });
+        return send(200, await runScheduledCfo(runtime, persistence.mode));
       } catch (err) {
-        return send(200, { ok: false, error: err.message });
+        return send(err instanceof CfoScheduleUnavailableError ? 503 : 500, { ok: false, error: err.message });
       }
     }
 
@@ -2001,7 +1990,7 @@ export const handle = async (req, res) => {
       if (refusal) return send(refusal.code, refusal.body);
       try {
         const body = JSON.parse((await readBody(req)) || "{}");
-        await books.exec("cfo.run", { asOf: body.asOf || AS_OF }, "cfo-agent");
+        await books.exec("cfo.run", { asOf: body.asOf || (books.demo ? AS_OF : indiaBusinessDate()), version: 2 }, "cfo-agent");
         return send(200, { ok: true, cfo: erpApi(books.org, books.org.erp).cfo() });
       } catch (err) {
         return send(200, { ok: false, error: err.message });

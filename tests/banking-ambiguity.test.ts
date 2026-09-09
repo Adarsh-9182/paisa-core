@@ -14,13 +14,13 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { Platform } from "../src/index.js";
+import { Platform, parseINR } from "../src/index.js";
 
 const line = (description: string, reference = "R1") => ({
   reference,
   date: "2026-04-01",
   description,
-  amount: -50000n,
+  amount: parseINR("-500"),
 });
 
 const books = (id: string) => new Platform().createOrganization(id, "Nimbus Labs");
