@@ -19,6 +19,7 @@ import { readFile } from "node:fs/promises";
 import { erpApi, ERP_READS, CONTROLLER, CLOSE_PERIOD } from "./erp-console.js";
 import { describeRun } from "../dist/src/erp/cfo-agent.js";
 import { indiaBusinessDate, runScheduledCfo, CfoScheduleUnavailableError } from "../dist/src/erp/cfo-schedule.js";
+import { parseStatementCsv } from "../dist/src/bank-import.js";
 import { FAVICON_PNG, APPLE_TOUCH_PNG } from "./mark.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
@@ -637,6 +638,17 @@ const page = () => `<!doctype html>
   .btn-ghost:hover { background: var(--side-hover); }
 
 
+  .importer { display: flex; align-items: center; gap: 13px; padding: 15px 17px; cursor: pointer;
+    border: 1px dashed var(--line); border-radius: var(--radius); background: var(--surface); }
+  .importer:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .importer.busy { opacity: .6; pointer-events: none; }
+  .imp-icon { width: 36px; height: 36px; border-radius: 10px; flex: none; display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); }
+  .imp-icon svg { width: 19px; height: 19px; }
+  .imp-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .imp-copy b { font-size: 14.5px; font-weight: 600; }
+  .imp-copy span { font-size: 12.5px; color: var(--ink-2); }
+
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; justify-content: center; }
   .chips button {
     border: 1px solid var(--line); background: var(--surface); border-radius: 99px;
@@ -783,6 +795,19 @@ const page = () => `<!doctype html>
             <h1 id="greeting">Hi, I&#39;m Paisa</h1>
             <p>Your AI CFO. Ask me anything about your money.</p>
           </div>
+          <label class="importer" id="importer">
+            <input type="file" id="stmtfile" accept=".csv,text/csv" hidden>
+            <span class="imp-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
+              </svg>
+            </span>
+            <span class="imp-copy">
+              <b>Import a bank statement</b>
+              <span>Upload the CSV your bank exports. Nothing posts to the ledger without a rule you taught or a review.</span>
+            </span>
+          </label>
+
           <div class="chips" id="suggest"></div>
         </div>
         <div class="thread" id="thread" hidden></div>
@@ -1066,6 +1091,79 @@ const SUGGESTIONS = [
 ];
 $("suggest").innerHTML = SUGGESTIONS.map((s) => "<button type='button'>" + esc(s) + "</button>").join("");
 $("suggest").addEventListener("click", (e) => { if (e.target.tagName === "BUTTON") sendChat(e.target.textContent); });
+
+/* ---------------- statement import ----------------
+   The result is written into the thread rather than into a toast, because
+   what came back is a set of facts about the person's books — how many lines
+   were read, what could not be read and why — and those belong somewhere
+   they can scroll back to and ask about. */
+$("stmtfile").addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  e.target.value = ""; // so choosing the same file twice still fires
+
+  const label = $("importer");
+  label.classList.add("busy");
+  $("empty").hidden = true;
+  $("thread").hidden = false;
+
+  let c = current();
+  if (!c) {
+    c = { id: String(Date.now()) + Math.random().toString(36).slice(2, 7), title: "Statement import", messages: [] };
+    chats.unshift(c);
+    currentId = c.id;
+    $("threadtitle").textContent = c.title;
+    renderConvos();
+  }
+
+  addUser("Import " + file.name);
+  c.messages.push({ role: "user", text: "Import " + file.name });
+  addThinking();
+  scrollDown();
+
+  try {
+    const res = await fetch("/api/banking/import", {
+      method: "POST",
+      headers: { "Content-Type": "text/csv" },
+      body: await file.text(),
+    }).then((r) => r.json());
+
+    let text;
+    if (!res.ok) {
+      text = "I could not read that file.\\n\\n" + res.error;
+    } else {
+      const lines = [];
+      lines.push("**" + res.read + " transaction" + (res.read === 1 ? "" : "s") + " read** from " + file.name + ".");
+      lines.push("");
+      lines.push("- Posted automatically: " + res.posted + " (a rule you taught matched)");
+      lines.push("- Waiting for your review: " + res.needsReview);
+      lines.push("- Already seen, skipped: " + res.duplicates);
+      // An assumption about dates is the one thing here worth interrupting for.
+      if (!res.dateConventionProven)
+        lines.push("\\n> No date in this file settles day-first or month-first, so I read it day-first, the Indian convention. Check one date before you rely on this.");
+      if (res.rejected && res.rejected.length) {
+        lines.push("\\n**" + res.rejected.length + " row" + (res.rejected.length === 1 ? "" : "s") + " I would not import**, rather than guess:");
+        lines.push("");
+        lines.push("| Line | Why |");
+        lines.push("|---|---|");
+        for (const r of res.rejected.slice(0, 12)) lines.push("| " + r.line + " | " + r.reason + " |");
+        if (res.rejected.length > 12) lines.push("\\n…and " + (res.rejected.length - 12) + " more.");
+      }
+      text = lines.join("\\n");
+    }
+    const msg = { role: "assistant", text };
+    $("pending").remove();
+    addAI(msg);
+    c.messages.push(msg);
+    saveChats();
+  } catch {
+    const p = $("pending");
+    if (p) p.remove();
+    addAI({ role: "assistant", text: "The upload did not reach the engine — nothing was imported." });
+  }
+  label.classList.remove("busy");
+  scrollDown();
+});
 
 /* ---------------- thread rendering ---------------- */
 // A CSS scroll-behavior rule cannot override an explicit behavior passed to
@@ -1416,11 +1514,39 @@ const sanitizeHistory = (raw) => {
     .map((t) => ({ role: t.role, text: t.text.slice(0, HISTORY_CHARS) }));
 };
 
-const readBody = (req) =>
+/** A statement is the largest thing anyone posts here; JSON bodies are tiny. */
+const MAX_STATEMENT_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Read a request body, bounded and decoded once.
+ *
+ * Chunks are kept as buffers and joined before decoding. Appending each chunk
+ * to a string decodes it on its own, which splits any multi-byte character
+ * that straddles a chunk boundary — a rupee sign or a Devanagari name in an
+ * uploaded statement would arrive corrupted, and only for large files.
+ *
+ * The cap is enforced while reading rather than after: a route that checks
+ * the length afterwards has already held the whole body in memory.
+ */
+const readBody = (req, limit = MAX_STATEMENT_BYTES) =>
   new Promise((resolve) => {
-    let data = "";
-    req.on("data", (c) => (data += c));
-    req.on("end", () => resolve(data));
+    const chunks = [];
+    let size = 0;
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    req.on("data", (c) => {
+      // A stream may hand over strings rather than buffers, and Buffer.concat
+      // takes only buffers. Normalising here also makes `size` a byte count
+      // rather than a character count, which is what the cap means.
+      const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
+      size += buf.length;
+      // null, not "": the caller must be able to tell a body that was too
+      // large from one that was empty, and say so.
+      if (size > limit) { req.destroy(); return finish(null); }
+      chunks.push(buf);
+    });
+    req.on("end", () => finish(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", () => finish(""));
   });
 
 export const handle = async (req, res) => {
@@ -2114,6 +2240,59 @@ export const handle = async (req, res) => {
           suggestedKeyword: suggestKeyword(l.description),
         })),
       });
+    }
+
+    /**
+     * Upload a bank statement.
+     *
+     * The first door a real company's money comes through. The CSV is parsed
+     * here and the lines go in through the same command the Stripe sync uses,
+     * so an uploaded statement and a synced one are the same thing to the
+     * ledger, to replay, and to a visitor's sandbox.
+     *
+     * Rows the parser could not read unambiguously are returned rather than
+     * imported. It also reports which date convention it used, because a file
+     * where every date is ambiguous is read day-first by assumption, and an
+     * assumption about dates belongs on screen rather than in a comment.
+     */
+    if (path === "/api/banking/import" && req.method === "POST") {
+      const { books, refusal } = await booksForWrite(req, res, "post_journal");
+      if (refusal) return send(refusal.code, refusal.body);
+
+      const csv = await readBody(req);
+      if (csv === null)
+        return send(413, { ok: false, error: "That statement is larger than 2 MB. Export a shorter date range." });
+      if (!csv.trim()) return send(400, { ok: false, error: "No file contents were received." });
+
+      let parsed;
+      try {
+        parsed = parseStatementCsv(csv);
+      } catch (err) {
+        // A file we cannot read at all is a 200 with a reason, not a stack
+        // trace: the person needs to know what to re-export, not that we threw.
+        return send(200, { ok: false, error: err.message });
+      }
+
+      try {
+        const imported = parsed.lines.length
+          // Amounts stay bigint: the action log tags and restores them, and a
+          // string here would be compared and added as a string.
+          ? await books.exec("banking.importStatement", { lines: parsed.lines })
+          : { posted: [], duplicates: [], needsReview: [] };
+        return send(200, {
+          ok: true,
+          read: parsed.lines.length,
+          posted: imported.posted.length,
+          duplicates: imported.duplicates.length,
+          needsReview: imported.needsReview.length,
+          rejected: parsed.rejected,
+          dateConvention: parsed.dateConvention,
+          dateConventionProven: parsed.dateConventionProven,
+          columns: parsed.columns,
+        });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
     }
 
     if (path === "/api/banking/categorize" && req.method === "POST") {
