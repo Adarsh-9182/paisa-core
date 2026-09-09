@@ -7,6 +7,7 @@
  */
 
 import { formatINR } from "../dist/src/index.js";
+import { describeRun } from "../dist/src/erp/cfo-agent.js";
 
 const CONTROLLER = "priya";
 
@@ -143,6 +144,59 @@ export const erpApi = (org, erp) => ({
     };
   },
 
+  /*
+   * Budget against actuals. Only budgeted accounts appear, and favourable
+   * lines are kept in the report even though the agent never raises them —
+   * a variance report that hid the good news would be a list of complaints,
+   * not a plan you can read.
+   */
+  budgets() {
+    const report = erp.budgetReport(PERIOD);
+    return {
+      period: PERIOD,
+      budgetedTotal: formatINR(report.budgetedTotal),
+      actualTotal: formatINR(report.actualTotal),
+      lines: report.lines.map((l) => ({
+        accountId: l.accountId,
+        name: l.name,
+        type: l.type,
+        budget: formatINR(l.budget),
+        actual: formatINR(l.actual),
+        variance: formatINR(l.variance),
+        pct: l.varianceBps === null ? null : Math.round(l.varianceBps / 100),
+        unfavourable: l.unfavourable,
+        breach: l.breach,
+      })),
+    };
+  },
+
+  /*
+   * The agent's own page: what its last sweep did, and what it left. Reading
+   * it never runs a sweep — a GET that acts is how the close route used to
+   * mutate the books just by being loaded.
+   */
+  cfo() {
+    const run = erp.cfo.last();
+    if (!run) return { hasRun: false, plays: [], digest: "The agent has not run yet." };
+    return {
+      hasRun: true,
+      ranAt: run.ranAt,
+      asOf: run.asOf,
+      acted: run.acted,
+      waiting: run.waiting,
+      quiet: run.quiet,
+      digest: describeRun(run),
+      plays: run.plays.map((p) => ({
+        play: p.play,
+        title: p.title,
+        headline: p.headline,
+        unchanged: p.unchanged,
+        did: p.did,
+        forYou: p.forYou,
+      })),
+    };
+  },
+
   subledgers() {
     const asOf = lastDay(PERIOD);
     const t = erp.tieOut(asOf);
@@ -165,4 +219,4 @@ export const erpApi = (org, erp) => ({
  * reach, so a future write method on `erpApi` cannot become reachable by GET
  * just by existing.
  */
-export const ERP_READS = new Set(["close", "revenue", "contracts", "metrics", "agents", "authority", "subledgers"]);
+export const ERP_READS = new Set(["close", "revenue", "contracts", "metrics", "agents", "authority", "subledgers", "budgets", "cfo"]);

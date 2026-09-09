@@ -97,6 +97,10 @@ const TOPICS: readonly Topic[] = [
     tools: ["list_review_queue", "propose_categorization"],
   },
   {
+    triggers: ["budget", "budgets", "budgeted", "plan", "planned", "overspend", "overspent", "over budget", "on track", "variance", "forecast vs actual"],
+    tools: ["get_budget_variance"],
+  },
+  {
     triggers: ["fraud", "suspicious", "duplicate", "duplicates", "anomaly", "anomalies", "unusual", "screen", "screening", "irregular"],
     tools: ["screen_transactions"],
   },
@@ -109,6 +113,10 @@ const TOPICS: readonly Topic[] = [
     // people's words, so both reach the tool that finishes what a grant
     // covers — alongside the list, because the honest answer to "clear this"
     // is usually "I cleared four, here are the three I could not".
+    triggers: ["agent", "sweep", "rounds", "check on everything", "anything i missed", "what have you been doing", "digest", "daily"],
+    tools: ["run_cfo_sweep", "get_last_cfo_sweep"],
+  },
+  {
     triggers: ["settle", "clear the queue", "clear queue", "close the month", "month end", "month-end", "close", "closing", "finish", "sign off", "sign-off", "blocking", "blocked"],
     tools: ["work_the_close", "settle_authorised", "list_pending_actions"],
   },

@@ -12,9 +12,11 @@ import { formatINR, parseINR, sub, sum } from "../money.js";
 import { formatQty } from "../portfolio.js";
 import { searchKnowledge } from "../knowledge.js";
 import { screenTransactions } from "../anomalies.js";
+import { draftPaymentReminder } from "../reminders.js";
 import { Organization } from "../organization.js";
 import type { Permission } from "../tenancy/roles.js";
 import { workTheClose, describeAttempt } from "../erp/close-agent.js";
+import { describeRun } from "../erp/cfo-agent.js";
 
 export type ToolFn = (org: Organization, args: Record<string, unknown>) => string;
 
@@ -40,6 +42,9 @@ export const TOOL_PERMISSIONS: Readonly<Record<string, Permission>> = {
   // Working the close runs the automated close tasks, which post, and
   // settles findings, which post. Same power, same permission.
   work_the_close: "post_journal",
+  // A sweep contains a close attempt, so it cannot be cheaper to ask for than
+  // the close attempt itself — otherwise the wrapper is a way around the map.
+  run_cfo_sweep: "post_journal",
 };
 
 export interface ToolSpec {
@@ -280,36 +285,10 @@ export const TOOLS: Record<string, ToolFn> = {
   propose_payment_reminder: (org, args) => {
     const asOf = str(args.asOf, "asOf");
     const number = str(args.invoiceNumber, "invoiceNumber");
-    const overdue = org.invoices.overdue(asOf).find((o) => o.invoice.number === number);
-    if (!overdue) throw new Error(`Invoice ${number} is not overdue as of ${asOf}`);
-
-    const { invoice, outstanding, daysOverdue } = overdue;
-    const body =
-      `Subject: ${invoice.number} — payment overdue by ${daysOverdue} days\n\n` +
-      `Hello ${invoice.customer},\n\n` +
-      `Invoice ${invoice.number} for ${formatINR(outstanding)} was due on ${invoice.dueDate} ` +
-      `and is now ${daysOverdue} days overdue.\n\n` +
-      `Could you confirm when payment will be made? If it has already been sent, ` +
-      `please share the reference so we can match it.\n\nThank you.`;
-
-    const action = org.actions.propose({
-      kind: "payment_reminder",
-      summary: `Send a reminder to ${invoice.customer} for ${invoice.number}`,
-      detail: body,
-      proposedBy: "cfo-agent",
-      effect: () => {
-        // Recorded, not transmitted: nothing here has a mail server, and
-        // claiming an email was sent would be worse than not sending one.
-        org.bus.emit({
-          orgId: org.orgId,
-          type: "invoice.reminder_drafted",
-          at: new Date().toISOString(),
-          actor: "cfo-agent",
-          payload: { invoice: invoice.number, customer: invoice.customer, daysOverdue },
-        });
-        return `reminder for ${invoice.number} recorded against ${invoice.customer}`;
-      },
-    });
+    // The draft itself lives in reminders.ts, because the CFO agent raises
+    // the identical one when it finds the invoice without being asked.
+    const action = draftPaymentReminder(org, number, asOf);
+    const { invoice, outstanding, daysOverdue } = org.invoices.overdue(asOf).find((o) => o.invoice.number === number)!;
 
     return `action_id=${action.id} kind=payment_reminder invoice=${invoice.number} customer="${invoice.customer}" outstanding=${formatINR(outstanding)} days_overdue=${daysOverdue} status="drafted — awaiting approval, nothing sent"`;
   },
@@ -336,6 +315,60 @@ export const TOOLS: Record<string, ToolFn> = {
    * The ERP half is absent on a bare organization, and the reply says which
    * queues it actually looked at rather than implying it saw both.
    */
+  /**
+   * Plan against actuals, for the period asked about.
+   *
+   * Reports the whole budget, not just the breaches: asked "how are we
+   * tracking", an answer that lists only what went wrong describes a
+   * different company from the one the numbers describe. Which lines were
+   * severe enough to raise is still stated, so the model never has to guess
+   * at materiality — that stays the budget engine's answer.
+   */
+  get_budget_variance: (org, args) => {
+    const period = String(args.period ?? "");
+    if (!org.erp) return `note="This organization has no ERP layer, so no budget has been set."`;
+
+    const report = org.erp.budgetReport(period);
+    if (report.lines.length === 0)
+      return `period=${period} budgeted_accounts=0 note="Nobody has set a budget for this period, so there is nothing to measure against."`;
+
+    const rows = report.lines
+      .map(
+        (l) =>
+          `${l.name}: budget=${formatINR(l.budget)} actual=${formatINR(l.actual)} ` +
+          `variance=${formatINR(l.variance)}${l.varianceBps === null ? "" : ` (${Math.round(l.varianceBps / 100)}%)`} ` +
+          `${l.unfavourable ? "unfavourable" : "favourable"}${l.breach ? " RAISED" : ""}`,
+      )
+      .join("; ");
+
+    return (
+      `period=${period} budgeted_total=${formatINR(report.budgetedTotal)} ` +
+      `actual_total=${formatINR(report.actualTotal)} ` +
+      `raised=${report.lines.filter((l) => l.breach).length} lines: ${rows}`
+    );
+  },
+
+  /**
+   * The standing agent's sweep, on demand.
+   *
+   * Writes — it drafts reminders and settles what a standing authority
+   * already covers — so it is described as writing. What it cannot do is
+   * post anything a person did not pre-authorise, and the digest names
+   * everything it left behind rather than only what it managed.
+   */
+  run_cfo_sweep: (org, args) => {
+    if (!org.erp) return `note="This organization has no ERP layer, so there is no standing agent to run."`;
+    const run = org.erp.cfo.run(str(args.asOf, "asOf"), "cfo-agent");
+    return `acted=${run.acted} waiting=${run.waiting} quiet=${run.quiet} digest="${describeRun(run)}"`;
+  },
+
+  get_last_cfo_sweep: (org) => {
+    if (!org.erp) return `note="This organization has no ERP layer, so there is no standing agent."`;
+    const run = org.erp.cfo.last();
+    if (!run) return `note="The agent has not run yet."`;
+    return `ran_at=${run.ranAt} as_of=${run.asOf} acted=${run.acted} waiting=${run.waiting} digest="${describeRun(run)}"`;
+  },
+
   list_pending_actions: (org) => {
     const drafts = org.actions.pending();
     const findings = org.erp ? org.erp.agents.open() : [];
@@ -503,6 +536,9 @@ export const TOOL_SPECS: readonly ToolSpec[] = [
   { name: "list_pending_actions", description: "Everything waiting on the user, from both queues: drafts the AI proposed in conversation (these expire), and open agent findings about the books such as a missing accrual or a receivable going bad (these do not, and approving one posts a journal entry). Check this before proposing something similar, and whenever asked what needs their attention, what is pending, or what is blocking the close.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },  { name: "get_morning_brief", description: "The full morning brief: health, cash, month metrics, overdue invoices, filings, recommendations.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date"), periodFrom: dateArg("Period start") }, required: ["asOf", "periodFrom"], additionalProperties: false } },
   { name: "work_the_close", description: "Work a month's close as far as it honestly goes: run the checklist, scan for findings, settle everything a standing authority covers, and re-run until no further progress is possible. Reports what it did, what is still blocked, and what each remaining blocker needs from a person. It never waives a check — that is a human decision. Use when asked to close the month, work the close, or find out what is stopping the close.", inputSchema: { type: "object", properties: { period: { type: "string", description: "The period to work, as YYYY-MM" } }, required: ["period"], additionalProperties: false } },
   { name: "settle_authorised", description: "Approve every open agent finding that a standing authority already covers, and report what was left for a person and why. This posts journal entries — but only ones a controller pre-authorised in writing, within their own limits on amount, accounts and period. It cannot approve anything outside a grant, and it cannot widen one. Use when asked to clear the queue, settle what can be settled, or get the close moving.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+  { name: "get_budget_variance", description: "Budget against actuals for a month, per account: what was planned, what was spent or earned, the variance, and which lines were off plan by enough to raise a finding. Only accounts someone actually budgeted appear — an absent account has no plan, not a zero one. Use for any question about budget, plan, overspend, or whether a month is on track.", inputSchema: { type: "object", properties: { period: { type: "string", description: "The period, as YYYY-MM" } }, required: ["period"], additionalProperties: false } },
+  { name: "run_cfo_sweep", description: "Run the standing CFO agent now: work the month's close as far as it honestly goes, draft reminders for genuinely overdue invoices, and check runway — then report what it did, what is unchanged since its last run, and what is left for a person. It writes: it drafts (nothing is sent) and approves only findings a standing authority already covers. It never waives a close check. Use when asked to check on everything, do the rounds, or run the agent.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date") }, required: ["asOf"], additionalProperties: false } },
+  { name: "get_last_cfo_sweep", description: "The standing CFO agent's most recent sweep, without running a new one: when it ran, what it did, and what is still waiting on a person. Use when asked what the agent has been doing, or for the latest digest.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "screen_transactions", description: "Deterministic fraud/anomaly screening over the last 90 days of the ledger: duplicate payments (same narration + amount within a week) and expense charges far above the account's own median. Every finding names the exact journal entries and the rule that fired. Use for questions about fraud, suspicious activity, duplicates, or unusual spending.", inputSchema: { type: "object", properties: { asOf: dateArg("As-of date") }, required: ["asOf"], additionalProperties: false } },
   { name: "lookup_regulation", description: "Search Paisa's curated Indian tax & GST regulation knowledge base: GST rates and registration, ITC conditions and blocked credits, composition scheme, return due-date rules, e-invoicing, reverse charge, income-tax slabs, 44AD/44ADA presumptive schemes, 80C/80D deductions, TDS sections, advance tax. Returns cited passages with a verified-as-of date. Use for ANY question about what the law says — a rate, threshold, section, or eligibility — and never answer such questions from memory.", inputSchema: { type: "object", properties: { query: { type: "string", description: "The legal question or topic, e.g. 'GST rate on software services' or 'ITC on food'" } }, required: ["query"], additionalProperties: false } },
 ];

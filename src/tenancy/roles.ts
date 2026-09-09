@@ -29,6 +29,7 @@ export type Permission =
   | "approve_payments"
   | "approve_bill"
   | "close_period"
+  | "set_budget"
   | "file_tax_return"
   // Administration
   | "manage_members"
@@ -59,15 +60,21 @@ const ACCOUNTANT: readonly Permission[] = [
 const APPROVER: readonly Permission[] = [...VIEWER, "export_data", "approve_payments", "approve_bill"];
 
 /**
- * Admins run the workspace and can do the accounting. They cannot manage
- * members — that is the owner's, so an admin cannot quietly promote
- * themselves or lock the owner out.
+ * Admins run the workspace and can do the accounting. `set_budget` sits here
+ * and not with the accountant: the budget is what the agents raise exceptions
+ * against, so whoever edits it can silence an alarm by moving the line it
+ * fires on — an accountant who could rewrite the plan to fit the spend would
+ * make the variance queue self-approving.
+ *
+ * They cannot manage members — that is the owner's, so an admin cannot
+ * quietly promote themselves or lock the owner out.
  */
 const ADMIN: readonly Permission[] = [
   ...ACCOUNTANT,
   "approve_payments",
   "approve_bill",
   "close_period",
+  "set_budget",
   "file_tax_return",
   "view_payroll",
   "manage_connectors",

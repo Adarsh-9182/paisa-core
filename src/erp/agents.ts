@@ -20,6 +20,7 @@ import { EventBus } from "../events.js";
 import { ChartOfAccounts } from "../accounts.js";
 import { daysBetween } from "../invoices.js";
 import { PeriodKey, periodOf, periodEnd, prevPeriod, periodRange } from "./periods.js";
+import { VarianceLine } from "./budgets.js";
 
 export type ProposalKind =
   | "MISSING_ACCRUAL"
@@ -40,6 +41,16 @@ export type Severity = "LOW" | "MEDIUM" | "HIGH";
 export interface Proposal {
   readonly id: string;
   readonly kind: ProposalKind;
+  /**
+   * What makes this finding the same finding on the next scan.
+   *
+   * Defaults to the title, which is right for an agent whose title names the
+   * thing it found. It is wrong wherever the title carries a number that
+   * moves — a budget variance re-titles itself with every rupee spent, so
+   * keying on the title would raise a fresh finding about the same account
+   * every scan, and a queue that grows on its own is a queue nobody works.
+   */
+  readonly dedupeKey: string;
   readonly severity: Severity;
   readonly period: PeriodKey;
   readonly title: string;
@@ -129,6 +140,15 @@ export interface AgentContextIn {
     readonly explanation: string | null;
     readonly needsExplanation: boolean;
   }[];
+  /**
+   * Budget against actuals for a period, as the budget engine judges it.
+   *
+   * Supplied for the same reason `materialFlux` is: "how far off plan is too
+   * far off plan" is a policy question with one owner, and an agent that
+   * invented its own answer would let a variance be worth raising here and
+   * not worth showing on the budget report — one product, two opinions.
+   */
+  readonly budgetVariance: (period: PeriodKey) => readonly VarianceLine[];
 }
 
 export class AgentEngine {
@@ -164,12 +184,11 @@ export class AgentEngine {
       ...this.fluxVariance(period),
       ...this.uncategorizedSpend(period),
       ...this.reconciliationExceptions(period),
+      ...this.budgetVariance(period),
     ];
     const raised: Proposal[] = [];
     for (const p of found) {
-      const existing = [...this.proposals.values()].find(
-        (x) => x.kind === p.kind && x.period === p.period && x.title === p.title,
-      );
+      const existing = [...this.proposals.values()].find((x) => x.dedupeKey === p.dedupeKey);
       if (existing) continue; // already raised; a decision on it stands
       this.proposals.set(p.id, p);
       raised.push(p);
@@ -651,11 +670,70 @@ export class AgentEngine {
     return [...this.proposals.values()];
   }
 
+  /**
+   * Spending past plan, or revenue short of it.
+   *
+   * Only budgeted accounts can breach — an account nobody planned for cannot
+   * be off plan, and inventing a zero budget for it would fill the queue with
+   * findings about our own missing data. Favourable variances are recorded on
+   * the report but never raised: nobody needs an interruption to be told they
+   * underspent, and a queue that fires on good news is a queue people mute.
+   */
+  private budgetVariance(period: PeriodKey): Proposal[] {
+    const movement = this.movement(period);
+
+    return this.ctx
+      .budgetVariance(period)
+      .filter((line) => line.breach)
+      .map((line) => {
+        const magnitude = abs(line.variance);
+        const pct = line.varianceBps === null ? null : Math.round(line.varianceBps / 100);
+        const drivers = (movement.get(line.accountId)?.drivers ?? [])
+          .slice()
+          .sort((a, b) => cmp(abs(b.amount), abs(a.amount)))
+          .slice(0, 3);
+
+        const gap =
+          line.type === "REVENUE"
+            ? `${formatINR(magnitude)} short of the ${formatINR(line.budget)} planned`
+            : `${formatINR(magnitude)} over the ${formatINR(line.budget)} planned`;
+        const shape = pct === null ? gap : `${gap} (${pct}%)`;
+
+        return this.propose({
+          kind: "BUDGET_VARIANCE",
+          // The account, not the title: the overspend grows through the month
+          // and its title with it, but it stays one finding about one line.
+          dedupeKey: `BUDGET_VARIANCE|${period}|${line.accountId}`,
+          severity: pct === null || pct >= 50 ? "HIGH" : "MEDIUM",
+          period,
+          title: `${line.name}: ${shape}`,
+          rationale:
+            `${line.name} came in at ${formatINR(line.actual)} against a ${formatINR(line.budget)} budget ` +
+            `for ${period} — ${shape}. ` +
+            (drivers.length
+              ? `The largest entries behind it are ${drivers
+                  .map((d) => `"${d.narration}" (${formatINR(abs(d.amount))})`)
+                  .join(", ")}. `
+              : "") +
+            `Either the spend needs a decision or the budget needs updating; leaving both ` +
+            `unchanged means next month's variance says nothing new.`,
+          amount: magnitude,
+          evidence: drivers.map((d) => d.entryId),
+          // A budget breach is a management decision, not a missing entry:
+          // the books are already right. There is nothing to post.
+          proposedEntry: null,
+        });
+      });
+  }
+
   private propose(
-    input: Omit<Proposal, "id" | "status" | "raisedAt" | "decidedBy" | "decidedAt" | "resultingEntryId">,
+    input: Omit<Proposal, "id" | "dedupeKey" | "status" | "raisedAt" | "decidedBy" | "decidedAt" | "resultingEntryId"> & {
+      readonly dedupeKey?: string;
+    },
   ): Proposal {
     return {
       ...input,
+      dedupeKey: input.dedupeKey ?? `${input.kind}|${input.period}|${input.title}`,
       id: `prop_${this.orgId}_${++this.counter}`,
       status: "OPEN",
       raisedAt: new Date().toISOString(),
