@@ -32,9 +32,15 @@ export interface UserAccount {
   readonly createdAt: string;
 }
 
-interface StoredAccount extends UserAccount {
+/**
+ * An account as the durable directory records it. Exported for that one
+ * purpose; nothing that serves a request should ever hold one.
+ */
+export interface StoredAccountRecord extends UserAccount {
   readonly passwordHash: string;
 }
+
+type StoredAccount = StoredAccountRecord;
 
 /**
  * Trim and lower-case, and nothing else.
@@ -53,7 +59,7 @@ export const isEmailShaped = (email: string): boolean =>
   EMAIL_SHAPE.test(email) && email.length <= 254;
 
 let counter = 0;
-const newUserId = () => `u_${Date.now().toString(36)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+export const newUserId = () => `u_${Date.now().toString(36)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 export class AccountDirectory {
   private byEmail = new Map<string, StoredAccount>();
@@ -135,6 +141,33 @@ export class AccountDirectory {
     const updated: StoredAccount = { ...account, passwordHash: await hashPassword(next) };
     this.byEmail.set(account.email, updated);
     this.byId.set(account.userId, updated);
+  }
+
+  /**
+   * Persistence seam: rebuild an account exactly as the log recorded it.
+   *
+   * No validation and no hashing — both happened when the record was
+   * written. Returns false when the address or id is already taken, because
+   * two instances can register the same address at the same moment and the
+   * log, read in order, is the only fair judge of which one came first.
+   */
+  restore(record: StoredAccountRecord): boolean {
+    const normalized = normalizeEmail(record.email);
+    if (this.byEmail.has(normalized) || this.byId.has(record.userId)) return false;
+    const account: StoredAccount = { ...record, email: normalized };
+    this.byEmail.set(normalized, account);
+    this.byId.set(account.userId, account);
+    return true;
+  }
+
+  /** Persistence seam: apply a password change the log already verified. */
+  setPasswordHash(userId: string, passwordHash: string): boolean {
+    const account = this.byId.get(userId);
+    if (!account) return false;
+    const updated: StoredAccount = { ...account, passwordHash };
+    this.byEmail.set(account.email, updated);
+    this.byId.set(account.userId, updated);
+    return true;
   }
 
   /** Testing and persistence seam. Never exposes a hash. */

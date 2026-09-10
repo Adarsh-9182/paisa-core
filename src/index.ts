@@ -13,6 +13,7 @@ export * from "./tax/india.js";
 export * from "./tenancy/roles.js";
 export * from "./tenancy/members.js";
 export * from "./tenancy/accounts.js";
+export * from "./tenancy/directory.js";
 export * from "./banking.js";
 export * from "./recurring.js";
 export * from "./forecast.js";

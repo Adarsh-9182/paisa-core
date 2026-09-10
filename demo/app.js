@@ -26,7 +26,7 @@ import { sitePage } from "./site.js";
 import { productPage, solutionPage, comparePage, partnersPage, resourcesPage,
          aboutPage, customersPage, contactPage, continuousClosePage, docsPage } from "./site/pages.js";
 import { canonicalRedirect, isCanonicalHost, robotsTxt, sitemapXml } from "./site/seo.js";
-import { boot, sync, ORG_ID, ORG_NAME } from "./boot.js";
+import { boot, sync, sharedStore, ORG_ID, ORG_NAME } from "./boot.js";
 import { seedAll, AS_OF, PERIOD_FROM } from "./seed.js";
 import { loginPage, safeNext } from "./login-page.js";
 import { callbackPage } from "./auth-callback-page.js";
@@ -53,8 +53,7 @@ import {
   fetchBillingRecords,
   toBankLines,
   suggestKeyword,
-  AccountDirectory,
-  MemberDirectory,
+  DurableDirectory,
   AccessError,
   normalizeEmail,
   identityFromToken,
@@ -107,8 +106,19 @@ const optionalSessionSecret = () => {
  * the session only carries an identity — authority is looked up, never
  * carried in the cookie.
  */
-const accounts = new AccountDirectory();
-const members = new MemberDirectory();
+/*
+ * Durable, not a pair of Maps. These used to be rebuilt empty at every cold
+ * start with only the founding owner re-registered, so on a serverless host
+ * every sign-up, invitation and role change vanished the next time an
+ * instance started. Changes now go through the directory, which writes them
+ * to the action log first; `accounts` and `members` are its read side.
+ */
+let directory, accounts, members;
+const directoryReady = sharedStore().then(async ({ store }) => {
+  directory = await DurableDirectory.open(store);
+  ({ accounts, members } = directory);
+  return directory;
+});
 
 /**
  * Signup is closed by default.
@@ -147,7 +157,11 @@ const OWNER_EMAIL = normalizeEmail(process.env.PAISA_OWNER_EMAIL ?? "owner@paisa
  * boot, and anything else falls back to its id rather than inventing a name
  * the user never chose.
  */
-const workspaceName = (orgId) => (orgId === ORG_ID ? ORG_NAME : orgId);
+const workspaceName = (orgId) => {
+  const recorded = directory?.workspaceName(orgId);
+  if (recorded && recorded !== orgId) return recorded;
+  return orgId === ORG_ID ? ORG_NAME : orgId;
+};
 
 
 const isSecure = (req) => req.headers["x-forwarded-proto"] === "https" || !!process.env.VERCEL;
@@ -239,10 +253,18 @@ const authReady = (async () => {
     return null;
   }
 
-  const owner = await accounts.register(OWNER_EMAIL, password, process.env.PAISA_OWNER_NAME);
+  // Once across every instance and restart: the log keeps the first
+  // registration and the rest adopt it, and a changed PAISA_PASSWORD rotates
+  // the owner's login on the next boot.
   const booted = await ready;
-  members.found(booted.org.orgId, owner.userId);
-  return owner;
+  const dir = await directoryReady;
+  return dir.ensureOwner({
+    email: OWNER_EMAIL,
+    password,
+    displayName: process.env.PAISA_OWNER_NAME,
+    orgId: booted.org.orgId,
+    orgName: ORG_NAME,
+  });
 })();
 
 /* ------------------------------------------------------------------ */
@@ -1735,7 +1757,10 @@ const readBody = (req, limit = MAX_STATEMENT_BYTES) =>
 
 export const handle = async (req, res) => {
   await ready;
+  await directoryReady;
   await authReady;
+  // Who may do what, as of at most a second ago on this instance.
+  await directory.freshen();
   const path = (req.url ?? "/").split("?")[0];
   const send = (code, body, type = "application/json") => {
     res.statusCode = code;
@@ -1805,7 +1830,15 @@ export const handle = async (req, res) => {
       const gate = await signInThrottle.check(address, ip);
       if (!gate.allowed) return tooManyAttempts(res, send, gate.retryAfterSeconds);
 
-      const account = await accounts.authenticate(address, String(password ?? ""));
+      let account = await accounts.authenticate(address, String(password ?? ""));
+      // They may have signed up on another instance a moment ago. Looking
+      // again costs a second password check on every failure alike, wrong
+      // password or unknown address, so the retry does not become a timing
+      // difference that reveals which addresses have accounts.
+      if (!account) {
+        await directory.sync();
+        account = await accounts.authenticate(address, String(password ?? ""));
+      }
       // One message for both halves. "No account with that email" is a free
       // membership check for anyone holding a list of addresses, which for a
       // finance product is a list of who banks with you.
@@ -1884,7 +1917,11 @@ export const handle = async (req, res) => {
         return send(401, { error: "That Google sign-in could not be verified. Try again." });
       }
 
-      const account = accounts.findByEmail(identity.email);
+      let account = accounts.findByEmail(identity.email);
+      if (!account) {
+        await directory.sync();
+        account = accounts.findByEmail(identity.email);
+      }
       // Unlike the password route, this one may say the address is unknown.
       // Supabase has already proved the caller controls it, so naming it
       // leaks nothing they could not learn by reading their own inbox — and
@@ -1912,7 +1949,7 @@ export const handle = async (req, res) => {
       if (!openSignup()) return send(404, { error: "Not found" });
       const { email, password, name } = JSON.parse((await readBody(req)) || "{}");
       try {
-        const account = await accounts.register(String(email ?? ""), String(password ?? ""), name);
+        const account = await directory.register(String(email ?? ""), String(password ?? ""), name);
 
         /* An account with no workspace is an account that cannot sign in —
            /api/login refuses it, correctly, and the new visitor sees a dead
@@ -1927,7 +1964,7 @@ export const handle = async (req, res) => {
         const owner = await authReady;
         if (owner) {
           const booted = await ready;
-          members.add(members.authorize(owner.userId, booted.org.orgId), account.userId, "viewer");
+          await directory.add(members.authorize(owner.userId, booted.org.orgId), account.userId, "viewer");
         }
 
         return send(201, { ok: true, userId: account.userId, email: account.email });
@@ -2009,7 +2046,7 @@ export const handle = async (req, res) => {
         try {
           members.require(me.access, "manage_members");
           if (!invitee) return send(404, { error: "No account with that email. Ask them to sign up first." });
-          const added = members.add(me.access, invitee.userId, role);
+          const added = await directory.add(me.access, invitee.userId, role);
           return send(201, { ok: true, member: { ...added, email: invitee.email } });
         } catch (err) {
           return send(err instanceof AccessError ? 403 : 400, { error: err.message });
@@ -2024,10 +2061,10 @@ export const handle = async (req, res) => {
       try {
         if (req.method === "PATCH") {
           const { role } = JSON.parse((await readBody(req)) || "{}");
-          return send(200, { ok: true, member: members.changeRole(me.access, userId, role) });
+          return send(200, { ok: true, member: await directory.changeRole(me.access, userId, role) });
         }
         if (req.method === "DELETE") {
-          members.remove(me.access, userId);
+          await directory.remove(me.access, userId);
           return send(200, { ok: true });
         }
       } catch (err) {
