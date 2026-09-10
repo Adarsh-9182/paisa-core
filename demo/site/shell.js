@@ -181,8 +181,8 @@ ${noindex
 <meta name="twitter:title" content="${title}">
 <meta name="twitter:description" content="${description}">
 <meta name="twitter:image" content="${SITE_URL}/og.png">
-<link rel="icon" type="image/png" sizes="any" href="/logo.png?v=2">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
+<link rel="icon" type="image/png" sizes="180x180" href="/icon.png?v=3">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=3">
 ${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ""}
 <style>${TOKENS}${extraCss}</style>
 </head>
