@@ -71,10 +71,31 @@ const rates =
       }
     : undefined;
 
-const provider = pickProvider();
-console.log(`model=${provider.model ?? provider.name} cases=${GOLDEN_CASES.length} asOf=${AS_OF}\n`);
+/*
+ * Hill-climbing one case does not need the other twenty-seven.
+ *
+ *   PAISA_EVAL_ONLY=question-is-not-an-instruction npm run eval
+ *
+ * A comma-separated list of case ids, matched as substrings so a prefix is
+ * enough. The full set stays the thing you trust before shipping — a fix
+ * measured only on the case it targeted is a fix that may have broken two
+ * others.
+ */
+const only = (process.env.PAISA_EVAL_ONLY ?? "")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+const cases = only.length
+  ? GOLDEN_CASES.filter((c) => only.some((o) => c.id.includes(o)))
+  : GOLDEN_CASES;
 
-const report = await runEval(provider, GOLDEN_CASES, {
+if (only.length && cases.length === 0) {
+  console.error(`No case id matches ${only.join(", ")}`);
+  process.exit(2);
+}
+
+const provider = pickProvider();
+console.log(`model=${provider.model ?? provider.name} cases=${cases.length}${only.length ? ` (filtered from ${GOLDEN_CASES.length})` : ""} asOf=${AS_OF}\n`);
+
+const report = await runEval(provider, cases, {
   makeOrg,
   user: { userId: "u_eval", orgId: "eval", permissions: new Set(["access_ai_cfo"]) },
   dates: { asOf: AS_OF },
