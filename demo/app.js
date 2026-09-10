@@ -32,6 +32,7 @@ import { loginPage, safeNext } from "./login-page.js";
 import { callbackPage } from "./auth-callback-page.js";
 import { consolePage } from "./console.js";
 import { demoRuntime, newDemoId, isDemoId, demoStats } from "./demo-sessions.js";
+import { workspaceRuntime, newOrgId, financialYearStart, firstPeriodFor } from "./workspaces.js";
 import { googleConfig, googleEnabled, authorizeUrl, originOf } from "./auth-google.js";
 import {
   parseINR,
@@ -54,6 +55,8 @@ import {
   toBankLines,
   suggestKeyword,
   DurableDirectory,
+  prevPeriod,
+  periodOf,
   AccessError,
   normalizeEmail,
   identityFromToken,
@@ -264,6 +267,7 @@ const authReady = (async () => {
     displayName: process.env.PAISA_OWNER_NAME,
     orgId: booted.org.orgId,
     orgName: ORG_NAME,
+    firstPeriod: "2026-01",
   });
 })();
 
@@ -284,22 +288,42 @@ const authReady = (async () => {
  * running this without paying for tokens possible. Set OPENAI_BASE_URL,
  * OPENAI_API_KEY and PAISA_OPENAI_MODEL to point it somewhere.
  */
-const planner = new CfoPlanner({ asOf: AS_OF, periodFrom: PERIOD_FROM });
-const chain = [];
-if (process.env.ANTHROPIC_API_KEY) chain.push(new AnthropicProvider());
+/*
+ * The model rungs are built once; the planner and the orchestrator are not.
+ * Both take "today" by construction — the planner for its tool arguments, the
+ * orchestrator for its system prompt — and today now depends on whose books
+ * are being asked about: the seeded demo company lives in July 2026, a real
+ * company lives in the present. So an agent is assembled per set of dates and
+ * kept, since a company's date changes once a day.
+ */
+const modelRungs = [];
+if (process.env.ANTHROPIC_API_KEY) modelRungs.push(new AnthropicProvider());
 // A base URL on its own is enough: a server on localhost has no key to set,
 // and requiring one here would leave the free path permanently unreachable.
-if (process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL) chain.push(new OpenAIProvider());
+if (process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL) modelRungs.push(new OpenAIProvider());
 // A second model on the same endpoint, tried when the first is rate-limited.
 // On a free tier the binding constraint is quota, not capability: the newest
 // model is the busiest, so the rung that matters is another model rather than
 // another provider. Dropping to the planner should be the last resort, not
 // the response to a 429.
 if (process.env.PAISA_OPENAI_MODEL_FALLBACK)
-  chain.push(new OpenAIProvider({ model: process.env.PAISA_OPENAI_MODEL_FALLBACK }));
-chain.push(planner);
-const provider = chain.length > 1 ? new FallbackProvider(chain) : planner;
-const orchestrator = new Orchestrator(provider, 6, { asOf: AS_OF, periodFrom: PERIOD_FROM });
+  modelRungs.push(new OpenAIProvider({ model: process.env.PAISA_OPENAI_MODEL_FALLBACK }));
+
+const agents = new Map();
+const agentFor = (dates) => {
+  const cacheKey = `${dates.asOf}|${dates.periodFrom}`;
+  let agent = agents.get(cacheKey);
+  if (!agent) {
+    const planner = new CfoPlanner({ asOf: dates.asOf, periodFrom: dates.periodFrom });
+    const chain = [...modelRungs, planner];
+    const provider = chain.length > 1 ? new FallbackProvider(chain) : planner;
+    agent = { provider, orchestrator: new Orchestrator(provider, 6, { asOf: dates.asOf, periodFrom: dates.periodFrom }) };
+    // Yesterday's dates are never asked about again; keep the map from growing.
+    if (agents.size >= 32) agents.delete(agents.keys().next().value);
+    agents.set(cacheKey, agent);
+  }
+  return agent;
+};
 const aiUser = {
   userId: ACTOR,
   orgId: "org_nimbus",
@@ -328,8 +352,8 @@ const inrCompact = (p) => {
   return `${sign}₹${abs.toFixed(0)}`;
 };
 
-const monthWindow = (offset) => {
-  const [y, m] = AS_OF.split("-").map(Number);
+const monthWindow = (asOf, offset) => {
+  const [y, m] = asOf.split("-").map(Number);
   const total = y * 12 + (m - 1) + offset;
   const ty = Math.floor(total / 12);
   const tm = ((total % 12) + 12) % 12;
@@ -348,12 +372,12 @@ const pct = (cur, prev) => (prev !== 0n ? Number(((cur - prev) * 1000n) / prev) 
 // entitled to: the real ones when signed in, their own demo runtime when not.
 // Binding them once at boot pointed every visitor at the real company.
 
-const apiFor = (org) => ({
+const apiFor = (org, d) => ({
   brief() {
-    org.recommendations.generate(AS_OF, PERIOD_FROM);
-    const b = org.brief.compose(AS_OF, PERIOD_FROM);
+    org.recommendations.generate(d.asOf, d.periodFrom);
+    const b = org.brief.compose(d.asOf, d.periodFrom);
     return {
-      asOf: AS_OF,
+      asOf: d.asOf,
       headline: b.headline,
       health: { score: b.health.score, grade: b.health.grade, components: b.health.components },
       cash: inr(b.cashOnHand),
@@ -367,11 +391,11 @@ const apiFor = (org) => ({
   },
 
   metrics() {
-    const cur = monthWindow(-1); // last full month (June)
-    const prev = monthWindow(-2);
+    const cur = monthWindow(d.asOf, -1); // the last full month
+    const prev = monthWindow(d.asOf, -2);
     const plCur = org.statements.profitAndLoss(cur.from, cur.to);
     const plPrev = org.statements.profitAndLoss(prev.from, prev.to);
-    const cm = org.cashflow.metrics(AS_OF);
+    const cm = org.cashflow.metrics(d.asOf);
     const marginPct = plCur.totalRevenue > 0n ? Number((plCur.netProfit * 100n) / plCur.totalRevenue) : null;
     return {
       monthLabel: cur.from.slice(0, 7),
@@ -388,7 +412,7 @@ const apiFor = (org) => ({
   },
 
   cashflow() {
-    const f = org.forecast.cashForecast(AS_OF, 6, 3);
+    const f = org.forecast.cashForecast(d.asOf, 6, 3);
     return {
       assumption: f.assumption,
       depletionMonth: f.depletionMonth,
@@ -404,10 +428,10 @@ const apiFor = (org) => ({
   },
 
   upcoming() {
-    const filings = org.gst.upcomingFilings(AS_OF).filter((f) => f.daysLeft >= 0).slice(0, 2);
+    const filings = org.gst.upcomingFilings(d.asOf).filter((f) => f.daysLeft >= 0).slice(0, 2);
     const recurring = org.recurring
-      .detect(AS_OF)
-      .filter((r) => r.nextExpectedDate >= AS_OF)
+      .detect(d.asOf)
+      .filter((r) => r.nextExpectedDate >= d.asOf)
       .slice(0, 3);
     return {
       items: [
@@ -460,7 +484,7 @@ const apiFor = (org) => ({
   },
 
   recommendations() {
-    org.recommendations.generate(AS_OF, PERIOD_FROM);
+    org.recommendations.generate(d.asOf, d.periodFrom);
     return {
       items: org.recommendations.all().map((r) => ({
         id: r.id,
@@ -489,7 +513,7 @@ const apiFor = (org) => ({
         outstanding: inr(org.invoices.outstanding(i)),
         status: i.status,
       })),
-      aging: org.invoices.aging(AS_OF).buckets.map((b) => ({ label: b.label, count: b.count, amount: inr(b.amount) })),
+      aging: org.invoices.aging(d.asOf).buckets.map((b) => ({ label: b.label, count: b.count, amount: inr(b.amount) })),
     };
   },
 });
@@ -498,7 +522,7 @@ const apiFor = (org) => ({
 /* HTML                                                                 */
 /* ------------------------------------------------------------------ */
 
-const page = () => `<!doctype html>
+const page = (asOf = AS_OF) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1242,7 +1266,7 @@ $("navmenu").innerHTML = NAV.map(([name, d]) =>
   a.addEventListener("click", (e) => { e.preventDefault(); closeMobile(); sendChat(NAV[i][2]); });
 });
 
-$("dateline").textContent = new Date("${AS_OF}T00:00:00")
+$("dateline").textContent = new Date("${asOf}T00:00:00")
   .toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
 /* ---------------- identity ---------------- */
@@ -1672,11 +1696,41 @@ const authorizeRequest = (req) => {
   }
 };
 
+/**
+ * The dates a set of books is read at.
+ *
+ * The seeded demo company — a visitor's sandbox, and the founding workspace
+ * this deployment boots with — lives in the seed's July 2026 and closes June.
+ * A real company lives today, reports from the start of its financial year,
+ * and closes its last completed month.
+ */
+const DEMO_DATES = { asOf: AS_OF, periodFrom: PERIOD_FROM, closePeriod: CLOSE_PERIOD };
+
+const datesFor = (today) => ({
+  asOf: today,
+  periodFrom: financialYearStart(today),
+  closePeriod: prevPeriod(periodOf(today)),
+});
+
 const resolveBooks = async (req, res) => {
   const me = authorizeRequest(req);
   if (me) {
-    const exec = async (type, payload, actor = ACTOR) => (await runtime.execute(type, payload, actor)).result;
-    return { org, erp, exec, access: me.access, demo: false };
+    if (me.access.orgId === org.orgId) {
+      const exec = async (type, payload, actor = ACTOR) => (await runtime.execute(type, payload, actor)).result;
+      return { org, erp, exec, access: me.access, demo: false, dates: DEMO_DATES };
+    }
+
+    // Any other workspace is a company's own books, rebuilt from its own
+    // stream of the log. Every signed-in member used to be handed the
+    // founding company's ledger here, whichever company they belonged to.
+    const meta = directory.workspace(me.access.orgId);
+    const today = indiaBusinessDate();
+    const books = await workspaceRuntime(me.access.orgId, {
+      name: meta?.name ?? me.access.orgId,
+      firstPeriod: meta?.firstPeriod ?? firstPeriodFor(today),
+    });
+    const exec = async (type, payload, actor = ACTOR) => (await books.execute(type, payload, actor)).result;
+    return { org: books.org, erp: books.erp, exec, access: me.access, demo: false, dates: datesFor(today) };
   }
 
   const cookies = parseCookies(req.headers.cookie);
@@ -1689,7 +1743,7 @@ const resolveBooks = async (req, res) => {
   // A visitor's sandbox travels the same command path as the real books, so
   // a route cannot accidentally work one way signed in and another way out.
   const exec = async (type, payload, actor = ACTOR) => (await session.runtime.execute(type, payload, actor)).result;
-  return { org: session.org, erp: session.erp, exec, access: null, demo: true };
+  return { org: session.org, erp: session.erp, exec, access: null, demo: true, dates: DEMO_DATES };
 };
 
 /**
@@ -1947,27 +2001,23 @@ export const handle = async (req, res) => {
       // Closed unless deliberately opened: a B2B ledger is not something
       // strangers should be able to create an account on.
       if (!openSignup()) return send(404, { error: "Not found" });
-      const { email, password, name } = JSON.parse((await readBody(req)) || "{}");
+      const { email, password, name, company } = JSON.parse((await readBody(req)) || "{}");
       try {
         const account = await directory.register(String(email ?? ""), String(password ?? ""), name);
 
-        /* An account with no workspace is an account that cannot sign in —
-           /api/login refuses it, correctly, and the new visitor sees a dead
-           end one second after creating a password. So the seat is granted
-           here, in the same request that created the account.
+        /* Every new account founds its own company, with its own empty books,
+           and owns it — an account with no workspace is one /api/login
+           refuses, so this happens in the same request.
 
-           Granted through the ordinary `add`, with the founding owner as the
-           actor, rather than by writing a membership directly: open signup is
-           a deliberate switch on a demo deployment, not a reason to give the
-           tenant boundary a second door. And it is capped at `viewer` — the
-           new arrival can read the books and cannot touch them. */
-        const owner = await authReady;
-        if (owner) {
-          const booted = await ready;
-          await directory.add(members.authorize(owner.userId, booted.org.orgId), account.userId, "viewer");
-        }
+           It used to seat the newcomer as a viewer on the founding workspace,
+           which gave anyone who signed up read access to that company's
+           ledger and no way to keep books of their own. */
+        const today = indiaBusinessDate();
+        const orgId = newOrgId();
+        const companyName = String(company ?? "").trim().slice(0, 80) || `${account.displayName}'s company`;
+        await directory.found(orgId, companyName, account.userId, firstPeriodFor(today));
 
-        return send(201, { ok: true, userId: account.userId, email: account.email });
+        return send(201, { ok: true, userId: account.userId, email: account.email, orgId });
       } catch (err) {
         return send(400, { error: err.message });
       }
@@ -2091,7 +2141,8 @@ export const handle = async (req, res) => {
 
     if (path === "/app") {
       if (requireSession(req, res, path)) return;
-      return send(200, page(), "text/html");
+      const { dates } = await resolveBooks(req, res);
+      return send(200, page(dates.asOf), "text/html");
     }
 
     if (path === "/robots.txt") return send(200, robotsTxt(), "text/plain");
@@ -2158,6 +2209,7 @@ export const handle = async (req, res) => {
       if (!message) return send(400, { error: "message required" });
       try {
         const books = await resolveBooks(req, res);
+        const agent = agentFor(books.dates);
 
         // Which actions existed before this turn, so the reply can carry only
         // the ones this turn drafted. The queue also holds anything left
@@ -2169,7 +2221,7 @@ export const handle = async (req, res) => {
         // can outlive the function. Racing a deadline turns that into an
         // honest reply instead of a 504 with nothing in it.
         const record = await Promise.race([
-          orchestrator.ask(
+          agent.orchestrator.ask(
             { ...aiUser, orgId: books.org.orgId },
             books.org,
             message,
@@ -2181,8 +2233,8 @@ export const handle = async (req, res) => {
         ]);
         // Logged even when the answer succeeded, because a good answer from a
         // lower rung is exactly the case that otherwise leaves no trace.
-        if (provider instanceof FallbackProvider)
-          for (const f of provider.lastFailures) console.warn(`[paisa] ${f.name} declined: ${f.error}`);
+        if (agent.provider instanceof FallbackProvider)
+          for (const f of agent.provider.lastFailures) console.warn(`[paisa] ${f.name} declined: ${f.error}`);
         const drafted = books.org.actions
           .pending()
           .filter((a) => !before.has(a.id))
@@ -2195,7 +2247,7 @@ export const handle = async (req, res) => {
           // Which rung of the chain actually answered. Without this a model
           // outage reads as "the AI got worse today" — the planner's answer
           // is correct but plainer, and nothing on the page said why.
-          answeredBy: provider instanceof FallbackProvider ? provider.lastUsedName : provider.name,
+          answeredBy: agent.provider instanceof FallbackProvider ? agent.provider.lastUsedName : agent.provider.name,
         });
       } catch (err) {
         const timedOut = err.message === "agent deadline exceeded";
@@ -2238,7 +2290,24 @@ export const handle = async (req, res) => {
       if (req.headers.authorization !== `Bearer ${secret}`) return send(401, { ok: false, error: "Not authorised." });
 
       try {
-        return send(200, await runScheduledCfo(runtime, persistence.mode));
+        const founding = await runScheduledCfo(runtime, persistence.mode);
+        // Every other company gets its own sweep, and one company's failure is
+        // reported against that company rather than stopping everyone else's.
+        const companies = [];
+        for (const orgId of directory.workspaceIds()) {
+          if (orgId === org.orgId) continue;
+          const meta = directory.workspace(orgId);
+          try {
+            const books = await workspaceRuntime(orgId, {
+              name: meta?.name ?? orgId,
+              firstPeriod: meta?.firstPeriod ?? firstPeriodFor(indiaBusinessDate()),
+            });
+            companies.push({ orgId, ...(await runScheduledCfo(books, persistence.mode)) });
+          } catch (err) {
+            companies.push({ orgId, ok: false, error: err.message });
+          }
+        }
+        return send(200, { ...founding, companies });
       } catch (err) {
         return send(err instanceof CfoScheduleUnavailableError ? 503 : 500, { ok: false, error: err.message });
       }
@@ -2299,8 +2368,8 @@ export const handle = async (req, res) => {
 
     const erpName = path.replace("/api/erp/", "");
     if (path.startsWith("/api/erp/") && req.method === "GET" && ERP_READS.has(erpName)) {
-      const { org: books, erp: suite } = await resolveBooks(req, res);
-      return send(200, erpApi(books, suite)[erpName]());
+      const { org: books, erp: suite, dates } = await resolveBooks(req, res);
+      return send(200, erpApi(books, suite, dates.closePeriod)[erpName]());
     }
 
     const propAction = /^\/api\/erp\/proposals\/(prop_[\w]+)\/(approve|dismiss)$/.exec(path);
@@ -2410,23 +2479,29 @@ export const handle = async (req, res) => {
           ok: false,
           error: "STRIPE_SECRET_KEY is not set. Add a test key (sk_test_…) to .env and restart.",
         });
+      // The caller's own company, not the one this deployment booted with.
+      const books = await resolveBooks(req, res);
       try {
-        if (!erp.connectors.all().some((c) => c.source === "stripe"))
-          erp.connectors.register("stripe", "BILLING");
+        if (!books.erp.connectors.all().some((c) => c.source === "stripe"))
+          books.erp.connectors.register("stripe", "BILLING");
 
         const { since } = JSON.parse((await readBody(req)) || "{}");
         const { records, rejected: unmapped } = await fetchBillingRecords({
           secretKey,
           ...(since ? { since } : {}),
         });
-        const outcome = erp.connectors.syncBilling("stripe", records, ACTOR);
+        const outcome = books.erp.connectors.syncBilling("stripe", records, ACTOR);
 
         // syncBilling only dedupes and hands the records back — it stores
         // nothing. Settled charges become bank lines so they land where the
         // AI CFO can actually see them: auto-posted when a categorisation
         // rule matches, otherwise queued for review.
         const { lines, withheld } = toBankLines(outcome.created);
-        const imported = org.banking.importStatement(lines, ACTOR);
+        // Through the log, like an uploaded statement: applied directly, the
+        // lines would be gone the next time these books are rebuilt.
+        const imported = lines.length
+          ? await books.exec("banking.importStatement", { lines })
+          : { posted: [], needsReview: [] };
 
         return send(200, {
           ok: true,
@@ -2439,7 +2514,7 @@ export const handle = async (req, res) => {
           unmapped,
           // Ingested, but deliberately kept out of the bank feed.
           withheld,
-          status: erp.connectors.status("stripe"),
+          status: books.erp.connectors.status("stripe"),
         });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
@@ -2558,7 +2633,7 @@ export const handle = async (req, res) => {
       try {
         const body = JSON.parse((await readBody(req)) || "{}");
         await books.exec("cfo.run", { asOf: body.asOf || (books.demo ? AS_OF : indiaBusinessDate()), version: 2 }, "cfo-agent");
-        return send(200, { ok: true, cfo: erpApi(books.org, books.org.erp).cfo() });
+        return send(200, { ok: true, cfo: erpApi(books.org, books.org.erp, books.dates.closePeriod).cfo() });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
       }
@@ -2581,8 +2656,8 @@ export const handle = async (req, res) => {
           accountId: String(l.accountId ?? ""),
           amount: parseINR(String(l.amount ?? "0")),
         }));
-        await books.exec("budget.set", { period: body.period || CLOSE_PERIOD, lines }, CONTROLLER);
-        return send(200, { ok: true, budgets: erpApi(books.org, books.org.erp).budgets() });
+        await books.exec("budget.set", { period: body.period || books.dates.closePeriod, lines }, CONTROLLER);
+        return send(200, { ok: true, budgets: erpApi(books.org, books.org.erp, books.dates.closePeriod).budgets() });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
       }
@@ -2592,7 +2667,7 @@ export const handle = async (req, res) => {
       const { books, refusal } = await booksForWrite(req, res, "close_period");
       if (refusal) return send(refusal.code, refusal.body);
       try {
-        const run = await books.exec("close.run", { period: CLOSE_PERIOD }, CONTROLLER);
+        const run = await books.exec("close.run", { period: books.dates.closePeriod }, CONTROLLER);
         return send(200, { ok: true, passed: run.passed, blocked: run.blocked, readyToClose: run.readyToClose });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
@@ -2602,7 +2677,7 @@ export const handle = async (req, res) => {
       const { books, refusal } = await booksForWrite(req, res, "close_period");
       if (refusal) return send(refusal.code, refusal.body);
       try {
-        const run = await books.exec("close.lock", { period: CLOSE_PERIOD }, CONTROLLER);
+        const run = await books.exec("close.lock", { period: books.dates.closePeriod }, CONTROLLER);
         return send(200, { ok: true, locked: run.locked, completedAt: run.completedAt });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
@@ -2649,7 +2724,7 @@ export const handle = async (req, res) => {
     const apiName = path.replace("/api/", "");
     if (path.startsWith("/api/")) {
       const books = await resolveBooks(req, res);
-      const routes = apiFor(books.org);
+      const routes = apiFor(books.org, books.dates);
       if (routes[apiName]) return send(200, routes[apiName]());
     }
 
@@ -2662,15 +2737,15 @@ export const handle = async (req, res) => {
      * caller is entitled to, like every other read.
      */
     if (RAW_VIEWS.has(path)) {
-      const { org: books } = await resolveBooks(req, res);
+      const { org: books, dates } = await resolveBooks(req, res);
       if (path === "/journal")
         return send(200, books.journal.all().map((e) => ({
           id: e.id, date: e.date, narration: e.narration, source: e.sourceModule,
           lines: e.lines.map((l) => ({ account: books.chart.get(l.accountId).name, side: l.side, amount: formatINR(l.amount) })),
         })));
-      if (path === "/trial-balance") return send(200, books.ledger.trialBalance(AS_OF));
-      if (path === "/balance-sheet") return send(200, books.statements.balanceSheet(AS_OF));
-      if (path === "/profit-and-loss") return send(200, books.statements.profitAndLoss(PERIOD_FROM, AS_OF));
+      if (path === "/trial-balance") return send(200, books.ledger.trialBalance(dates.asOf));
+      if (path === "/balance-sheet") return send(200, books.statements.balanceSheet(dates.asOf));
+      if (path === "/profit-and-loss") return send(200, books.statements.profitAndLoss(dates.periodFrom, dates.asOf));
       if (path === "/audit") return send(200, books.bus.audit(books.orgId));
     }
 

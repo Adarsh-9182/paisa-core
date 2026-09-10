@@ -399,6 +399,11 @@ export const loginPage = (
                       <label for="name">Name</label>
                       <input id="name" name="name" type="text" placeholder="Your name"
                              autocomplete="name">
+                    </div>
+                    <div>
+                      <label for="company">Company</label>
+                      <input id="company" name="company" type="text" placeholder="Your business name"
+                             autocomplete="organization" maxlength="80">
                     </div>`
                   : ""
               }
@@ -471,7 +476,8 @@ export const loginPage = (
 
       if (MODE === "signup") {
         const name = document.getElementById("name")?.value || "";
-        const made = await post("/api/register", { email, password, name });
+        const company = document.getElementById("company")?.value || "";
+        const made = await post("/api/register", { email, password, name, company });
         if (!made.ok) {
           const { error } = await made.json().catch(() => ({}));
           return fail(error || "Could not create that account");

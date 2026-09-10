@@ -55,12 +55,24 @@ type Payload = Readonly<Record<string, unknown>>;
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
+/** What the directory knows about a company, beyond who belongs to it. */
+export interface WorkspaceMeta {
+  readonly name: string;
+  /**
+   * The first period the company's books exist for, fixed when it is
+   * founded. It cannot be derived later from "today": a ledger reopened next
+   * month under a later first period would refuse to replay its own history.
+   */
+  readonly firstPeriod?: string;
+}
+
 export interface OwnerBootstrap {
   readonly email: string;
   readonly password: string;
   readonly displayName?: string;
   readonly orgId: string;
   readonly orgName: string;
+  readonly firstPeriod?: string;
 }
 
 export class DurableDirectory {
@@ -68,7 +80,7 @@ export class DurableDirectory {
   readonly accounts = new AccountDirectory();
   readonly members = new MemberDirectory();
 
-  private names = new Map<string, string>();
+  private meta = new Map<string, WorkspaceMeta>();
   private lastSeq = 0;
   private lastSyncAt = 0;
   private syncing: Promise<void> | null = null;
@@ -141,7 +153,11 @@ export class DurableDirectory {
 
       case "workspace.founded": {
         const orgId = str(p.orgId);
-        if (!this.names.has(orgId)) this.names.set(orgId, str(p.name) || orgId);
+        if (!this.meta.has(orgId))
+          this.meta.set(orgId, {
+            name: str(p.name) || orgId,
+            ...(str(p.firstPeriod) ? { firstPeriod: str(p.firstPeriod) } : {}),
+          });
         if (this.members.listOrg(orgId).length) return;
         this.members.restore({
           userId: str(p.ownerUserId),
@@ -242,15 +258,30 @@ export class DurableDirectory {
   /* ---------------------------------------------------------------- */
 
   workspaceName(orgId: string): string {
-    return this.names.get(orgId) ?? orgId;
+    return this.meta.get(orgId)?.name ?? orgId;
   }
 
-  async found(orgId: string, name: string, ownerUserId: string): Promise<Membership> {
+  workspace(orgId: string): WorkspaceMeta | undefined {
+    return this.meta.get(orgId);
+  }
+
+  /** Every founded company — for work that runs across all of them, like the daily sweep. */
+  workspaceIds(): readonly string[] {
+    return [...this.meta.keys()];
+  }
+
+  async found(orgId: string, name: string, ownerUserId: string, firstPeriod?: string): Promise<Membership> {
+    if (firstPeriod !== undefined && !/^\d{4}-(0[1-9]|1[0-2])$/.test(firstPeriod))
+      throw new AccessError(`First period must be a month written YYYY-MM, not "${firstPeriod}"`);
     await this.sync();
     if (!this.accounts.get(ownerUserId)) throw new AccessError(`No account ${ownerUserId}`);
     if (this.members.listOrg(orgId).length) throw new AccessError(`Organization ${orgId} already has members`);
 
-    await this.write("workspace.founded", { orgId, name, ownerUserId, at: new Date().toISOString() }, "system");
+    await this.write(
+      "workspace.founded",
+      { orgId, name, ownerUserId, at: new Date().toISOString(), ...(firstPeriod ? { firstPeriod } : {}) },
+      "system",
+    );
 
     const owner = this.members.find(ownerUserId, orgId);
     if (!owner || owner.role !== "owner") throw new AccessError(`Organization ${orgId} already has members`);
@@ -325,7 +356,7 @@ export class DurableDirectory {
 
     if (!this.members.listOrg(opts.orgId).length) {
       try {
-        await this.found(opts.orgId, opts.orgName, owner.userId);
+        await this.found(opts.orgId, opts.orgName, owner.userId, opts.firstPeriod);
       } catch (err) {
         if (!(err instanceof AccessError)) throw err;
       }

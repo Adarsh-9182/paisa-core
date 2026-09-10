@@ -126,13 +126,17 @@ describe("route authority", () => {
   });
 
   it("refuses a viewer the writes their role does not carry", async () => {
-    // Registering is enough: where signup is open, the account is seated in
-    // the workspace as a viewer in the same request, because an account with
-    // no workspace is one /api/login refuses.
+    // A new account founds a company of its own, so being a viewer on this
+    // one is something its owner grants: register, then be invited.
     const made = await call("POST", "/api/register", {
       body: { email: "viewer@paisa.local", password: "viewer123456", name: "Viewer" },
     });
     expect(made.status).toBe(201);
+    const invited = await call("POST", "/api/members", {
+      cookie: owner,
+      body: { email: "viewer@paisa.local", role: "viewer" },
+    });
+    expect(invited.status).toBe(201);
 
     const seated = await call("GET", "/api/members", { cookie: owner });
     expect(
@@ -142,7 +146,12 @@ describe("route authority", () => {
       ),
     ).toBe(true);
 
-    const viewer = await signIn("viewer@paisa.local", "viewer123456");
+    // Signing in lands in their own company; the one they were invited to is
+    // a switch away, and it is there that they are only a viewer.
+    const ownCompany = await signIn("viewer@paisa.local", "viewer123456");
+    const switched = await call("POST", "/api/workspace/switch", { cookie: ownCompany, body: { orgId: ORG_ID } });
+    expect(switched.status).toBe(200);
+    const viewer = jar(switched);
 
     for (const [path, permission] of [
       ["/api/erp/close/run", "close period"],
