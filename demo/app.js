@@ -483,8 +483,8 @@ const page = () => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paisa — Your AI CFO</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/png" sizes="any" href="/logo.png?v=2">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
+<link rel="icon" type="image/png" sizes="180x180" href="/icon.png?v=3">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=3">
 <style>
   :root {
     --bg: #FFFFFF; --side: #F9F9F9; --side-hover: #ECECEC; --surface: #FFFFFF;
@@ -2077,6 +2077,17 @@ export const handle = async (req, res) => {
     }
 
     // Home-screen and bookmark icon. Same mark, sized for it.
+    // The tab icon every page links to. A separate path from /favicon.ico on
+    // purpose: a browser that cached something else for that well-known path
+    // keeps serving it from its icon cache, which does not revalidate the way
+    // a page does. This path has never held anything else.
+    if (path === "/icon.png") {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      return res.end(APPLE_TOUCH_PNG);
+    }
+
     if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
       res.statusCode = 200;
       res.setHeader("Content-Type", "image/png");
