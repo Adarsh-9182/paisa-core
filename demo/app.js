@@ -675,6 +675,11 @@ const page = (asOf = AS_OF) => `<!doctype html>
     border: 0; background: transparent; text-decoration: none; color: var(--ink); font-size: 13.5px; cursor: pointer; }
   .auth-item:hover { background: var(--side-hover); }
   .auth-item.danger { color: var(--red); }
+  .auth-label { font-size: 10.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-3); padding: 8px 10px 4px; }
+  .auth-item.current { font-weight: 600; background: var(--side-hover); }
+  .auth-role { float: right; font-size: 11px; font-weight: 400; color: var(--ink-3); text-transform: capitalize; }
+  .auth-sep { height: 1px; background: var(--line-2); margin: 4px 0; }
 
   .scroll { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
   .col { max-width: 760px; margin-inline: auto; padding: 0 24px; }
@@ -1295,6 +1300,15 @@ async function loadIdentity() {
       '<span class="avatar-sm">' + esc(initials(name)) + "</span></button>" +
     '<div class="auth-menu" id="authMenu" hidden role="menu">' +
       '<div class="auth-head"><b>' + esc(name) + "</b><span>" + esc(me.user.email || me.workspace) + "</span></div>" +
+      (me.workspaces.length > 1
+        ? '<div class="auth-label">Companies</div>' +
+          me.workspaces.map((w) =>
+            '<button class="auth-item' + (w.orgId === me.orgId ? ' current" aria-current="true"' : '"') +
+            ' role="menuitem" type="button" data-org="' + esc(w.orgId) + '">' + esc(w.name) +
+            '<span class="auth-role">' + esc(w.role) + "</span></button>"
+          ).join("") +
+          '<div class="auth-sep"></div>'
+        : "") +
       '<a class="auth-item" role="menuitem" href="/console">Console</a>' +
       '<button class="auth-item danger" role="menuitem" id="authOut" type="button">Sign out</button>' +
     "</div>";
@@ -1306,6 +1320,21 @@ async function loadIdentity() {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
   $("authOut").addEventListener("click", () => {
     fetch("/api/logout", { method: "POST" }).finally(() => { location.href = "/login"; });
+  });
+  // Switching re-issues the session for the other company, then reloads so
+  // every screen reads that company's books rather than a mix of both.
+  menu.querySelectorAll("button[data-org]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      if (b.dataset.org === me.orgId) return setOpen(false);
+      b.disabled = true;
+      const res = await fetch("/api/workspace/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId: b.dataset.org }),
+      });
+      if (res.ok) location.reload();
+      else b.disabled = false;
+    });
   });
 }
 
@@ -1715,9 +1744,15 @@ const datesFor = (today) => ({
 const resolveBooks = async (req, res) => {
   const me = authorizeRequest(req);
   if (me) {
+    // Everything a signed-in person does is recorded under their own address.
+    // It used to be recorded under "adarsh" and approved under "priya" — the
+    // demo's two personas — for every user of every company, so the audit
+    // trail could not say who approved anything, and segregation of duties
+    // was satisfied by two names that were never two people.
+    const actor = me.account.email;
     if (me.access.orgId === org.orgId) {
-      const exec = async (type, payload, actor = ACTOR) => (await runtime.execute(type, payload, actor)).result;
-      return { org, erp, exec, access: me.access, demo: false, dates: DEMO_DATES };
+      const exec = async (type, payload, as = actor) => (await runtime.execute(type, payload, as)).result;
+      return { org, erp, exec, actor, access: me.access, demo: false, dates: DEMO_DATES };
     }
 
     // Any other workspace is a company's own books, rebuilt from its own
@@ -1729,8 +1764,8 @@ const resolveBooks = async (req, res) => {
       name: meta?.name ?? me.access.orgId,
       firstPeriod: meta?.firstPeriod ?? firstPeriodFor(today),
     });
-    const exec = async (type, payload, actor = ACTOR) => (await books.execute(type, payload, actor)).result;
-    return { org: books.org, erp: books.erp, exec, access: me.access, demo: false, dates: datesFor(today) };
+    const exec = async (type, payload, as = actor) => (await books.execute(type, payload, as)).result;
+    return { org: books.org, erp: books.erp, exec, actor, access: me.access, demo: false, dates: datesFor(today) };
   }
 
   const cookies = parseCookies(req.headers.cookie);
@@ -1743,7 +1778,9 @@ const resolveBooks = async (req, res) => {
   // A visitor's sandbox travels the same command path as the real books, so
   // a route cannot accidentally work one way signed in and another way out.
   const exec = async (type, payload, actor = ACTOR) => (await session.runtime.execute(type, payload, actor)).result;
-  return { org: session.org, erp: session.erp, exec, access: null, demo: true, dates: DEMO_DATES };
+  // A visitor's sandbox keeps the demo's personas: its seeded bills were
+  // recorded by one of them and are approved by the other.
+  return { org: session.org, erp: session.erp, exec, actor: CONTROLLER, access: null, demo: true, dates: DEMO_DATES };
 };
 
 /**
@@ -2381,8 +2418,8 @@ export const handle = async (req, res) => {
       if (refusal) return send(refusal.code, refusal.body);
       try {
         const p = action === "approve"
-          ? await books.exec("agents.approve", { proposalId: id }, CONTROLLER)
-          : await books.exec("agents.dismiss", { proposalId: id, reason: "reviewed" }, CONTROLLER);
+          ? await books.exec("agents.approve", { proposalId: id }, books.actor)
+          : await books.exec("agents.dismiss", { proposalId: id, reason: "reviewed" }, books.actor);
         return send(200, { ok: true, id: p.id, status: p.status, entryId: p.resultingEntryId ?? null });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
@@ -2421,7 +2458,7 @@ export const handle = async (req, res) => {
             maxAmount: parseINR(String(body.maxAmount ?? "")),
             maxPerSweep: parseINR(String(body.maxPerSweep ?? "")),
           },
-          CONTROLLER,
+          books.actor,
         );
         return send(200, { ok: true, id: a.id, kind: a.kind, grantedBy: a.grantedBy });
       } catch (err) {
@@ -2434,7 +2471,7 @@ export const handle = async (req, res) => {
       const { books, refusal } = await booksForWrite(req, res, "manage_members");
       if (refusal) return send(refusal.code, refusal.body);
       try {
-        const a = await books.exec("authority.revoke", { id: revoke[1] }, CONTROLLER);
+        const a = await books.exec("authority.revoke", { id: revoke[1] }, books.actor);
         return send(200, { ok: true, id: a.id, revokedAt: a.revokedAt });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
@@ -2449,7 +2486,7 @@ export const handle = async (req, res) => {
         // open", so replaying the log a year later settles the same queue
         // instead of whatever happens to be open then.
         const open = books.erp.agents.open().map((p) => p.id);
-        const result = await books.exec("authority.settle", { proposalIds: open }, CONTROLLER);
+        const result = await books.exec("authority.settle", { proposalIds: open }, books.actor);
         return send(200, {
           ok: true,
           approved: result.approved.length,
@@ -2490,7 +2527,7 @@ export const handle = async (req, res) => {
           secretKey,
           ...(since ? { since } : {}),
         });
-        const outcome = books.erp.connectors.syncBilling("stripe", records, ACTOR);
+        const outcome = books.erp.connectors.syncBilling("stripe", records, books.actor);
 
         // syncBilling only dedupes and hands the records back — it stores
         // nothing. Settled charges become bank lines so they land where the
@@ -2656,7 +2693,7 @@ export const handle = async (req, res) => {
           accountId: String(l.accountId ?? ""),
           amount: parseINR(String(l.amount ?? "0")),
         }));
-        await books.exec("budget.set", { period: body.period || books.dates.closePeriod, lines }, CONTROLLER);
+        await books.exec("budget.set", { period: body.period || books.dates.closePeriod, lines }, books.actor);
         return send(200, { ok: true, budgets: erpApi(books.org, books.org.erp, books.dates.closePeriod).budgets() });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
@@ -2667,7 +2704,7 @@ export const handle = async (req, res) => {
       const { books, refusal } = await booksForWrite(req, res, "close_period");
       if (refusal) return send(refusal.code, refusal.body);
       try {
-        const run = await books.exec("close.run", { period: books.dates.closePeriod }, CONTROLLER);
+        const run = await books.exec("close.run", { period: books.dates.closePeriod }, books.actor);
         return send(200, { ok: true, passed: run.passed, blocked: run.blocked, readyToClose: run.readyToClose });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
@@ -2677,7 +2714,7 @@ export const handle = async (req, res) => {
       const { books, refusal } = await booksForWrite(req, res, "close_period");
       if (refusal) return send(refusal.code, refusal.body);
       try {
-        const run = await books.exec("close.lock", { period: books.dates.closePeriod }, CONTROLLER);
+        const run = await books.exec("close.lock", { period: books.dates.closePeriod }, books.actor);
         return send(200, { ok: true, locked: run.locked, completedAt: run.completedAt });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
@@ -2700,8 +2737,8 @@ export const handle = async (req, res) => {
       const books = resolved.org;
       try {
         const settled = decision === "approve"
-          ? books.actions.approve(id, ACTOR)
-          : books.actions.dismiss(id, ACTOR);
+          ? books.actions.approve(id, resolved.actor)
+          : books.actions.dismiss(id, resolved.actor);
         return send(200, { ok: true, id: settled.id, status: settled.status, result: settled.result ?? null });
       } catch (err) {
         return send(200, { ok: false, error: err.message });
