@@ -173,3 +173,56 @@ describe("between companies", () => {
     expect(await reviewCount(a.cookie)).toBe(before);
   });
 });
+
+describe("who is recorded as deciding", () => {
+  // The id travels with the command so replaying the log recreates the same
+  // grant; the ERP page mints one the same way.
+  let grants = 0;
+  const grant = () => ({
+    id: `auth_test${Date.now()}${++grants}`,
+    kind: "MISSING_RECOGNITION",
+    maxAmount: "50,000",
+    maxPerSweep: "2,00,000",
+    note: "Prepaid amortisation is arithmetic over a schedule; approve it up to fifty thousand a posting.",
+  });
+
+  it("records a company owner's decision under their own address", async () => {
+    const { email, cookie } = await newCompany("Signs Its Own Name Ltd");
+    const reply = await call("POST", "/api/erp/authority/grant", { cookie, body: grant() });
+    expect(reply.body.ok).toBe(true);
+    expect(reply.body.grantedBy).toBe(email);
+  });
+
+  it("records the founding company's owner as themselves, not a demo persona", async () => {
+    const reply = await call("POST", "/api/erp/authority/grant", { cookie: await founder(), body: grant() });
+    expect(reply.body.ok).toBe(true);
+    expect(reply.body.grantedBy).toBe("owner@paisa.local");
+  });
+
+  it("keeps the demo's controller persona in a visitor's own sandbox", async () => {
+    const reply = await call("POST", "/api/erp/authority/grant", { body: grant() });
+    expect(reply.body.ok).toBe(true);
+    expect(reply.body.grantedBy).toBe("priya");
+  });
+});
+
+describe("a person in more than one company", () => {
+  it("sees every company they belong to, and can move between them", async () => {
+    const host = await newCompany("Host Company Ltd");
+    const guest = await newCompany("Guest Company Ltd");
+
+    const invited = await call("POST", "/api/members", { cookie: host.cookie, body: { email: guest.email, role: "viewer" } });
+    expect(invited.status).toBe(201);
+
+    const me = await call("GET", "/api/me", { cookie: guest.cookie });
+    expect(me.body.workspaces.map((w: { name: string }) => w.name).sort()).toEqual(["Guest Company Ltd", "Host Company Ltd"]);
+
+    const hostId = me.body.workspaces.find((w: { name: string }) => w.name === "Host Company Ltd").orgId;
+    const switched = await call("POST", "/api/workspace/switch", { cookie: guest.cookie, body: { orgId: hostId } });
+    expect(switched.status).toBe(200);
+
+    const there = await call("GET", "/api/me", { cookie: jar(switched) });
+    expect(there.body.orgId).toBe(hostId);
+    expect(there.body.role).toBe("viewer");
+  });
+});
