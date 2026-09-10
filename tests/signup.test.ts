@@ -19,6 +19,8 @@ process.env.PAISA_OPEN_SIGNUP = "1";
 const { handle } = await import("../demo/app.js");
 // @ts-expect-error — same
 const { loginPage, loginMode } = await import("../demo/login-page.js");
+// @ts-expect-error — demo/ is plain JS, not part of the typed src build
+const { ORG_ID } = await import("../demo/boot.js");
 
 interface Reply { status: number; body: any; location: string | undefined; cookies: readonly string[]; }
 
@@ -104,9 +106,9 @@ describe("the two doors", () => {
     expect(signedIn.cookies.join()).toContain("paisa_session=");
   });
 
-  it("seats a newcomer as a viewer, never as somebody who can post", async () => {
+  it("gives a newcomer a company of their own, as its owner, and nobody else's", async () => {
     await call("POST", "/api/register", {
-      body: { email: "reader@paisa.local", password: "reader123456", name: "Reader" },
+      body: { email: "reader@paisa.local", password: "reader123456", name: "Reader", company: "Reader Traders" },
     });
     const signedIn = await call("POST", "/api/login", {
       body: { email: "reader@paisa.local", password: "reader123456" },
@@ -114,10 +116,14 @@ describe("the two doors", () => {
     const cookie = signedIn.cookies.join(";").split(";")[0]!;
 
     const me = await call("GET", "/api/me", { cookie });
-    expect(me.body.role).toBe("viewer");
+    expect(me.body.role).toBe("owner");
+    expect(me.body.workspace).toBe("Reader Traders");
+    expect(me.body.orgId).not.toBe(ORG_ID);
+    expect(me.body.workspaces).toHaveLength(1);
 
-    const write = await call("POST", "/api/erp/close/run", { cookie, body: {} });
-    expect(write.status).toBe(403);
+    // Signing up is not a way into the company this deployment booted with.
+    const intoAnother = await call("POST", "/api/workspace/switch", { cookie, body: { orgId: ORG_ID } });
+    expect(intoAnother.status).toBe(403);
   });
 
   it("sends somebody who is already signed in on to where they were headed", async () => {

@@ -160,3 +160,36 @@ describe("what the log holds", () => {
     expect((await store.after(DIRECTORY_STREAM, 0)).length).toBeGreaterThan(0);
   });
 });
+
+describe("a company's own facts", () => {
+  it("remembers when a company's books begin, through a cold start", async () => {
+    const store = new MemoryActionStore();
+    const dir = await DurableDirectory.open(store);
+    const owner = await dir.register("owner@kirana.in", PW);
+    await dir.found("org_kirana", "Kirana Stores", owner.userId, "2026-04");
+
+    const restarted = await DurableDirectory.open(store);
+    expect(restarted.workspace("org_kirana")).toEqual({ name: "Kirana Stores", firstPeriod: "2026-04" });
+  });
+
+  it("lists every founded company, for work that runs across all of them", async () => {
+    const store = new MemoryActionStore();
+    const dir = await DurableDirectory.open(store);
+    const a = await dir.register("a@one.in", PW);
+    const b = await dir.register("b@two.in", PW);
+    await dir.found("org_one", "One", a.userId, "2026-04");
+    await dir.found("org_two", "Two", b.userId, "2026-04");
+
+    expect([...(await DurableDirectory.open(store)).workspaceIds()].sort()).toEqual(["org_one", "org_two"]);
+  });
+
+  it("refuses a first period that is not a month, before writing anything", async () => {
+    const store = new MemoryActionStore();
+    const dir = await DurableDirectory.open(store);
+    const owner = await dir.register("owner@bad.in", PW);
+    const before = store.all().length;
+
+    await expect(dir.found("org_bad", "Bad", owner.userId, "April 2026")).rejects.toThrow(/YYYY-MM/);
+    expect(store.all().length).toBe(before);
+  });
+});

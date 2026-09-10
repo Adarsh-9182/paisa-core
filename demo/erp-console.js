@@ -6,7 +6,7 @@
  * deterministic engines; the page only formats what they return.
  */
 
-import { formatINR } from "../dist/src/index.js";
+import { formatINR, prevPeriod } from "../dist/src/index.js";
 import { describeRun } from "../dist/src/erp/cfo-agent.js";
 
 const CONTROLLER = "priya";
@@ -20,9 +20,10 @@ const lastDay = (period) => {
 /* API                                                                 */
 /* ------------------------------------------------------------------ */
 
-const PERIOD = "2026-06";
+/** The seeded demo company closes June 2026. A real company closes its own last month. */
+const DEMO_PERIOD = "2026-06";
 
-export { CONTROLLER, PERIOD as CLOSE_PERIOD };
+export { CONTROLLER, DEMO_PERIOD as CLOSE_PERIOD };
 
 /**
  * Reading the close is not running it.
@@ -32,7 +33,11 @@ export { CONTROLLER, PERIOD as CLOSE_PERIOD };
  * and the ERP console stayed broken from the moment you closed the month. The
  * last run is read here; running a new one is what the button is for.
  */
-export const erpApi = (org, erp) => ({
+/*
+ * The period is whichever month these books are closing. It used to be fixed
+ * at June 2026 for everyone, which is right only for the seeded demo company.
+ */
+export const erpApi = (org, erp, PERIOD = DEMO_PERIOD) => ({
   close() {
     const run = erp.close.status(PERIOD);
     const periods = erp.periods.all().map((p) => ({ period: p.period, status: p.status, closedBy: p.closedBy }));
@@ -92,7 +97,7 @@ export const erpApi = (org, erp) => ({
 
   metrics() {
     const m = erp.metrics.movement(PERIOD);
-    const r = erp.metrics.retention("2026-03", PERIOD);
+    const r = erp.metrics.retention(prevPeriod(prevPeriod(prevPeriod(PERIOD))), PERIOD);
     return {
       period: PERIOD,
       openingMrr: formatINR(m.openingMrr), newMrr: formatINR(m.newMrr),
