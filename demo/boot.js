@@ -42,6 +42,17 @@ const openStore = async () => {
   }
 };
 
+/**
+ * One store for every workspace.
+ *
+ * The action log is scoped by org_id at the storage layer, so a second
+ * workspace needs a second *runtime*, not a second connection pool. Opening
+ * one per tenant is how a handful of customers exhausts the database's
+ * connection limit.
+ */
+let storePromise = null;
+export const sharedStore = () => (storePromise ??= openStore());
+
 let booted = null;
 
 /**
@@ -49,7 +60,7 @@ let booted = null;
  */
 export const boot = (seed) => {
   booted ??= (async () => {
-    const { store, mode, detail } = await openStore();
+    const { store, mode, detail } = await sharedStore();
     const runtime = await PaisaRuntime.open({
       orgId: ORG_ID,
       name: ORG_NAME,
