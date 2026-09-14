@@ -381,6 +381,32 @@ describe("continuous agents", () => {
       expect(() => queue(org, "2026-06-20", "AWS subscription", "-8,000")).toThrow(/soft-closed/);
     });
 
+    it("refuses a line nobody has a rule for, imported after the freeze, instead of queueing it", () => {
+      // Queued, it could be cleared into the frozen period through the review
+      // exemption — the same door the case above keeps shut for lines that post.
+      const { org, erp } = company();
+      erp.close.run("2026-06", ACTOR);
+      expect(() => queue(org, "2026-06-20", "UPI transfer to Rahul", "-3,400")).toThrow(/soft-closed/);
+      expect(org.banking.pendingReview()).toHaveLength(0);
+    });
+
+    it("refuses the whole statement when any line falls in the frozen period", () => {
+      const { org, erp } = company();
+      erp.close.run("2026-06", ACTOR);
+      const before = org.journal.all().length;
+      expect(() =>
+        org.banking.importStatement(
+          [
+            { date: "2026-07-02", description: "SMS CHARGES QTR", amount: parseINR("-17.70"), reference: "open-1" },
+            { date: "2026-06-20", description: "UPI transfer to Rahul", amount: parseINR("-3,400"), reference: "frozen-1" },
+          ],
+          ACTOR,
+        ),
+      ).toThrow(/soft-closed/);
+      expect(org.journal.all().length).toBe(before);
+      expect(org.banking.pendingReview()).toHaveLength(0);
+    });
+
     it("raises one finding for the queue, not one per line", () => {
       const { org, erp } = company();
       queue(org, "2026-06-10", "IMPS 4032 Chai Point", "-1,250");

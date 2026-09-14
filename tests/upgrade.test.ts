@@ -153,6 +153,11 @@ describe("gst engine", () => {
 });
 
 describe("banking ingestion", () => {
+  // These cases exercise matching and booking — a matched rule posts, a
+  // re-import is a duplicate, a keyword is bounded, the rate is counted — so
+  // they run under policy 2, where the rules Paisa ships book what they
+  // match. Under policy 3 those rules only suggest; banking-policy.test.ts
+  // covers that.
   const lines = [
     { date: "2026-06-01", description: "AWS subscription June", amount: parseINR("-8,000"), reference: "utr_1" },
     { date: "2026-06-05", description: "Office rent June", amount: parseINR("-60,000"), reference: "utr_2" },
@@ -161,7 +166,7 @@ describe("banking ingestion", () => {
 
   it("auto-posts categorized lines and queues unknowns for review", () => {
     const org = freshOrg();
-    const result = org.banking.importStatement(lines, "adarsh");
+    const result = org.banking.importStatement(lines, "adarsh", "acc_bank", 2);
     expect(result.posted.length).toBe(2);
     expect(result.needsReview.length).toBe(1);
     expect(org.ledger.balance("acc_software", "2026-06-30")).toBe(parseINR("8,000"));
@@ -172,8 +177,8 @@ describe("banking ingestion", () => {
 
   it("re-importing the same statement is idempotent", () => {
     const org = freshOrg();
-    org.banking.importStatement(lines, "adarsh");
-    const second = org.banking.importStatement(lines, "adarsh");
+    org.banking.importStatement(lines, "adarsh", "acc_bank", 2);
+    const second = org.banking.importStatement(lines, "adarsh", "acc_bank", 2);
     expect(second.posted.length).toBe(0);
     expect(second.duplicates.length).toBe(3);
     expect(org.ledger.balance("acc_software", "2026-06-30")).toBe(parseINR("8,000")); // not doubled
@@ -190,7 +195,7 @@ describe("banking ingestion", () => {
       { date: "2026-06-04", description: "CHOCOLATE ROOM CAFE", amount: parseINR("-3,000"), reference: "t3" },
       { date: "2026-06-06", description: "SOLAR PANEL DEPOSIT", amount: parseINR("-4,000"), reference: "t4" },
     ];
-    const result = org.banking.importStatement(traps, "adarsh");
+    const result = org.banking.importStatement(traps, "adarsh", "acc_bank", 2);
     expect(result.posted.length).toBe(0);
     expect(result.needsReview.length).toBe(4);
     expect(org.ledger.balance("acc_rent", "2026-06-30")).toBe(parseINR("0"));
@@ -203,6 +208,8 @@ describe("banking ingestion", () => {
     const result = org.banking.importStatement(
       [{ date: "2026-06-02", description: "NEFT DR-AWS INDIA-0042", amount: parseINR("-5,000"), reference: "b1" }],
       "adarsh",
+      "acc_bank",
+      2,
     );
     expect(result.posted.length).toBe(1);
     expect(org.ledger.balance("acc_software", "2026-06-30")).toBe(parseINR("5,000"));
@@ -290,7 +297,7 @@ describe("banking ingestion", () => {
     const org = freshOrg();
     expect(org.banking.stats().autoBookedPct).toBe(null);
 
-    org.banking.importStatement(lines, "adarsh"); // 2 posted, 1 queued
+    org.banking.importStatement(lines, "adarsh", "acc_bank", 2); // 2 posted, 1 queued
     const s = org.banking.stats();
     expect(s.posted).toBe(2);
     expect(s.needsReview).toBe(1);
@@ -306,7 +313,7 @@ describe("banking ingestion", () => {
 
   it("categorizing a queued line posts it to the named account", () => {
     const org = freshOrg();
-    org.banking.importStatement(lines, "adarsh");
+    org.banking.importStatement(lines, "adarsh", "acc_bank", 2);
     org.banking.categorize("utr_3", "acc_services", "adarsh");
     expect(org.ledger.balance("acc_services", "2026-06-30")).toBe(parseINR("25,000"));
     expect(org.banking.pendingReview().length).toBe(0);

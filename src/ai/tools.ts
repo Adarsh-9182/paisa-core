@@ -251,7 +251,9 @@ export const TOOLS: Record<string, ToolFn> = {
               ? ` reason=direction keyword="${reason.keyword}" refused_account=${reason.accountId} note="the rule points at an account this direction of money cannot book to"`
               : reason.kind === "movement"
                 ? ` reason=movement keyword="${reason.keyword}" refused_account=${reason.accountId} word="${reason.word}" note="looks like money moving between balances, not income or an expense"`
-                : " reason=no_rule";
+                : reason.kind === "suggested"
+                  ? ` reason=suggested suggested_account=${reason.accountId} keyword="${reason.keyword}" note="a rule Paisa ships proposes this account; it does not book by itself, so offer it for the user to confirm"`
+                  : " reason=no_rule";
         return `reference="${l.reference}" date=${l.date} description="${l.description}" amount=${formatINR(l.amount)} direction=${l.amount < 0n ? "out" : "in"}${why}`;
       })
       .join("; ");

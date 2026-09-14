@@ -83,6 +83,20 @@ export class JournalEngine {
     for (const g of this.guards) g(candidate);
   }
 
+  /**
+   * Would an entry like this be allowed? Runs the same checks post() does —
+   * the date and every guard — and writes nothing.
+   *
+   * For callers that decide not to post yet but must still respect a
+   * period's lock: a bank line queued for review into a frozen period would
+   * otherwise slip past the guard now and be cleared into it later through
+   * the review exemption.
+   */
+  assertPostable(candidate: PostingCandidate): void {
+    this.assertDate(candidate.date);
+    this.assertAllowed(candidate);
+  }
+
   post(input: PostInput): JournalEntry {
     this.assertDate(input.date);
     this.assertAllowed({ date: input.date, sourceModule: input.sourceModule, narration: input.narration });

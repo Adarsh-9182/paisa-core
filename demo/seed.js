@@ -74,7 +74,10 @@ export const seedAll = async (exec, rt) => {
     await post(`2026-${mm}-12`, "GST input credit on vendor bills", "acc_gst_itc", "acc_bank", "35,000", "banking");
     if (m >= 2) await post(`2026-${mm}-20`, "GST payment (GSTR-3B)", "acc_gst_payable", "acc_bank", "1,03,600", "banking");
 
+    // The demo company has used Paisa for months, so its vendors are ones it
+    // taught long ago; its history books under the rules it ran under then.
     await exec("banking.importStatement", {
+      policy: 2,
       lines: [
         { date: `2026-${mm}-03`, description: "AWS subscription", amount: parseINR("-42,000"), reference: `aws-${mm}` },
         { date: `2026-${mm}-04`, description: "Slack subscription", amount: parseINR("-8,500"), reference: `slack-${mm}` },
@@ -100,7 +103,10 @@ export const seedAll = async (exec, rt) => {
   // Two lines the categoriser cannot place — they wait for a human. Dated into
   // the open period on purpose: June is soft-closed, and a review queue whose
   // entries can never be posted is a demonstration of the wrong thing.
-  await exec("banking.importStatement", {
+  // The demo company has used Paisa for months, so its vendors are ones it
+    // taught long ago; its history books under the rules it ran under then.
+    await exec("banking.importStatement", {
+      policy: 2,
     lines: [
       { date: "2026-07-01", description: "IMPS 4032 Chai Point", amount: parseINR("-1,250"), reference: "imps-4032" },
       { date: "2026-07-02", description: "UPI transfer to Rahul", amount: parseINR("-3,400"), reference: "upi-rahul" },

@@ -18,7 +18,9 @@ import { CATEGORIZE_CASES, PROPOSED_ACCOUNTS } from "../src/ai/categorize-cases.
 
 const books = () => new Platform().createOrganization(`cat_${Math.random().toString(36).slice(2)}`, "Eval Traders");
 
-const grade = (cases: CategorizeCase[]) => scoreCategorizer(cases, books);
+// Grading is tested under policy 2, where shipped rules book, so there is
+// something to grade as right and wrong; the policies are compared below.
+const grade = (cases: CategorizeCase[]) => scoreCategorizer(cases, books, "acc_bank", 2);
 
 describe("grading", () => {
   it("counts a line booked to the expected account as correct", () => {

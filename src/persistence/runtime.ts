@@ -89,7 +89,7 @@ export class PaisaRuntime {
       type === "cfo.run"
         ? { ...payload, version: payload.version ?? 2 }
         : type === "banking.importStatement"
-          ? { ...payload, policy: payload.policy ?? 2 }
+          ? { ...payload, policy: payload.policy ?? 3 }
           : payload;
     const action: Action = { type, payload: recordedPayload, actor };
     const logged = await this.store.append(this.orgId, action);
