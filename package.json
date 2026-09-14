@@ -19,7 +19,8 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "node --env-file-if-exists=.env demo/server.js",
     "start": "node --env-file-if-exists=.env demo/server.js",
-    "eval": "npm run build && node --env-file-if-exists=.env scripts/eval.mjs"
+    "eval": "npm run build && node --env-file-if-exists=.env scripts/eval.mjs",
+    "eval:categorize": "npm run build && node scripts/eval-categorize.mjs"
   },
   "keywords": [],
   "author": "",
