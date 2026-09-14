@@ -558,8 +558,8 @@ const page = (asOf = AS_OF) => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paisa — Your AI CFO</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/png" sizes="180x180" href="/icon.png?v=3">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=3">
+<link rel="icon" type="image/png" sizes="180x180" href="/icon.png?v=4">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=4">
 <style>
   :root {
     --bg: #FFFFFF; --side: #F9F9F9; --side-hover: #ECECEC; --surface: #FFFFFF;
@@ -2612,7 +2612,11 @@ export const handle = async (req, res) => {
       // so the tab showed its placeholder rather than the mark.
       res.statusCode = 200;
       res.setHeader("Content-Type", "image/png");
-      res.setHeader("Cache-Control", "public, max-age=86400");
+      // Revalidated on every use. Before Paisa, this domain served a Next.js
+      // app whose favicon.ico was the Vercel triangle, and browsers that
+      // stored it kept showing it. no-cache makes them check again, and get
+      // the mark.
+      res.setHeader("Cache-Control", "no-cache");
       return res.end(FAVICON_PNG);
     }
 
