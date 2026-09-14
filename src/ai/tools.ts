@@ -243,7 +243,7 @@ export const TOOLS: Record<string, ToolFn> = {
     if (queued.length === 0)
       return `review_count=0 note="Nothing awaits review — every imported line is categorised."`;
     const rows = queued
-      .map(({ line: l, reason }) => {
+      .map(({ line: l, reason, modelSuggestion }) => {
         const why =
           reason.kind === "ambiguous"
             ? ` reason=ambiguous conflicting_keywords="${reason.keywords.join(", ")}" candidate_accounts="${reason.accounts.join(", ")}"`
@@ -254,7 +254,10 @@ export const TOOLS: Record<string, ToolFn> = {
                 : reason.kind === "suggested"
                   ? ` reason=suggested suggested_account=${reason.accountId} keyword="${reason.keyword}" note="a rule Paisa ships proposes this account; it does not book by itself, so offer it for the user to confirm"`
                   : " reason=no_rule";
-        return `reference="${l.reference}" date=${l.date} description="${l.description}" amount=${formatINR(l.amount)} direction=${l.amount < 0n ? "out" : "in"}${why}`;
+        const proposed = modelSuggestion?.accountId
+          ? ` model_suggestion=${modelSuggestion.accountId} note="a small model proposed this account after checks on direction; it is a guess to offer for confirmation, not a decision"`
+          : "";
+        return `reference="${l.reference}" date=${l.date} description="${l.description}" amount=${formatINR(l.amount)} direction=${l.amount < 0n ? "out" : "in"}${why}${proposed}`;
       })
       .join("; ");
     return `review_count=${queued.length} lines: ${rows}`;

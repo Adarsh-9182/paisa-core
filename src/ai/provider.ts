@@ -24,6 +24,31 @@ export interface CallUsage {
   readonly cachedInputTokens?: number;
 }
 
+/**
+ * One request for text: a system prompt and one user message, no tools and
+ * no loop.
+ *
+ * For narrow jobs where a whole agent run would be waste — suggesting which
+ * account a bank line belongs in is a classification, not a conversation.
+ * Whatever comes back is untrusted text; the caller parses and checks it.
+ */
+export interface CompletionRequest {
+  readonly system: string;
+  readonly user: string;
+  readonly maxTokens?: number;
+}
+
+export interface Completion {
+  readonly text: string;
+  readonly usage?: CallUsage;
+}
+
+export interface CompletionModel {
+  readonly name: string;
+  readonly model?: string;
+  complete(req: CompletionRequest): Promise<Completion>;
+}
+
 export interface AgentContext {
   readonly system: string;
   /** Prior conversation turns, oldest first. The current question is separate. */

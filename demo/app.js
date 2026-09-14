@@ -20,6 +20,7 @@ import { erpApi, ERP_READS, CONTROLLER, CLOSE_PERIOD } from "./erp-console.js";
 import { describeRun } from "../dist/src/erp/cfo-agent.js";
 import { indiaBusinessDate, runScheduledCfo, CfoScheduleUnavailableError } from "../dist/src/erp/cfo-schedule.js";
 import { parseStatementCsv } from "../dist/src/bank-import.js";
+import { suggestReviewQueue } from "../dist/src/ai/suggest-accounts.js";
 import { FAVICON_PNG, APPLE_TOUCH_PNG } from "./mark.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
@@ -308,6 +309,33 @@ if (process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL) modelRungs.push(n
 // the response to a 429.
 if (process.env.PAISA_OPENAI_MODEL_FALLBACK)
   modelRungs.push(new OpenAIProvider({ model: process.env.PAISA_OPENAI_MODEL_FALLBACK }));
+
+/*
+ * Autobook step 3: a small model proposes accounts for review lines no rule
+ * knows. The same rungs as the chat, used for one narrow question. What comes
+ * back is recorded through the log as data and never books a line; a person
+ * confirms each one. PAISA_MODEL_SUGGESTIONS=off turns it off.
+ */
+const suggestionModels =
+  process.env.PAISA_MODEL_SUGGESTIONS === "off" ? [] : modelRungs.filter((m) => typeof m.complete === "function");
+
+/** Never throws: a model being down must not fail the import it follows. */
+const suggestForQueue = async (books) => {
+  if (suggestionModels.length === 0) return { available: false, suggested: 0, unreached: 0, deferred: 0 };
+  try {
+    const r = await suggestReviewQueue(books.org.banking, books.org.chart, suggestionModels, { maxLines: 100, batchSize: 20 });
+    if (r.suggestions.length) await books.exec("banking.recordSuggestions", { suggestions: r.suggestions }, "autobook-model");
+    return {
+      available: true,
+      suggested: r.suggestions.filter((x) => x.accountId).length,
+      unreached: r.unreached.length,
+      deferred: r.deferred,
+    };
+  } catch (err) {
+    console.error("[autobook] suggestions failed:", err.message);
+    return { available: true, suggested: 0, unreached: 0, deferred: 0, error: "Suggestions are unavailable right now." };
+  }
+};
 
 const agents = new Map();
 const agentFor = (dates) => {
@@ -2575,7 +2603,7 @@ export const handle = async (req, res) => {
           .all()
           .filter((a) => a.active && (a.type === "EXPENSE" || a.type === "REVENUE"))
           .map((a) => ({ id: a.id, name: a.name, type: a.type })),
-        items: books.banking.reviewQueueWithReasons().map(({ line: l, reason }) => ({
+        items: books.banking.reviewQueueWithReasons().map(({ line: l, reason, modelSuggestion }) => ({
           reference: l.reference,
           date: l.date,
           description: l.description,
@@ -2584,10 +2612,15 @@ export const handle = async (req, res) => {
           reason: reason.kind,
           // Under suggest-only a rule Paisa ships proposes the account rather
           // than booking it, so the reviewer confirms instead of choosing.
+          // A rule's proposal first, then a model's — a rule someone can read
+          // beats a guess. Either way the reviewer confirms; nothing booked it.
           suggestedAccount:
             reason.kind === "suggested"
               ? { id: reason.accountId, name: books.chart.get(reason.accountId).name }
-              : null,
+              : modelSuggestion?.accountId
+                ? { id: modelSuggestion.accountId, name: books.chart.get(modelSuggestion.accountId).name }
+                : null,
+          suggestedBy: reason.kind === "suggested" ? "rule" : modelSuggestion?.accountId ? "model" : null,
           suggestedKeyword: reason.kind === "suggested" ? reason.keyword : suggestKeyword(l.description),
         })),
       });
@@ -2630,9 +2663,11 @@ export const handle = async (req, res) => {
           // string here would be compared and added as a string.
           ? await books.exec("banking.importStatement", { lines: parsed.lines })
           : { posted: [], duplicates: [], needsReview: [] };
+        const suggestion = imported.needsReview.length ? await suggestForQueue(books) : null;
         return send(200, {
           ok: true,
           read: parsed.lines.length,
+          ...(suggestion ? { modelSuggested: suggestion.suggested, modelUnreached: suggestion.unreached } : {}),
           posted: imported.posted.length,
           duplicates: imported.duplicates.length,
           needsReview: imported.needsReview.length,
@@ -2644,6 +2679,21 @@ export const handle = async (req, res) => {
       } catch (err) {
         return send(200, { ok: false, error: err.message });
       }
+    }
+
+    /**
+     * Ask the model about review lines nothing has proposed an account for.
+     *
+     * Imports already do this; this is for lines an outage or a rate limit
+     * left unanswered, or past the per-request cap. It records proposals and
+     * never books, but it spends model quota, so it sits behind the same
+     * permission as categorising.
+     */
+    if (path === "/api/banking/suggest" && req.method === "POST") {
+      const { books, refusal } = await booksForWrite(req, res, "categorize_transactions");
+      if (refusal) return send(refusal.code, refusal.body);
+      const r = await suggestForQueue(books);
+      return send(200, { ok: !r.error && r.available, ...r });
     }
 
     if (path === "/api/banking/categorize" && req.method === "POST") {

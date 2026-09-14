@@ -17,7 +17,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { AgentContext, LanguageModelProvider } from "./provider.js";
+import { AgentContext, LanguageModelProvider, Completion, CompletionModel, CompletionRequest } from "./provider.js";
 import { TOOL_SPECS } from "./tools.js";
 import { truncateDocumentText, UploadedDocument } from "./document.js";
 
@@ -88,7 +88,7 @@ export async function extractDocumentText(
   return { name, source, text: truncateDocumentText(text) };
 }
 
-export class AnthropicProvider implements LanguageModelProvider {
+export class AnthropicProvider implements LanguageModelProvider, CompletionModel {
   readonly name = "anthropic";
   readonly model: string;
   private client: Anthropic;
@@ -178,5 +178,28 @@ export class AnthropicProvider implements LanguageModelProvider {
         .join("");
     }
     throw new Error("Tool loop exceeded maximum rounds without a final answer");
+  }
+
+  /** One system + user exchange, no tools. The system prompt is cached across calls. */
+  async complete(req: CompletionRequest): Promise<Completion> {
+    const response = await this.client.beta.messages.create({
+      model: this.model,
+      max_tokens: req.maxTokens ?? 4000,
+      system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: req.user }],
+    });
+    if (response.stop_reason === "refusal") throw new Error("Model declined the request");
+    return {
+      text: response.content
+        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join(""),
+      usage: {
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
+        cachedInputTokens:
+          (response.usage?.cache_read_input_tokens ?? 0) + (response.usage?.cache_creation_input_tokens ?? 0),
+      },
+    };
   }
 }

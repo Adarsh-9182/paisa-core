@@ -13,7 +13,7 @@
  * refusal degrades gracefully instead of failing the chat.
  */
 
-import { AgentContext, LanguageModelProvider } from "./provider.js";
+import { AgentContext, Completion, CompletionModel, CompletionRequest, LanguageModelProvider } from "./provider.js";
 import { TOOL_SPECS } from "./tools.js";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-5.6";
@@ -38,7 +38,7 @@ interface OpenAiMessage {
   readonly refusal?: string | null;
 }
 
-export class OpenAIProvider implements LanguageModelProvider {
+export class OpenAIProvider implements LanguageModelProvider, CompletionModel {
   readonly name = "openai";
   readonly model: string;
   private apiKey: string | undefined;
@@ -86,7 +86,9 @@ export class OpenAIProvider implements LanguageModelProvider {
    */
   private async send(
     messages: Record<string, unknown>[],
-    tools: unknown[],
+    // null omits the field: some OpenAI-compatible servers reject an empty
+    // tools array, and a completion has no business sending one.
+    tools: unknown[] | null,
   ): Promise<{ ok: boolean; status: number; text(): Promise<string>; json(): Promise<unknown> }> {
     const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
     let res!: Awaited<ReturnType<FetchFn>>;
@@ -100,7 +102,7 @@ export class OpenAIProvider implements LanguageModelProvider {
           // check the header should see no credential, not a blank one.
           ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
         },
-        body: JSON.stringify({ model: this.model, messages, tools }),
+        body: JSON.stringify({ model: this.model, messages, ...(tools ? { tools } : {}) }),
       });
       if (res.ok || !RETRYABLE.has(res.status) || attempt === this.maxRetries) return res;
 
@@ -181,5 +183,39 @@ export class OpenAIProvider implements LanguageModelProvider {
       throw new Error("OpenAI returned an empty answer");
     }
     throw new Error("Tool loop exceeded maximum rounds without a final answer");
+  }
+
+  /** One system + user exchange, retried like any other request, no tools. */
+  async complete(req: CompletionRequest): Promise<Completion> {
+    if (!this.apiKey && !this.isLocal) throw new Error("OPENAI_API_KEY is not set");
+    const res = await this.send(
+      [
+        { role: "system", content: req.system },
+        { role: "user", content: req.user },
+      ],
+      null,
+    );
+    if (!res.ok) throw new Error(`OpenAI API error ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const data = (await res.json()) as {
+      choices?: { message?: OpenAiMessage }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
+    };
+    const msg = data.choices?.[0]?.message;
+    if (!msg) throw new Error("OpenAI returned no message");
+    if (msg.refusal) throw new Error("Model declined the request");
+    return {
+      text: typeof msg.content === "string" ? msg.content : "",
+      ...(data.usage
+        ? {
+            usage: {
+              inputTokens: data.usage.prompt_tokens ?? 0,
+              outputTokens: data.usage.completion_tokens ?? 0,
+              ...(data.usage.prompt_tokens_details?.cached_tokens !== undefined
+                ? { cachedInputTokens: data.usage.prompt_tokens_details.cached_tokens }
+                : {}),
+            },
+          }
+        : {}),
+    };
   }
 }
