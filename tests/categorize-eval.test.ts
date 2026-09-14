@@ -7,7 +7,13 @@
  */
 import { describe, it, expect } from "vitest";
 import { Platform } from "../src/index.js";
-import { scoreCategorizer, formatCategorizeReport, CategorizeCase } from "../src/ai/categorize-eval.js";
+import {
+  scoreCategorizer,
+  formatCategorizeReport,
+  comparePolicies,
+  formatPolicyComparison,
+  CategorizeCase,
+} from "../src/ai/categorize-eval.js";
 import { CATEGORIZE_CASES, PROPOSED_ACCOUNTS } from "../src/ai/categorize-cases.js";
 
 const books = () => new Platform().createOrganization(`cat_${Math.random().toString(36).slice(2)}`, "Eval Traders");
@@ -126,5 +132,35 @@ describe("the held-out set", () => {
       expect(known, `${c.id} expects unknown account ${c.expect}`).toBe(true);
       if (c.expect === "review" || c.id.startsWith("h-trap-")) expect(c.why, `${c.id} needs a reason`).toBeTruthy();
     }
+  });
+});
+
+describe("comparing book-all with suggest-only", () => {
+  it("turns a correct shipped booking into a correct suggestion, cleared in one tap", () => {
+    const r = comparePolicies([{ id: "a", description: "POS 4521 AWS SERVICES", amount: "-100", expect: "acc_software" }], books);
+    expect(r.bookAll.outcomes[0]!.verdict).toBe("correct");
+    expect(r.suggestOnly.report.outcomes[0]!.verdict).toBe("abstained");
+    expect(r.suggestOnly.suggestionCorrect).toBe(1);
+    expect(r.suggestOnly.oneTapPct).toBe(100);
+  });
+
+  it("turns a wrong shipped booking into a wrong suggestion rather than a wrong figure", () => {
+    const r = comparePolicies([{ id: "a", description: "UPI DR 1 UBER EATS INDIA", amount: "-100", expect: "acc_meals" }], books);
+    expect(r.bookAll.wrong).toBe(1);
+    expect(r.suggestOnly.report.wrong).toBe(0);
+    expect(r.suggestOnly.suggestionWrong).toBe(1);
+    expect(r.suggestOnly.oneTapPct).toBe(0);
+  });
+
+  it("still lets a format staple book itself under suggest-only", () => {
+    const r = comparePolicies([{ id: "a", description: "SMS CHARGES QTR SEP-26", amount: "-17.70", expect: "acc_bank_charges" }], books);
+    expect(r.suggestOnly.report.correct).toBe(1);
+    expect(r.suggestOnly.oneTapPct).toBe(100);
+  });
+
+  it("offers no suggestion where the shipped rules had nothing either", () => {
+    const r = comparePolicies([{ id: "a", description: "UPI/DR/1/SOMEONE/someone@ybl", amount: "-100", expect: "acc_software" }], books);
+    expect(r.suggestOnly.suggested).toBe(0);
+    expect(formatPolicyComparison(r)).toContain("suggest-only");
   });
 });
