@@ -30,6 +30,7 @@
 
 import { Organization } from "../organization.js";
 import { parseINR } from "../money.js";
+import { BankFeedEngine } from "../banking.js";
 
 export interface CategorizeCase {
   readonly id: string;
@@ -155,4 +156,98 @@ export const formatCategorizeReport = (r: CategorizeReport): string => {
       rows.push(`  ${o.verdict === "wrong_direction" ? "DIRECTION" : "wrong    "}  ${o.id.padEnd(28)} ${o.amount.padStart(10)}  got ${o.got}, expected ${o.expect}`);
   }
   return rows.join("\n");
+};
+
+/* ------------------------------------------------------------------ */
+/* Two policies, side by side                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What happens under "suggest-only": the rules Paisa ships may no longer book
+ * a line by themselves, only propose where it goes. Format staples — the
+ * bank's own fees, tax challans, cash — still book, and so would any rule a
+ * company taught itself (fresh books have none).
+ *
+ * Precision alone would make this look free: nothing guesses, so nothing is
+ * wrong. The cost is lines that now wait for a person, so the report also
+ * counts how many of those arrive with the right account already chosen —
+ * a line a person clears with one tap is much cheaper than one they classify
+ * from scratch.
+ */
+export interface SuggestOnlyReport {
+  readonly report: CategorizeReport;
+  /** Lines sent to review with an account already proposed. */
+  readonly suggested: number;
+  readonly suggestionCorrect: number;
+  readonly suggestionWrong: number;
+  /** Of the bookable lines, how many need at most one tap: booked right, or suggested right. */
+  readonly oneTapPct: number;
+}
+
+export interface PolicyComparison {
+  /** Today: shipped rules book what they match. */
+  readonly bookAll: CategorizeReport;
+  readonly suggestOnly: SuggestOnlyReport;
+}
+
+export const comparePolicies = (
+  cases: readonly CategorizeCase[],
+  makeOrg: () => Organization,
+): PolicyComparison => {
+  const bookAll = scoreCategorizer(cases, makeOrg);
+
+  // Same books, a categorizer with no shipped rules: only staples can book.
+  const suggestOnlyBooks = (): Organization => {
+    const org = makeOrg();
+    const banking = new BankFeedEngine(org.orgId, org.chart, org.journal, org.bus, []);
+    return { chart: org.chart, banking } as unknown as Organization;
+  };
+  const report = scoreCategorizer(cases, suggestOnlyBooks);
+
+  // A line's suggestion is wherever the shipped rules would have booked it.
+  const shippedBooking = new Map(bookAll.outcomes.map((o) => [o.id, o.got]));
+  let suggested = 0;
+  let suggestionCorrect = 0;
+  let suggestionWrong = 0;
+  let oneTap = 0;
+  for (const o of report.outcomes) {
+    if (o.verdict === "correct") {
+      oneTap++;
+      continue;
+    }
+    if (o.verdict !== "abstained") continue;
+    const proposal = shippedBooking.get(o.id) ?? "review";
+    if (proposal === "review") continue;
+    suggested++;
+    if (proposal === o.expect) {
+      suggestionCorrect++;
+      oneTap++;
+    } else suggestionWrong++;
+  }
+
+  return {
+    bookAll,
+    suggestOnly: {
+      report,
+      suggested,
+      suggestionCorrect,
+      suggestionWrong,
+      oneTapPct: pct(oneTap, report.bookable),
+    },
+  };
+};
+
+export const formatPolicyComparison = (c: PolicyComparison): string => {
+  const a = c.bookAll;
+  const b = c.suggestOnly.report;
+  const p = (v: number | null) => (v === null ? "n/a" : `${v}%`);
+  const row = (label: string, left: string, right: string) => `  ${label.padEnd(34)}${left.padEnd(18)}${right}`;
+  return [
+    row("", "book-all (today)", "suggest-only"),
+    row("precision of what booked itself", p(a.precisionPct), p(b.precisionPct)),
+    row("lines booked wrong", String(a.wrong), String(b.wrong)),
+    row("booked by itself (coverage)", `${a.coveragePct}%`, `${b.coveragePct}%`),
+    row("arrive with a suggestion", "—", `${c.suggestOnly.suggested} (right ${c.suggestOnly.suggestionCorrect}, wrong ${c.suggestOnly.suggestionWrong})`),
+    row("cleared in one tap or none", `${a.coveragePct}%`, `${c.suggestOnly.oneTapPct}%`),
+  ].join("\n");
 };
