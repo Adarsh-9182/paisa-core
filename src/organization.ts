@@ -5,6 +5,7 @@
  */
 
 import { ChartOfAccounts, defaultChart } from "./accounts.js";
+import { indiaSmbAccounts } from "./india-accounts.js";
 import { JournalEngine } from "./journal.js";
 import { Ledger } from "./ledger.js";
 import { Statements } from "./statements.js";
@@ -103,7 +104,7 @@ export class Platform {
   createOrganization(orgId: string, name: string): Organization {
     if (this.orgs.has(orgId)) throw new Error(`Organization ${orgId} already exists`);
     const bus = new EventBus();
-    const chart = defaultChart(orgId);
+    const chart = indiaSmbAccounts(defaultChart(orgId));
     const journal = new JournalEngine(orgId, chart, bus);
     const ledger = new Ledger(chart, journal);
     const statements = new Statements(chart, ledger, journal);

@@ -18,6 +18,7 @@
  */
 
 import { Paise } from "../money.js";
+import type { ImportPolicy } from "../banking.js";
 import { Organization } from "../organization.js";
 import { ErpSuite } from "../erp/suite.js";
 import { standardHandlers } from "../erp/flow-handlers.js";
@@ -322,8 +323,15 @@ export const COMMANDS: Record<string, CommandHandler> = {
 
   /* ---------------- bank feed ---------------- */
 
+  // An import recorded before policies existed has no policy field and ran
+  // under keyword rules alone; it replays that way.
   "banking.importStatement": (ctx, pl, actor) =>
-    ctx.org.banking.importStatement(p(pl, "lines"), actor, opt(pl, "bankAccountId", "acc_bank")),
+    ctx.org.banking.importStatement(
+      p(pl, "lines"),
+      actor,
+      opt(pl, "bankAccountId", "acc_bank"),
+      opt<ImportPolicy>(pl, "policy", 1),
+    ),
   // Logged rather than applied in place because the rule it can teach outlives
   // the request: a categorizer that forgets what it learned on restart asks
   // the same question every month, which is the failure this feature exists

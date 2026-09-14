@@ -45,7 +45,23 @@ export interface CategorizationRule {
 /** Why a line is waiting for a person. */
 export type ReviewReason =
   | { readonly kind: "no_rule" }
-  | { readonly kind: "ambiguous"; readonly accounts: readonly string[]; readonly keywords: readonly string[] };
+  | { readonly kind: "ambiguous"; readonly accounts: readonly string[]; readonly keywords: readonly string[] }
+  /** A rule matched, but money went the wrong way for its account. */
+  | { readonly kind: "direction"; readonly accountId: string; readonly keyword: string }
+  /** A rule matched, but a word in the line says money is moving between balances. */
+  | { readonly kind: "movement"; readonly accountId: string; readonly keyword: string; readonly word: string };
+
+/**
+ * Which categorizer rules an import ran under.
+ *
+ * 1 — keyword rules only; a match books wherever it points.
+ * 2 — adds the direction guard, movement words and staple rules.
+ *
+ * Recorded on every import command, because what an import booked depends on
+ * the rules in force when it ran. Replaying last year's import under today's
+ * rules would quietly rewrite last year's books.
+ */
+export type ImportPolicy = 1 | 2;
 
 export interface ImportResult {
   readonly posted: readonly { line: BankStatementLine; entry: JournalEntry; label: string }[];
@@ -105,7 +121,12 @@ export class BankFeedEngine {
     return this.reviewQueue.map((q) => ({ line: q.line, reason: q.reason }));
   }
 
-  importStatement(lines: readonly BankStatementLine[], actor: string, bankAccountId = "acc_bank"): ImportResult {
+  importStatement(
+    lines: readonly BankStatementLine[],
+    actor: string,
+    bankAccountId = "acc_bank",
+    policy: ImportPolicy = CURRENT_IMPORT_POLICY,
+  ): ImportResult {
     this.chart.get(bankAccountId);
     const posted: { line: BankStatementLine; entry: JournalEntry; label: string }[] = [];
     const duplicates: BankStatementLine[] = [];
@@ -120,7 +141,7 @@ export class BankFeedEngine {
       }
       this.seen.add(key);
 
-      const outcome = this.match(line.description);
+      const outcome = this.match(line.description, policy);
 
       // No rule, or rules that disagree — both are questions for a person,
       // and the queue records which so the answer can be the right one. A
@@ -146,6 +167,24 @@ export class BankFeedEngine {
       }
 
       const rule = outcome.rule;
+
+      // A keyword says who was paid. It cannot say whether that payment is
+      // income, an expense or neither — so under policy 2 two checks it
+      // cannot make on its own get a veto before anything posts.
+      const refusal = policy >= 2 ? this.refuse(line, rule) : null;
+      if (refusal) {
+        this.reviewQueue.push({ line, bankAccountId, reason: refusal });
+        needsReview.push(line);
+        this.emit("banking.needs_review", actor, {
+          reference: line.reference,
+          description: line.description,
+          reason: refusal.kind,
+          keyword: rule.keyword,
+          account: rule.accountId,
+          ...(refusal.kind === "movement" ? { word: refusal.word } : {}),
+        });
+        continue;
+      }
 
       const amount = abs(line.amount);
       const entry = this.journal.post({
@@ -298,8 +337,16 @@ export class BankFeedEngine {
    * account nobody chose. A line in review is a question; a line posted to
    * the wrong account is a misstatement someone has to find.
    */
-  private match(description: string): { rule: CategorizationRule } | { tie: readonly CategorizationRule[] } | null {
-    const matched = this.rules.filter((r) => patternFor(r.keyword).test(description));
+  private match(
+    description: string,
+    policy: ImportPolicy = CURRENT_IMPORT_POLICY,
+  ): { rule: CategorizationRule } | { tie: readonly CategorizationRule[] } | null {
+    let matched = this.rules.filter((r) => patternFor(r.keyword).test(description));
+    // Staples name a format — a bank's own fee, a tax challan, an ATM — not a
+    // payee. They are consulted only when no payee rule matched, so a vendor's
+    // "delivery charges" stays with the vendor rather than becoming a bank fee.
+    if (matched.length === 0 && policy >= 2)
+      matched = STAPLE_RULES.filter((r) => this.hasAccount(r.accountId) && patternFor(r.keyword).test(description));
     if (matched.length === 0) return null;
 
     const rank = (r: CategorizationRule): number => r.keyword.length * 2 + (r.taught ? 1 : 0);
@@ -311,6 +358,40 @@ export class BankFeedEngine {
     const accounts = new Set(finalists.map((r) => r.accountId));
     if (accounts.size === 1) return { rule: finalists[0]! };
     return { tie: finalists };
+  }
+
+  /**
+   * Why a matched rule may still not book this line, or null if it may.
+   *
+   * Direction: money out cannot be income, money in cannot be an expense.
+   * "INTEREST DEBITED" matched the interest-income rule and lowered income;
+   * "RENT RECEIVED" matched office rent and credited an expense.
+   *
+   * Movement: an advance, a refund, a reversal, a deposit or a wallet load
+   * moves money between balances. Booking one to income or expense misstates
+   * the P&L even when the direction is right — a salary advance is money the
+   * employee owes back, not salary. Balance-sheet accounts are exempt: a cash
+   * deposit belongs in cash.
+   */
+  private refuse(line: BankStatementLine, rule: CategorizationRule): ReviewReason | null {
+    const type = this.chart.get(rule.accountId).type;
+    const out = line.amount < 0n;
+    if ((out && type === "REVENUE") || (!out && type === "EXPENSE"))
+      return { kind: "direction", accountId: rule.accountId, keyword: rule.keyword };
+    if (type === "REVENUE" || type === "EXPENSE") {
+      const word = MOVEMENT_WORDS.find((w) => patternFor(w).test(line.description));
+      if (word) return { kind: "movement", accountId: rule.accountId, keyword: rule.keyword, word };
+    }
+    return null;
+  }
+
+  private hasAccount(id: string): boolean {
+    try {
+      this.chart.get(id);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private emit(type: string, actor: string, payload: Record<string, unknown>): void {
@@ -413,3 +494,43 @@ export const defaultCategorizationRules = (): CategorizationRule[] => [
   { keyword: "legal", accountId: "acc_professional", label: "Professional Fees" },
   { keyword: "interest", accountId: "acc_interest_income", label: "Interest Income" },
 ];
+
+/** New imports run under this; see ImportPolicy. */
+export const CURRENT_IMPORT_POLICY: ImportPolicy = 2;
+
+/**
+ * Rules for what nearly every Indian business statement contains, consulted
+ * only when no payee rule matches (policy 2).
+ *
+ * Deliberately formats and the most common merchants for the accounts every
+ * statement needs — not a list grown by chasing individual lines. A rule added
+ * because one eval line needed it improves that line and nothing else.
+ */
+export const STAPLE_RULES: readonly CategorizationRule[] = [
+  // The bank's own fees.
+  { keyword: "charges", accountId: "acc_bank_charges", label: "Bank Charges", taught: false },
+  { keyword: "chrg", accountId: "acc_bank_charges", label: "Bank Charges", taught: false },
+  { keyword: "chgs", accountId: "acc_bank_charges", label: "Bank Charges", taught: false },
+  { keyword: "annual fee", accountId: "acc_bank_charges", label: "Bank Charges", taught: false },
+  { keyword: "min bal", accountId: "acc_bank_charges", label: "Bank Charges", taught: false },
+  // Tax paid — settling what is owed, not an expense.
+  { keyword: "cpin", accountId: "acc_gst_payable", label: "GST Payment", taught: false },
+  { keyword: "itns 281", accountId: "acc_taxes_payable", label: "TDS Payment", taught: false },
+  { keyword: "itns 280", accountId: "acc_taxes_payable", label: "Advance Tax", taught: false },
+  // Cash moving in and out of the bank.
+  { keyword: "atm wdl", accountId: "acc_cash", label: "Cash Withdrawal", taught: false },
+  { keyword: "cash dep", accountId: "acc_cash", label: "Cash Deposit", taught: false },
+  { keyword: "cash deposit", accountId: "acc_cash", label: "Cash Deposit", taught: false },
+  // The most common merchants for the accounts Indian statements need.
+  { keyword: "swiggy", accountId: "acc_meals", label: "Meals", taught: false },
+  { keyword: "zomato", accountId: "acc_meals", label: "Meals", taught: false },
+  { keyword: "hpcl", accountId: "acc_vehicle_fuel", label: "Vehicle & Fuel", taught: false },
+  { keyword: "bpcl", accountId: "acc_vehicle_fuel", label: "Vehicle & Fuel", taught: false },
+  { keyword: "iocl", accountId: "acc_vehicle_fuel", label: "Vehicle & Fuel", taught: false },
+  { keyword: "indian oil", accountId: "acc_vehicle_fuel", label: "Vehicle & Fuel", taught: false },
+  { keyword: "lic of india", accountId: "acc_insurance", label: "Insurance", taught: false },
+  { keyword: "irctc", accountId: "acc_travel", label: "Travel", taught: false },
+];
+
+/** Words that mean money is moving between balances rather than being earned or spent. */
+export const MOVEMENT_WORDS: readonly string[] = ["advance", "refund", "reversal", "reversed", "deposit", "wallet"];
