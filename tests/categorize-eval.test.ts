@@ -37,7 +37,23 @@ describe("grading", () => {
   });
 
   it("singles out money booked in the wrong direction", () => {
-    const r = grade([{ id: "a", description: "INTEREST DEBITED OD A/C", amount: "-100", expect: "acc_interest_expense" }]);
+    // The engine now refuses these, so a stub stands in for one that does
+    // not: the scorer has to keep catching it if the guard ever regresses.
+    const real = books();
+    const stub = {
+      chart: real.chart,
+      banking: {
+        importStatement: (lines: { reference: string }[]) => ({
+          posted: [{ line: lines[0], entry: { lines: [{ accountId: "acc_interest_income" }, { accountId: "acc_bank" }] } }],
+          needsReview: [],
+          duplicates: [],
+        }),
+      },
+    } as unknown as ReturnType<typeof books>;
+    const r = scoreCategorizer(
+      [{ id: "a", description: "INTEREST DEBITED OD A/C", amount: "-100", expect: "acc_interest_expense" }],
+      () => stub,
+    );
     expect(r.outcomes[0]!.verdict).toBe("wrong_direction");
     expect(r.wrongDirection).toBe(1);
     expect(r.wrong).toBe(1);
@@ -79,12 +95,14 @@ describe("the dataset", () => {
       expect(c.why, `${c.id} needs a reason`).toBeTruthy();
   });
 
-  it("keeps proposed accounts on the side of the ledger their direction implies", () => {
-    for (const c of CATEGORIZE_CASES) {
-      const proposed = PROPOSED_ACCOUNTS[c.expect];
-      if (!proposed) continue;
-      const out = c.amount.startsWith("-");
-      expect(proposed.type, `${c.id}`).toBe(out ? "EXPENSE" : "REVENUE");
+  it("never labels money out as income, or money in as an expense, in either set", async () => {
+    const { CATEGORIZE_HOLDOUT } = await import("../src/ai/categorize-holdout.js");
+    const chart = books().chart;
+    for (const c of [...CATEGORIZE_CASES, ...CATEGORIZE_HOLDOUT]) {
+      if (c.expect === "review") continue;
+      const type = PROPOSED_ACCOUNTS[c.expect]?.type ?? chart.get(c.expect).type;
+      if (c.amount.startsWith("-")) expect(type, c.id).not.toBe("REVENUE");
+      else expect(type, c.id).not.toBe("EXPENSE");
     }
   });
 });

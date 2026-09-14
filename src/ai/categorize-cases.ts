@@ -17,23 +17,20 @@
  *     is a government licence not a lawyer. These are the lines that measure
  *     precision, which is the number that matters most.
  *
- * Some expected accounts do not exist in today's chart of accounts. They are
- * listed in PROPOSED_ACCOUNTS: until they exist, sending those lines to
- * review is the correct behaviour, and booking them anywhere else is wrong.
+ * An expected account that does not exist yet goes in PROPOSED_ACCOUNTS:
+ * until it does, sending that line to review is the correct behaviour.
  */
 
 import type { CategorizeCase } from "./categorize-eval.js";
 
-/** Accounts the eval expects that the chart does not have yet. */
-export const PROPOSED_ACCOUNTS: Readonly<Record<string, { readonly name: string; readonly type: "EXPENSE" | "REVENUE" }>> = {
-  acc_bank_charges: { name: "Bank Charges", type: "EXPENSE" },
-  acc_meals: { name: "Meals & Refreshments", type: "EXPENSE" },
-  acc_vehicle_fuel: { name: "Vehicle & Fuel", type: "EXPENSE" },
-  acc_office_supplies: { name: "Office Supplies", type: "EXPENSE" },
-  acc_insurance: { name: "Insurance", type: "EXPENSE" },
-  acc_interest_expense: { name: "Interest Expense", type: "EXPENSE" },
-  acc_rental_income: { name: "Rental Income", type: "REVENUE" },
-};
+/**
+ * Accounts the eval expects that the chart does not have yet.
+ *
+ * Empty since step 2 added the Indian accounts (src/india-accounts.ts). Kept
+ * so a future case can name an account before it exists: until it does,
+ * sending that line to review is the correct behaviour.
+ */
+export const PROPOSED_ACCOUNTS: Readonly<Record<string, { readonly name: string; readonly type: "EXPENSE" | "REVENUE" }>> = {};
 
 export const CATEGORIZE_CASES: readonly CategorizeCase[] = [
   /* ---------------- software ---------------- */

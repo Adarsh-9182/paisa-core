@@ -234,15 +234,17 @@ describe("banking ingestion", () => {
 
   it("learns from a review so the same payee books itself next time", () => {
     const org = freshOrg();
-    const first = { date: "2026-06-07", description: "UPI-ZOMATO FOR WORK-9912", amount: parseINR("-1,200"), reference: "z1" };
+    // A payee no shipped rule knows. This used to be Zomato, until staple
+    // rules started booking the commonest Indian merchants by themselves.
+    const first = { date: "2026-06-07", description: "UPI-BLUE TOKAI FOR WORK-9912", amount: parseINR("-1,200"), reference: "z1" };
     org.banking.importStatement([first], "adarsh");
     expect(org.banking.pendingReview().length).toBe(1);
 
-    org.banking.categorize("z1", "acc_travel", "adarsh", "zomato");
+    org.banking.categorize("z1", "acc_travel", "adarsh", "blue tokai");
 
     // the next one never reaches the queue
     const second = org.banking.importStatement(
-      [{ date: "2026-07-07", description: "UPI-ZOMATO FOR WORK-4471", amount: parseINR("-800"), reference: "z2" }],
+      [{ date: "2026-07-07", description: "UPI-BLUE TOKAI FOR WORK-4471", amount: parseINR("-800"), reference: "z2" }],
       "adarsh",
     );
     expect(second.posted.length).toBe(1);
@@ -253,7 +255,7 @@ describe("banking ingestion", () => {
   it("refuses to learn a keyword that is not in the description", () => {
     const org = freshOrg();
     org.banking.importStatement(
-      [{ date: "2026-06-07", description: "UPI-SWIGGY-1234", amount: parseINR("-500"), reference: "s1" }],
+      [{ date: "2026-06-07", description: "UPI-BLUE TOKAI-1234", amount: parseINR("-500"), reference: "s1" }],
       "adarsh",
     );
     expect(() => org.banking.categorize("s1", "acc_travel", "adarsh", "zomato")).toThrow(/does not appear/);
