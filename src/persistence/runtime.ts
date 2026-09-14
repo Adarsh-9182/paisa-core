@@ -18,6 +18,7 @@
  */
 
 import { Organization, Platform } from "../organization.js";
+import { CURRENT_IMPORT_POLICY } from "../banking.js";
 import { ErpSuite, attachErp, ErpOptions } from "../erp/suite.js";
 import { COMMANDS, Action, CommandContext, CommandError, isKnownCommand } from "./commands.js";
 import { ActionStore, LoggedAction, MemoryActionStore } from "./store.js";
@@ -89,7 +90,7 @@ export class PaisaRuntime {
       type === "cfo.run"
         ? { ...payload, version: payload.version ?? 2 }
         : type === "banking.importStatement"
-          ? { ...payload, policy: payload.policy ?? 3 }
+          ? { ...payload, policy: payload.policy ?? CURRENT_IMPORT_POLICY }
           : payload;
     const action: Action = { type, payload: recordedPayload, actor };
     const logged = await this.store.append(this.orgId, action);

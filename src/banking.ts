@@ -51,7 +51,15 @@ export type ReviewReason =
   /** A rule matched, but a word in the line says money is moving between balances. */
   | { readonly kind: "movement"; readonly accountId: string; readonly keyword: string; readonly word: string }
   /** Policy 3: a rule Paisa ships proposes this account; a person confirms it. */
-  | { readonly kind: "suggested"; readonly accountId: string; readonly keyword: string; readonly label: string };
+  | { readonly kind: "suggested"; readonly accountId: string; readonly keyword: string; readonly label: string }
+  /** Policy 4: a learned rule matched, but the amount is far outside what it was confirmed on. */
+  | {
+      readonly kind: "unusual_amount";
+      readonly accountId: string;
+      readonly keyword: string;
+      readonly usualMin: Paise;
+      readonly usualMax: Paise;
+    };
 
 /**
  * Which categorizer rules an import ran under.
@@ -62,12 +70,16 @@ export type ReviewReason =
  *     booking it. Only rules a company taught itself and format staples book.
  *     Measured against 2 on the held-out set: precision 76.5% to 100%, wrong
  *     bookings 4 to 0, with lines cleared in one tap or none 36.1% to 38.9%.
+ * 4 — a rule learned from confirmations remembers the amounts it was
+ *     confirmed on, and a line far outside them goes to review instead of
+ *     booking. Two small stationery orders do not make a ₹46,000 monitor
+ *     stationery.
  *
  * Recorded on every import command, because what an import booked depends on
  * the rules in force when it ran. Replaying last year's import under today's
  * rules would quietly rewrite last year's books.
  */
-export type ImportPolicy = 1 | 2 | 3;
+export type ImportPolicy = 1 | 2 | 3 | 4;
 
 export interface ImportResult {
   readonly posted: readonly { line: BankStatementLine; entry: JournalEntry; label: string }[];
@@ -133,6 +145,10 @@ export class BankFeedEngine {
   private resolved = 0;
   private learned = 0;
   private modelSuggestions = new Map<string, ModelSuggestion>();
+  /** Confirmations counted towards a keyword that is not yet a rule. */
+  private evidence = new Map<string, { accountId: string; count: number; conflicted: boolean; min: Paise; max: Paise }>();
+  /** The amounts each learned rule has been confirmed or booked on. */
+  private ranges = new Map<CategorizationRule, { min: Paise; max: Paise }>();
 
   constructor(
     public readonly orgId: string,
@@ -260,6 +276,26 @@ export class BankFeedEngine {
       }
 
       const amount = abs(line.amount);
+      const range = policy >= 4 ? this.ranges.get(rule) : undefined;
+      if (range && (amount > range.max * AMOUNT_GUARD_FACTOR || amount * AMOUNT_GUARD_FACTOR < range.min)) {
+        const reason: ReviewReason = {
+          kind: "unusual_amount",
+          accountId: rule.accountId,
+          keyword: rule.keyword,
+          usualMin: range.min,
+          usualMax: range.max,
+        };
+        this.reviewQueue.push({ line, bankAccountId, reason });
+        needsReview.push(line);
+        this.emit("banking.needs_review", actor, {
+          reference: line.reference,
+          description: line.description,
+          reason: reason.kind,
+          keyword: rule.keyword,
+          account: rule.accountId,
+        });
+        continue;
+      }
       const entry = this.journal.post({
         date: line.date,
         narration: `${rule.label}: ${line.description}`,
@@ -278,6 +314,11 @@ export class BankFeedEngine {
         createdBy: actor,
       });
       posted.push({ line, entry, label: rule.label });
+      // A booked line is inside the guard, so it only widens what is usual.
+      if (range) {
+        if (amount < range.min) range.min = amount;
+        if (amount > range.max) range.max = amount;
+      }
     }
 
     this.totals.posted += posted.length;
@@ -350,6 +391,121 @@ export class BankFeedEngine {
     }
     this.emit("banking.categorized", actor, { reference, accountId });
     return entry;
+  }
+
+  /**
+   * The one-tap path: book a line to the account a person chose, and count
+   * that choice as evidence for a keyword.
+   *
+   * `categorize` with a keyword turns it into a rule immediately, on one
+   * person's one confirmation. Measured over three months that books payees
+   * whose purpose changes — an employee reimbursed for cabs one month and
+   * lunch the next, a marketplace, a payment gateway — to last month's
+   * account, with nobody asked. Here a keyword becomes a rule only when
+   * `CONFIRMATIONS_TO_LEARN` confirmations agree on the account, and never
+   * once two have disagreed. The rule remembers the amounts it was confirmed
+   * on (see policy 4).
+   *
+   * A confirmation that contradicts a learned rule withdraws the rule: a
+   * person just said it was wrong, and a rule that books wrongly until
+   * someone deletes it by hand is the failure this is meant to prevent.
+   */
+  confirm(
+    reference: string,
+    accountId: string,
+    actor: string,
+    keyword?: string,
+  ): { readonly entry: JournalEntry; readonly learned: boolean; readonly withdrawn: boolean } {
+    const queued = this.reviewQueue.find((q) => q.line.reference === reference);
+    if (!queued) throw new BankingError(`No line with reference ${reference} awaits review`);
+    const kw = keyword?.trim().toLowerCase();
+    // Checked before anything posts, like categorize.
+    if (kw !== undefined) {
+      if (kw.length < 3) throw new BankingError(`Keyword "${kw}" is too short to be a rule`);
+      if (!patternFor(kw).test(queued.line.description))
+        throw new BankingError(`Keyword "${kw}" does not appear in "${queued.line.description}"`);
+    }
+    const amount = abs(queued.line.amount);
+    const entry = this.categorize(reference, accountId, actor);
+    if (kw === undefined) return { entry, learned: false, withdrawn: false };
+
+    const existing = this.rules.find((r) => r.taught && r.keyword.toLowerCase() === kw);
+    if (existing) {
+      if (existing.accountId === accountId) {
+        const range = this.ranges.get(existing);
+        if (range) {
+          if (amount < range.min) range.min = amount;
+          if (amount > range.max) range.max = amount;
+        }
+        return { entry, learned: false, withdrawn: false };
+      }
+      this.rules.splice(this.rules.indexOf(existing), 1);
+      this.ranges.delete(existing);
+      this.evidence.set(kw, { accountId, count: 0, conflicted: true, min: amount, max: amount });
+      this.emit("banking.rule_withdrawn", actor, { keyword: kw, accountId: existing.accountId, contradictedBy: accountId });
+      return { entry, learned: false, withdrawn: true };
+    }
+
+    let key = kw;
+    let e = this.evidence.get(kw);
+    if (!e) {
+      const merged = this.mergeEvidence(kw, accountId);
+      if (merged) ({ key, entry: e } = merged);
+    }
+    if (!e) {
+      this.evidence.set(kw, { accountId, count: 1, conflicted: false, min: amount, max: amount });
+    } else if (!e.conflicted) {
+      if (e.accountId !== accountId) {
+        e.conflicted = true;
+        this.emit("banking.teaching_conflict", actor, { keyword: kw, accounts: [e.accountId, accountId] });
+      } else {
+        e.count++;
+        if (amount < e.min) e.min = amount;
+        if (amount > e.max) e.max = amount;
+      }
+    }
+    if (!e || e.conflicted || e.count < CONFIRMATIONS_TO_LEARN) return { entry, learned: false, withdrawn: false };
+
+    const rule: CategorizationRule = { keyword: key, accountId, label: this.chart.get(accountId).name, taught: true };
+    this.rules.push(rule);
+    this.ranges.set(rule, { min: e.min, max: e.max });
+    this.evidence.delete(key);
+    this.learned++;
+    this.emit("banking.rule_learned", actor, { keyword: key, accountId, from: queued.line.description, confirmations: e.count });
+    return { entry, learned: true, withdrawn: false };
+  }
+
+  /**
+   * The same payee printed with a different tail — another outlet, another
+   * city — confirmed to the same account as before: the words the two
+   * keywords share become the keyword the confirmations count towards.
+   *
+   * At least two whole leading words, so two people who share a first name
+   * never pool their confirmations, and only for the same account, so two
+   * businesses that share a prefix but not a purpose stay apart.
+   */
+  private mergeEvidence(
+    kw: string,
+    accountId: string,
+  ): { key: string; entry: { accountId: string; count: number; conflicted: boolean; min: Paise; max: Paise } } | null {
+    for (const [other, o] of this.evidence) {
+      if (o.conflicted || o.accountId !== accountId) continue;
+      const shared = sharedLeadingWords(other, kw);
+      if (shared === null || this.rules.some((r) => r.taught && r.keyword.toLowerCase() === shared)) continue;
+      const target = this.evidence.get(shared);
+      if (target && (target.conflicted || target.accountId !== accountId)) continue;
+      this.evidence.delete(other);
+      if (target) {
+        target.count = Math.max(target.count, o.count);
+        if (o.min < target.min) target.min = o.min;
+        if (o.max > target.max) target.max = o.max;
+        return { key: shared, entry: target };
+      }
+      const entry = { ...o };
+      this.evidence.set(shared, entry);
+      return { key: shared, entry };
+    }
+    return null;
   }
 
   /**
@@ -531,6 +687,18 @@ export class BankFeedEngine {
   }
 }
 
+/** The whole words two keywords start with, if there are at least two of them. */
+const sharedLeadingWords = (a: string, b: string): string | null => {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  let prefix = a.slice(0, i);
+  const endsWord = (s: string): boolean => i >= s.length || !/[a-z0-9]/.test(s[i]!);
+  if (!(endsWord(a) && endsWord(b))) prefix = prefix.replace(/[a-z0-9]+$/, "");
+  prefix = prefix.replace(/[^a-z0-9]+$/, "");
+  const words = prefix.match(/[a-z0-9]+/g) ?? [];
+  return words.length >= 2 ? prefix : null;
+};
+
 const dedupeKey = (l: BankStatementLine): string => `${l.date}|${l.amount}|${l.reference}`;
 
 const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -578,7 +746,13 @@ export const suggestKeyword = (description: string): string | null => {
     words.push({ text: m[0].toLowerCase(), start: m.index, end: m.index + m[0].length });
 
   const usable = (w: { text: string }): boolean =>
-    w.text.length >= 3 && !RAIL_WORDS.has(w.text) && !/^\d+$/.test(w.text);
+    w.text.length >= 3 &&
+    !RAIL_WORDS.has(w.text) &&
+    !/^\d+$/.test(w.text) &&
+    // Letters and digits together are a code, not a name: an IFSC, a masked
+    // card or account number, a UTR, a cheque serial. Some change every
+    // month, so a keyword carrying one never matches the next statement.
+    !(/[a-z]/.test(w.text) && /\d/.test(w.text));
 
   // The longest unbroken run of payee-ish words: "IMPS 4032 CHAI POINT" should
   // suggest "CHAI POINT", not "point" — a single common word is exactly the
@@ -628,7 +802,18 @@ export const defaultCategorizationRules = (): CategorizationRule[] => [
 ];
 
 /** New imports run under this; see ImportPolicy. */
-export const CURRENT_IMPORT_POLICY: ImportPolicy = 3;
+export const CURRENT_IMPORT_POLICY: ImportPolicy = 4;
+
+/** Confirmations that must agree before a keyword becomes a rule that books. */
+export const CONFIRMATIONS_TO_LEARN = 2;
+
+/**
+ * How far outside its confirmed amounts a learned rule still books: up to
+ * three times the largest, down to a third of the smallest. Monthly bills,
+ * payroll and tax challans drift well inside that; a marketplace order for
+ * equipment after two for stationery does not.
+ */
+const AMOUNT_GUARD_FACTOR = 3n;
 
 /**
  * Rules for what nearly every Indian business statement contains, consulted

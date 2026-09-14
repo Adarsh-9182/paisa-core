@@ -163,7 +163,7 @@ describe("history keeps the rules it ran under", () => {
     const store = new MemoryActionStore();
     const rt = await PaisaRuntime.open({ orgId: "org_policy_new", name: "New", firstPeriod: "2026-01", store });
     await rt.execute("banking.importStatement", { lines: [line("SMS CHARGES QTR SEP-26", "-17.70")] }, "priya");
-    expect(store.all().at(-1)!.action.payload.policy).toBe(3);
+    expect(store.all().at(-1)!.action.payload.policy).toBe(4);
   });
 
   it("replays an import recorded before policies existed exactly as it originally booked", async () => {

@@ -343,6 +343,14 @@ export const COMMANDS: Record<string, CommandHandler> = {
       actor,
       opt<string | undefined>(pl, "learn", undefined),
     ),
+  // The one-tap confirm: books the line and counts the choice towards a rule.
+  "banking.confirm": (ctx, pl, actor) =>
+    ctx.org.banking.confirm(
+      p(pl, "reference"),
+      p(pl, "accountId"),
+      actor,
+      opt<string | undefined>(pl, "keyword", undefined),
+    ),
   // What a model proposed, recorded as its answer rather than as the question.
   // Replay applies the answer and never calls the model: the same log has to
   // rebuild the same review screen tomorrow, whatever the model would say then.
