@@ -343,6 +343,11 @@ export const COMMANDS: Record<string, CommandHandler> = {
       actor,
       opt<string | undefined>(pl, "learn", undefined),
     ),
+  // What a model proposed, recorded as its answer rather than as the question.
+  // Replay applies the answer and never calls the model: the same log has to
+  // rebuild the same review screen tomorrow, whatever the model would say then.
+  "banking.recordSuggestions": (ctx, pl, actor) =>
+    ctx.org.banking.recordModelSuggestions(p(pl, "suggestions"), actor),
 
   /* ---------------- recommendations ---------------- */
 

@@ -20,7 +20,8 @@
     "dev": "node --env-file-if-exists=.env demo/server.js",
     "start": "node --env-file-if-exists=.env demo/server.js",
     "eval": "npm run build && node --env-file-if-exists=.env scripts/eval.mjs",
-    "eval:categorize": "npm run build && node scripts/eval-categorize.mjs"
+    "eval:categorize": "npm run build && node scripts/eval-categorize.mjs",
+    "eval:suggest": "npm run build && node --env-file-if-exists=.env scripts/eval-suggest.mjs"
   },
   "keywords": [],
   "author": "",

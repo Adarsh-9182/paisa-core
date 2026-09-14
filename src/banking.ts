@@ -75,6 +75,49 @@ export interface ImportResult {
   readonly needsReview: readonly BankStatementLine[];
 }
 
+/**
+ * An account a model proposed for a line in review, recorded as data.
+ *
+ * Kept in the log rather than asked for again on replay: a model answers
+ * differently from one day to the next, and books rebuilt from the log must
+ * come out identical. `accountId` is null when the model was asked and had no
+ * usable answer, so the same line is not paid for twice.
+ */
+export interface ModelSuggestion {
+  readonly accountId: string | null;
+  readonly model: string;
+}
+
+/** Balance-sheet accounts a bank line plausibly lands in. */
+const BALANCE_SHEET_TARGETS = new Set(["acc_cash", "acc_gst_payable", "acc_taxes_payable", "acc_loans", "acc_capital"]);
+
+/** Income and expense accounts no bank line should be booked to directly. */
+const NOT_FROM_BANK_LINES = new Set([
+  "acc_realized_gains",
+  "acc_realized_losses",
+  "acc_depreciation_expense",
+  "acc_amortization_expense",
+  "acc_fx_gain",
+  "acc_fx_loss",
+  "acc_subscription_revenue",
+  "acc_usage_revenue",
+]);
+
+/**
+ * The accounts a model may propose for a bank line — the list it is shown,
+ * and the list a recorded proposal is checked against. Here rather than beside
+ * the model code so the engine can enforce it without depending on that code.
+ */
+export const suggestableAccounts = (chart: ChartOfAccounts): readonly ReturnType<ChartOfAccounts["all"]>[number][] =>
+  chart
+    .all()
+    .filter(
+      (a) =>
+        a.active &&
+        (((a.type === "EXPENSE" || a.type === "REVENUE") && !NOT_FROM_BANK_LINES.has(a.id)) ||
+          BALANCE_SHEET_TARGETS.has(a.id)),
+    );
+
 export class BankingError extends Error {
   override name = "BankingError";
 }
@@ -89,6 +132,7 @@ export class BankFeedEngine {
   private totals = { posted: 0, needsReview: 0, duplicates: 0 };
   private resolved = 0;
   private learned = 0;
+  private modelSuggestions = new Map<string, ModelSuggestion>();
 
   constructor(
     public readonly orgId: string,
@@ -123,8 +167,16 @@ export class BankFeedEngine {
    * the lines and nothing else, and widening their return type to carry a
    * field they ignore would be churn. What needs the reason asks for it.
    */
-  reviewQueueWithReasons(): readonly { line: BankStatementLine; reason: ReviewReason }[] {
-    return this.reviewQueue.map((q) => ({ line: q.line, reason: q.reason }));
+  reviewQueueWithReasons(): readonly {
+    line: BankStatementLine;
+    reason: ReviewReason;
+    /** Present once a model has been asked about the line. */
+    modelSuggestion?: ModelSuggestion;
+  }[] {
+    return this.reviewQueue.map((q) => {
+      const modelSuggestion = this.modelSuggestions.get(q.line.reference);
+      return { line: q.line, reason: q.reason, ...(modelSuggestion ? { modelSuggestion } : {}) };
+    });
   }
 
   importStatement(
@@ -289,6 +341,7 @@ export class BankFeedEngine {
       createdBy: actor,
     });
     this.reviewQueue.splice(idx, 1);
+    this.modelSuggestions.delete(reference);
     this.resolved++;
     if (keyword !== undefined) {
       this.rules.push({ keyword, accountId, label: account.name, taught: true });
@@ -297,6 +350,42 @@ export class BankFeedEngine {
     }
     this.emit("banking.categorized", actor, { reference, accountId });
     return entry;
+  }
+
+  /**
+   * Record what a model proposed for lines in review. Never books anything.
+   *
+   * The proposals arrive from outside the engine, so they are checked again
+   * here rather than trusted because the caller checked them: the account
+   * must be one a bank line can land in, and must pass the same direction and
+   * movement checks a rule would. A proposal that fails is kept as "asked, no
+   * usable answer" — the line was paid for once and should not be again.
+   *
+   * Lines no longer waiting, and lines a rule already proposes, are skipped:
+   * a person may have cleared the line while the model was thinking, and a
+   * rule someone can read beats a model's guess.
+   */
+  recordModelSuggestions(
+    suggestions: readonly { reference: string; accountId: string | null; model: string }[],
+    actor: string,
+  ): { readonly recorded: number; readonly discarded: number; readonly skipped: number } {
+    const allowed = new Set(suggestableAccounts(this.chart).map((a) => a.id));
+    let recorded = 0;
+    let discarded = 0;
+    for (const s of suggestions) {
+      const queued = this.reviewQueue.find((q) => q.line.reference === s.reference);
+      if (!queued || queued.reason.kind === "suggested") continue;
+      const usable =
+        typeof s.accountId === "string" &&
+        allowed.has(s.accountId) &&
+        this.refuse(queued.line, { keyword: "", accountId: s.accountId, label: "" }) === null;
+      if (s.accountId !== null && !usable) discarded++;
+      this.modelSuggestions.set(s.reference, { accountId: usable ? s.accountId : null, model: String(s.model) });
+      recorded++;
+    }
+    const skipped = suggestions.length - recorded;
+    if (recorded) this.emit("banking.suggestions_recorded", actor, { recorded, discarded, skipped });
+    return { recorded, discarded, skipped };
   }
 
   /**
