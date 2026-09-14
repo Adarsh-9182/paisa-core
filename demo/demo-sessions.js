@@ -14,12 +14,15 @@
  * small — this is a demo, not tenancy. Real multi-tenancy needs the store to
  * be per-tenant and durable, not a Map that dies with the process.
  *
- * On serverless the process is ephemeral, so a returning visitor can land on
- * a cold instance and find their session gone. They get fresh books rather
- * than an error, which for a demo is the right failure.
+ * On serverless the process is ephemeral, and the next request can land on a
+ * different instance. So the seed is rebuilt in each instance's memory, and
+ * only what the visitor does after it goes to the shared log (see
+ * SeedOverlayStore). Every request syncs first, so a line confirmed on one
+ * instance is not back in the queue on the next.
  */
 
-import { PaisaRuntime } from "../dist/src/index.js";
+import { PaisaRuntime, SeedOverlayStore } from "../dist/src/index.js";
+import { sharedStore } from "./boot.js";
 import { seedAll } from "./seed.js";
 
 /** Enough to try everything; small enough that a crawler cannot exhaust us. */
@@ -47,33 +50,44 @@ export const newDemoId = () =>
 /** Only ids this module could have issued — the cookie is caller-supplied. */
 export const isDemoId = (id) => typeof id === "string" && /^demo_[a-z0-9]{8,24}$/.test(id);
 
+const openSession = async (id, now) => {
+  const { store: shared } = await sharedStore();
+  const store = new SeedOverlayStore(shared);
+  const runtime = await PaisaRuntime.open({
+    orgId: id,
+    name: "Nimbus Labs Pvt Ltd",
+    firstPeriod: "2026-01",
+    store,
+    approvalPolicy: { limits: new Map([["junior", 5000000n]]), segregationOfDuties: true },
+  });
+  const exec = async (type, payload, actor = "demo") => (await runtime.execute(type, payload, actor)).result;
+  await seedAll(exec, runtime);
+  store.seal();
+  // Whatever this visitor did on other instances, applied on top of the seed.
+  await runtime.sync();
+  return { id, runtime, org: runtime.org, erp: runtime.erp, createdAt: now, lastSeen: now };
+};
+
 /**
- * The books for this visitor, created on first use. Returns the same runtime
- * for the same id until it expires.
+ * The books for this visitor, created on first use and brought up to date
+ * with the shared log on every call.
  */
 export const demoRuntime = async (id) => {
   const now = Date.now();
   evictExpired(now);
 
-  const existing = sessions.get(id);
-  if (existing) {
-    existing.lastSeen = now;
-    return existing;
+  let entry = sessions.get(id);
+  if (!entry) {
+    while (sessions.size >= MAX_SESSIONS) evictOldest();
+    // The promise is stored, not the result, so two requests arriving at a
+    // cold instance together share one seed instead of building two.
+    entry = { lastSeen: now, session: openSession(id, now) };
+    entry.session.catch(() => sessions.delete(id));
+    sessions.set(id, entry);
   }
-
-  while (sessions.size >= MAX_SESSIONS) evictOldest();
-
-  const runtime = await PaisaRuntime.open({
-    orgId: id,
-    name: "Nimbus Labs Pvt Ltd",
-    firstPeriod: "2026-01",
-    approvalPolicy: { limits: new Map([["junior", 5000000n]]), segregationOfDuties: true },
-  });
-  const exec = async (type, payload, actor = "demo") => (await runtime.execute(type, payload, actor)).result;
-  await seedAll(exec, runtime);
-
-  const session = { id, runtime, org: runtime.org, erp: runtime.erp, createdAt: now, lastSeen: now };
-  sessions.set(id, session);
+  entry.lastSeen = now;
+  const session = await entry.session;
+  await session.runtime.sync();
   return session;
 };
 

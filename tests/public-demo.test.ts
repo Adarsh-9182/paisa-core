@@ -111,3 +111,26 @@ describe("crawlers are kept out of the sandbox minter", () => {
     expect(robotsTxt()).toContain("Disallow: /try");
   });
 });
+
+describe("a sandbox across server instances", () => {
+  it("keeps what a visitor did when their next request lands on a cold instance", async () => {
+    // @ts-expect-error — demo/ is plain JS, not part of the typed src build
+    const { demoRuntime, resetDemoSessions, newDemoId } = await import("../demo/demo-sessions.js");
+    // @ts-expect-error — same
+    const { sharedStore } = await import("../demo/boot.js");
+    const id = newDemoId();
+    const first = await demoRuntime(id);
+    const [line] = first.org.banking.pendingReview();
+    await first.runtime.execute("banking.confirm", { reference: line.reference, accountId: "acc_meals" }, "demo");
+
+    // Only the visitor's action is shared, not the seed.
+    const { store } = await sharedStore();
+    expect(await store.after(id, 0)).toHaveLength(1);
+
+    resetDemoSessions(); // nothing in memory, as on a fresh instance
+    const second = await demoRuntime(id);
+    expect(second.runtime).not.toBe(first.runtime);
+    expect(second.org.banking.pendingReview().map((l: { reference: string }) => l.reference)).not.toContain(line.reference);
+    expect(second.org.journal.all().map((e: { id: string }) => e.id)).toEqual(first.org.journal.all().map((e: { id: string }) => e.id));
+  });
+});

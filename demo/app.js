@@ -2070,7 +2070,12 @@ const resolveBooks = async (req, res) => {
   const session = await demoRuntime(id);
   // A visitor's sandbox travels the same command path as the real books, so
   // a route cannot accidentally work one way signed in and another way out.
-  const exec = async (type, payload, actor = ACTOR) => (await session.runtime.execute(type, payload, actor)).result;
+  // Synced before every write, so an action taken on another instance is
+  // applied here first and the two land in the log in the order they happened.
+  const exec = async (type, payload, actor = ACTOR) => {
+    await session.runtime.sync();
+    return (await session.runtime.execute(type, payload, actor)).result;
+  };
   // A visitor's sandbox keeps the demo's personas: its seeded bills were
   // recorded by one of them and are approved by the other.
   return { org: session.org, erp: session.erp, exec, actor: CONTROLLER, access: null, demo: true, dates: DEMO_DATES };
