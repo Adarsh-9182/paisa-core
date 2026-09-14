@@ -343,6 +343,12 @@ export const COMMANDS: Record<string, CommandHandler> = {
       actor,
       opt<string | undefined>(pl, "learn", undefined),
     ),
+  // A wrong booking undone: reversed, back in review, and any rule that made it withdrawn.
+  "banking.putBack": (ctx, pl, actor) =>
+    ctx.org.banking.putBack(p(pl, "entryId"), actor, opt<string | undefined>(pl, "reason", undefined)),
+  // Pilot timing, measured by the review screen.
+  "banking.recordReviewSession": (ctx, pl, actor) =>
+    ctx.org.banking.recordReviewSession(p(pl, "seconds"), p(pl, "lines"), p(pl, "month"), actor),
   // The one-tap confirm: books the line and counts the choice towards a rule.
   "banking.confirm": (ctx, pl, actor) =>
     ctx.org.banking.confirm(

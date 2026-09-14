@@ -59,7 +59,9 @@ export type ReviewReason =
       readonly keyword: string;
       readonly usualMin: Paise;
       readonly usualMax: Paise;
-    };
+    }
+  /** A person said a booked line was wrong; it came back to be booked again. */
+  | { readonly kind: "put_back"; readonly previousAccountId: string };
 
 /**
  * Which categorizer rules an import ran under.
@@ -130,6 +132,35 @@ export const suggestableAccounts = (chart: ChartOfAccounts): readonly ReturnType
           BALANCE_SHEET_TARGETS.has(a.id)),
     );
 
+/** A bank line that stands booked, and how it got there. */
+export interface BookedLine {
+  readonly entryId: string;
+  readonly line: BankStatementLine;
+  readonly bankAccountId: string;
+  readonly accountId: string;
+  /** "rule" when it booked itself on import, "person" when someone confirmed it. */
+  readonly by: "rule" | "person";
+  /** The keyword that booked it, or that the confirmation counted towards. */
+  readonly keyword?: string;
+}
+
+/** One month of a company's bank lines, by the lines' own dates. */
+export interface MonthTally {
+  lines: number;
+  bookedItself: number;
+  confirmed: number;
+  putBack: number;
+  /** Put back after booking itself: the corrections automation caused. */
+  putBackAfterBookingItself: number;
+}
+
+/** Visible time a person spent emptying the review queue once. */
+export interface ReviewSession {
+  readonly seconds: number;
+  readonly lines: number;
+  readonly month: string;
+}
+
 export class BankingError extends Error {
   override name = "BankingError";
 }
@@ -149,6 +180,11 @@ export class BankFeedEngine {
   private evidence = new Map<string, { accountId: string; count: number; conflicted: boolean; min: Paise; max: Paise }>();
   /** The amounts each learned rule has been confirmed or booked on. */
   private ranges = new Map<CategorizationRule, { min: Paise; max: Paise }>();
+  /** Every bank line that stands booked, by journal entry, so a wrong one can be put back. */
+  private booked = new Map<string, BookedLine>();
+  private months = new Map<string, MonthTally>();
+  private reviewSessions: ReviewSession[] = [];
+  private putBacks = { total: 0, afterBookingItself: 0 };
 
   constructor(
     public readonly orgId: string,
@@ -228,6 +264,7 @@ export class BankFeedEngine {
         continue;
       }
       this.seen.add(key);
+      this.tally(line.date).lines++;
 
       const outcome = this.match(line.description, policy);
 
@@ -314,6 +351,8 @@ export class BankFeedEngine {
         createdBy: actor,
       });
       posted.push({ line, entry, label: rule.label });
+      this.booked.set(entry.id, { entryId: entry.id, line, bankAccountId, accountId: rule.accountId, by: "rule", keyword: rule.keyword });
+      this.tally(line.date).bookedItself++;
       // A booked line is inside the guard, so it only widens what is usual.
       if (range) {
         if (amount < range.min) range.min = amount;
@@ -383,6 +422,8 @@ export class BankFeedEngine {
     });
     this.reviewQueue.splice(idx, 1);
     this.modelSuggestions.delete(reference);
+    this.booked.set(entry.id, { entryId: entry.id, line, bankAccountId, accountId, by: "person" });
+    this.tally(line.date).confirmed++;
     this.resolved++;
     if (keyword !== undefined) {
       this.rules.push({ keyword, accountId, label: account.name, taught: true });
@@ -428,6 +469,7 @@ export class BankFeedEngine {
     const amount = abs(queued.line.amount);
     const entry = this.categorize(reference, accountId, actor);
     if (kw === undefined) return { entry, learned: false, withdrawn: false };
+    this.booked.set(entry.id, { ...this.booked.get(entry.id)!, keyword: kw });
 
     const existing = this.rules.find((r) => r.taught && r.keyword.toLowerCase() === kw);
     if (existing) {
@@ -509,6 +551,119 @@ export class BankFeedEngine {
   }
 
   /**
+   * Undo a bank line's booking and send it back to review.
+   *
+   * The booking is reversed, never edited, so the books keep the history of
+   * the mistake and its correction. If a learned keyword booked the line,
+   * that rule is withdrawn and the keyword will not be learned again from
+   * confirmations: a person has now said it books wrongly. If the line was
+   * a person's own confirmation, the confirmation stops counting towards
+   * its keyword, so a slip does not block or skew learning later.
+   *
+   * Counted per month, separately for lines that had booked themselves,
+   * because those are the corrections automation caused.
+   */
+  putBack(
+    entryId: string,
+    actor: string,
+    reason = "booked to the wrong account",
+  ): { readonly reversal: JournalEntry; readonly withdrawnRule: string | null } {
+    const b = this.booked.get(entryId);
+    if (!b || this.journal.get(entryId).reversedBy)
+      throw new BankingError(`Entry ${entryId} is not a bank line that stands booked`);
+    // First, so a period lock that refuses the reversal changes nothing else.
+    const reversal = this.journal.reverse(entryId, actor, `Put back for review: ${reason}`);
+    this.booked.delete(entryId);
+    this.reviewQueue.push({
+      line: b.line,
+      bankAccountId: b.bankAccountId,
+      reason: { kind: "put_back", previousAccountId: b.accountId },
+    });
+
+    let withdrawnRule: string | null = null;
+    const kw = b.keyword?.toLowerCase();
+    if (kw !== undefined) {
+      const rule = this.rules.find((r) => r.taught && r.keyword.toLowerCase() === kw && r.accountId === b.accountId);
+      if (rule) {
+        this.rules.splice(this.rules.indexOf(rule), 1);
+        this.ranges.delete(rule);
+        const amount = abs(b.line.amount);
+        this.evidence.set(kw, { accountId: b.accountId, count: 0, conflicted: true, min: amount, max: amount });
+        withdrawnRule = rule.keyword;
+        this.emit("banking.rule_withdrawn", actor, { keyword: rule.keyword, accountId: rule.accountId, reason: "a booking it made was put back" });
+      } else if (b.by === "person") {
+        const e = this.evidence.get(kw);
+        if (e && !e.conflicted && e.accountId === b.accountId && --e.count <= 0) this.evidence.delete(kw);
+      }
+    }
+
+    const t = this.tally(b.line.date);
+    t.putBack++;
+    this.putBacks.total++;
+    if (b.by === "rule") {
+      t.putBackAfterBookingItself++;
+      this.putBacks.afterBookingItself++;
+    }
+    this.emit("banking.put_back", actor, { entryId, reference: b.line.reference, previousAccountId: b.accountId, by: b.by, reason });
+    return { reversal, withdrawnRule };
+  }
+
+  /** Bank lines that stand booked, newest first. */
+  bookedLines(): readonly BookedLine[] {
+    return [...this.booked.values()]
+      .filter((b) => !this.journal.get(b.entryId).reversedBy)
+      .sort((a, b) => (a.line.date === b.line.date ? 0 : a.line.date < b.line.date ? 1 : -1));
+  }
+
+  /**
+   * Record how long a person spent emptying the review queue, counted by the
+   * screen as time it was visible. A pilot's "a month in under ten minutes"
+   * is measured from these, so implausible values are refused, not stored.
+   */
+  recordReviewSession(seconds: number, lines: number, month: string, actor: string): ReviewSession {
+    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 6 * 3600)
+      throw new BankingError("A review session must last between 1 second and 6 hours");
+    if (!Number.isInteger(lines) || lines < 1 || lines > 100000)
+      throw new BankingError("A review session must cover at least one line");
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new BankingError(`"${month}" is not a month (YYYY-MM)`);
+    const session: ReviewSession = { seconds, lines, month };
+    this.reviewSessions.push(session);
+    this.emit("banking.review_session", actor, { seconds, lines, month });
+    return session;
+  }
+
+  /** Per month, newest first: what came in, what booked itself, what was fixed, how long review took. */
+  monthly(): readonly (MonthTally & {
+    readonly month: string;
+    readonly reviewSessions: number;
+    readonly medianReviewMinutes: number | null;
+  })[] {
+    return [...this.months.entries()]
+      .sort(([a], [b]) => (a < b ? 1 : -1))
+      .map(([month, t]) => {
+        const secs = this.reviewSessions.filter((r) => r.month === month).map((r) => r.seconds).sort((a, b) => a - b);
+        const mid = Math.floor(secs.length / 2);
+        const median = secs.length === 0 ? null : secs.length % 2 ? secs[mid]! : (secs[mid - 1]! + secs[mid]!) / 2;
+        return {
+          month,
+          ...t,
+          reviewSessions: secs.length,
+          medianReviewMinutes: median === null ? null : Math.round((median / 60) * 10) / 10,
+        };
+      });
+  }
+
+  private tally(date: string): MonthTally {
+    const month = date.slice(0, 7);
+    let t = this.months.get(month);
+    if (!t) {
+      t = { lines: 0, bookedItself: 0, confirmed: 0, putBack: 0, putBackAfterBookingItself: 0 };
+      this.months.set(month, t);
+    }
+    return t;
+  }
+
+  /**
    * Record what a model proposed for lines in review. Never books anything.
    *
    * The proposals arrive from outside the engine, so they are checked again
@@ -561,6 +716,8 @@ export class BankFeedEngine {
     readonly duplicates: number;
     readonly resolved: number;
     readonly learned: number;
+    readonly putBack: number;
+    readonly putBackAfterBookingItself: number;
     readonly considered: number;
     readonly autoBookedPct: number | null;
   } {
@@ -569,6 +726,8 @@ export class BankFeedEngine {
       ...this.totals,
       resolved: this.resolved,
       learned: this.learned,
+      putBack: this.putBacks.total,
+      putBackAfterBookingItself: this.putBacks.afterBookingItself,
       considered,
       // Null rather than 0 or 100 on an empty feed: "no data" and "nothing
       // books itself" are different answers to the same question.

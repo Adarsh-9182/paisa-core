@@ -754,6 +754,24 @@ const page = (asOf = AS_OF) => `<!doctype html>
   .rv-kw-wrap { display: grid; gap: 2px; font-size: 11px; color: var(--ink-3); }
   .rv-empty { padding: 36px 20px; text-align: center; color: var(--ink-2); }
   .turn .rv-open { margin-top: 10px; }
+  .rv-metrics {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px;
+    background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  }
+  .rv-metric { background: var(--surface); padding: 10px 14px; }
+  .rv-metric b { display: block; font-size: 20px; line-height: 1.3; font-variant-numeric: tabular-nums; letter-spacing: -.3px; }
+  .rv-metric span { font-size: 12.5px; color: var(--ink-3); }
+  .rv-booked { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .rv-booked summary { cursor: pointer; padding: 12px 14px; font-weight: 600; }
+  .rv-booked .rv-list { border: 0; border-top: 1px solid var(--line-2); border-radius: 0; background: transparent; }
+  .rv-hint { font-size: 13px; color: var(--ink-2); padding: 0 14px 12px; }
+  .rv-hint.foot { padding-top: 12px; border-top: 1px solid var(--line-2); }
+  .rv-brow {
+    display: grid; grid-template-columns: 88px minmax(0, 1fr) 118px 180px auto; gap: 6px 14px;
+    align-items: center; padding: 10px 14px; border-top: 1px solid var(--line-2); font-size: 13.5px;
+  }
+  .rv-brow:first-child { border-top: 0; }
+  @media (max-width: 860px) { .rv-brow { grid-template-columns: minmax(0, 1fr) auto; } }
   @media (max-width: 860px) {
     .rv-row { grid-template-columns: 18px minmax(0, 1fr) auto; }
     .rv-row select, .rv-kw-wrap { grid-column: 2 / -1; }
@@ -962,12 +980,19 @@ const page = (asOf = AS_OF) => `<!doctype html>
               <a class="btn btn-ghost" id="rvledgers">Tally ledgers</a>
             </div>
           </div>
+          <div class="rv-metrics" id="rvmetrics" hidden></div>
           <div class="rv-note" id="rvnote" role="status" hidden></div>
           <div class="rv-bar" id="rvbar" hidden>
             <label><input type="checkbox" id="rvall"> <span id="rvalllabel">Select all</span></label>
             <button class="btn btn-primary" id="rvconfirm" type="button" disabled>Confirm selected</button>
           </div>
           <div class="rv-list" id="rvlist"></div>
+          <details class="rv-booked" id="rvbooked">
+            <summary>Booked lines in <span id="rvbookedmonth">this month</span></summary>
+            <p class="rv-hint">Booked to the wrong account? Put it back and it returns to the list above. If a learned keyword booked it, Paisa forgets that keyword.</p>
+            <div class="rv-list" id="rvbookedlist"></div>
+            <p class="rv-hint foot">For Paisa&#39;s accuracy tests you can <a id="rveval" href="/api/banking/export/eval">download your booked lines</a> as JSON. The file contains your narrations, including names and UPI IDs, so share it only if you are comfortable with that.</p>
+          </details>
         </section>
       </div>
     </div>
@@ -1382,6 +1407,7 @@ const REASONS = {
   ambiguous: ["Rules disagree", "warn"],
   direction: ["Rule points the other way", "warn"],
   movement: ["Looks like a transfer", "warn"],
+  put_back: ["Put back", "warn"],
   no_rule: ["New payee", ""],
 };
 const ACCOUNT_GROUPS = [["EXPENSE", "Expenses"], ["REVENUE", "Income"], ["ASSET", "Assets"], ["LIABILITY", "Liabilities"], ["EQUITY", "Equity"]];
@@ -1399,11 +1425,13 @@ function showReview() {
   renderConvos();
   closeMobile();
   dimSky(true);
+  if (rvTimer && rvTimer.since === null && !document.hidden) rvTimer.since = performance.now();
   loadReview();
 }
 
 function hideReview() {
   if ($("review").hidden) return;
+  pauseTimer();
   $("review").hidden = true;
   document.querySelector(".composer-wrap").hidden = false;
   $("scroll").classList.remove("reviewing");
@@ -1431,12 +1459,99 @@ async function loadReview() {
   if (months.includes(previous)) sel.value = previous;
   exportLinks();
 
+  renderMetrics(data.monthly || []);
   $("rvbar").hidden = waiting === 0;
   $("rvlist").innerHTML = waiting
     ? data.items.map(rowHtml).join("")
     : '<div class="rv-empty">Every line is booked. Upload next month&#39;s statement when it arrives.</div>';
   syncBar();
+  timerCheck(data.items);
+  loadBooked();
 }
+
+function renderMetrics(monthly) {
+  const m = monthly[0];
+  if (!m || !m.lines) { $("rvmetrics").hidden = true; return; }
+  const pct = Math.round((m.bookedItself / m.lines) * 100);
+  const cells = [
+    [m.lines, "lines in " + monthName(m.month)],
+    [pct + "%", "booked themselves"],
+    [m.confirmed, "confirmed by you"],
+    [m.putBack, "put back as wrong"],
+    [m.medianReviewMinutes === null ? "–" : m.medianReviewMinutes + " min", "to clear the list"],
+  ];
+  $("rvmetrics").innerHTML = cells.map((c) => '<div class="rv-metric"><b>' + esc(c[0]) + "</b><span>" + esc(c[1]) + "</span></div>").join("");
+  $("rvmetrics").hidden = false;
+}
+
+async function loadBooked() {
+  const m = $("rvmonth").value;
+  $("rvbookedmonth").textContent = m ? monthName(m) : "this month";
+  if (!m) { $("rvbookedlist").innerHTML = '<div class="rv-empty">Nothing is booked yet.</div>'; return; }
+  let data;
+  try { data = await j("/api/banking/booked?month=" + encodeURIComponent(m)); } catch { data = null; }
+  if (!data || !Array.isArray(data.lines)) { $("rvbookedlist").innerHTML = '<div class="rv-empty">Booked lines could not be loaded.</div>'; return; }
+  $("rvbookedlist").innerHTML = data.lines.length
+    ? data.lines.map((b) =>
+        '<div class="rv-brow" data-entry="' + esc(b.entryId) + '">' +
+          '<span class="rv-meta">' + esc(b.date) + "</span>" +
+          '<div><div class="rv-desc">' + esc(b.description) + '</div><div class="rv-meta"><span class="rv-tag ' + (b.by === "rule" ? "rule" : "") + '">' +
+            (b.by === "rule" ? "Booked itself" : "Confirmed") + "</span></div></div>" +
+          '<div class="rv-amt ' + (b.direction === "in" ? "in" : "out") + '">' + esc(b.amount) + "</div>" +
+          "<span>" + esc(b.account.name) + "</span>" +
+          '<button type="button" class="btn btn-ghost rv-putback">Put back</button>' +
+        "</div>").join("")
+    : '<div class="rv-empty">No bank lines are booked in this month.</div>';
+}
+
+$("rvbookedlist").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".rv-putback");
+  if (!btn) return;
+  const row = btn.closest(".rv-brow");
+  btn.disabled = true;
+  btn.textContent = "Putting back…";
+  let res;
+  try {
+    res = await j("/api/banking/put-back", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryId: row.dataset.entry }) });
+  } catch {
+    res = { ok: false, error: "The request did not reach the server. Nothing changed." };
+  }
+  if (!res.ok) {
+    btn.disabled = false;
+    btn.textContent = "Put back";
+    return showNote(res.error, true);
+  }
+  await loadReview();
+  showNote("Put back: the booking was reversed and the line is in the list above." +
+    (res.withdrawnRule ? ' Paisa also forgot the keyword "' + res.withdrawnRule + '".' : ""), false);
+});
+
+/* Pilot timing. Only seconds the screen was actually visible count, from
+   first seeing a non-empty list to emptying it; a tab left open over lunch
+   would otherwise make every month look slow. */
+let rvTimer = null;
+function pauseTimer() {
+  if (rvTimer && rvTimer.since !== null) { rvTimer.visibleMs += performance.now() - rvTimer.since; rvTimer.since = null; }
+}
+function timerCheck(items) {
+  if (items.length && !rvTimer) {
+    const latest = items.map((i) => i.date).sort().pop();
+    rvTimer = { visibleMs: 0, since: document.hidden ? null : performance.now(), lines: items.length, month: latest.slice(0, 7) };
+  } else if (!items.length && rvTimer) {
+    pauseTimer();
+    const t = rvTimer;
+    rvTimer = null;
+    const seconds = Math.round(t.visibleMs / 1000);
+    if (seconds >= 1)
+      j("/api/banking/review-session", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seconds, lines: t.lines, month: t.month }) }).catch(() => {});
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if (!rvTimer) return;
+  if (document.hidden || $("review").hidden) pauseTimer();
+  else if (rvTimer.since === null) rvTimer.since = performance.now();
+});
 
 function exportLinks() {
   const m = $("rvmonth").value;
@@ -1446,11 +1561,13 @@ function exportLinks() {
     else { a.removeAttribute("href"); a.setAttribute("aria-disabled", "true"); }
   }
 }
-$("rvmonth").addEventListener("change", exportLinks);
+$("rvmonth").addEventListener("change", () => { exportLinks(); loadBooked(); });
 
 function rowHtml(it) {
   const r = REASONS[it.suggestedBy === "model" ? "model" : it.reason] || REASONS.no_rule;
-  const tag = r[0] + (it.usualAmount ? " (usually " + it.usualAmount.min + " to " + it.usualAmount.max + ")" : "");
+  const tag = r[0] +
+    (it.usualAmount ? " (usually " + it.usualAmount.min + " to " + it.usualAmount.max + ")" : "") +
+    (it.previousAccount ? " (was " + it.previousAccount.name + ")" : "");
   const out = it.direction === "out";
   const chosen = it.suggestedAccount ? it.suggestedAccount.id : "";
   const usable = rvData.accounts.filter((a) => (out ? a.type !== "REVENUE" : a.type !== "EXPENSE"));
@@ -2869,6 +2986,8 @@ export const handle = async (req, res) => {
       const { org: books } = await resolveBooks(req, res);
       return send(200, {
         stats: books.banking.stats(),
+        // The pilot numbers: per month, what booked itself, what was fixed, how long review took.
+        monthly: books.banking.monthly().slice(0, 6),
         // Every account a bank line can land in, not only income and expense:
         // a GST challan settles a liability, an ATM withdrawal moves money to
         // cash, a customer's payment clears a receivable. The review screen
@@ -2911,6 +3030,9 @@ export const handle = async (req, res) => {
           // the ones it was confirmed on; the reviewer should see why.
           ...(reason.kind === "unusual_amount"
             ? { usualAmount: { min: formatINR(reason.usualMin), max: formatINR(reason.usualMax) } }
+            : {}),
+          ...(reason.kind === "put_back"
+            ? { previousAccount: { id: reason.previousAccountId, name: books.chart.get(reason.previousAccountId).name } }
             : {}),
         })),
       });
@@ -2994,6 +3116,103 @@ export const handle = async (req, res) => {
      * agrees, so one tap on a payee whose purpose changes teaches nothing
      * wrong. /api/banking/categorize stays for "always book this" on purpose.
      */
+    /** Bank lines that stand booked in a month (?month=YYYY-MM), so a wrong one can be put back. */
+    if (path === "/api/banking/booked") {
+      const month = new URLSearchParams((req.url ?? "").split("?")[1] ?? "").get("month") ?? "";
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return send(400, { ok: false, error: "Choose a month as YYYY-MM." });
+      const { org: books } = await resolveBooks(req, res);
+      return send(200, {
+        ok: true,
+        lines: books.banking
+          .bookedLines()
+          .filter((b) => b.line.date.startsWith(month))
+          .map((b) => ({
+            entryId: b.entryId,
+            reference: b.line.reference,
+            date: b.line.date,
+            description: b.line.description,
+            amount: formatINR(b.line.amount),
+            direction: b.line.amount < 0n ? "out" : "in",
+            account: { id: b.accountId, name: books.chart.get(b.accountId).name },
+            by: b.by,
+          })),
+      });
+    }
+
+    /**
+     * Put a wrong booking back for review.
+     *
+     * Reverses the entry rather than editing it, and withdraws the keyword
+     * that booked it, if one did. The same permission as categorising: it is
+     * the undo of that action.
+     */
+    if (path === "/api/banking/put-back" && req.method === "POST") {
+      const { entryId, reason } = JSON.parse((await readBody(req)) || "{}");
+      const { books, refusal } = await booksForWrite(req, res, "categorize_transactions");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        const result = await books.exec("banking.putBack", {
+          entryId: String(entryId ?? ""),
+          ...(reason ? { reason: String(reason).slice(0, 200) } : {}),
+        });
+        return send(200, { ok: true, withdrawnRule: result.withdrawnRule, stats: books.org.banking.stats() });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
+    /** The review screen reports how long emptying the queue took, for the pilot gate. */
+    if (path === "/api/banking/review-session" && req.method === "POST") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const { books, refusal } = await booksForWrite(req, res, "categorize_transactions");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        await books.exec("banking.recordReviewSession", {
+          seconds: Math.round(Number(body.seconds)),
+          lines: Math.round(Number(body.lines)),
+          month: String(body.month ?? ""),
+        });
+        return send(200, { ok: true });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
+    }
+
+    /**
+     * Booked bank lines as an accuracy dataset, in the shape the three-month
+     * teaching simulation reads (CompanyMonths), one array per month.
+     *
+     * A download the business makes and chooses whether to share: the
+     * narrations carry names and UPI IDs, and no automatic scrubbing is
+     * reliable enough to promise otherwise, so the screen says so.
+     */
+    if (path === "/api/banking/export/eval") {
+      const { org: books } = await resolveBooks(req, res);
+      const plain = (p) => {
+        const a = p < 0n ? -p : p;
+        return (p < 0n ? "-" : "") + (a / 100n) + "." + String(a % 100n).padStart(2, "0");
+      };
+      const byMonth = new Map();
+      for (const b of books.banking.bookedLines()) {
+        const month = b.line.date.slice(0, 7);
+        if (!byMonth.has(month)) byMonth.set(month, []);
+        byMonth.get(month).push({
+          payee: suggestKeyword(b.line.description) ?? b.line.reference,
+          day: Number(b.line.date.slice(8, 10)),
+          description: b.line.description,
+          amount: plain(b.line.amount),
+          account: b.accountId,
+          by: b.by,
+        });
+      }
+      const periods = [...byMonth.keys()].sort();
+      const body = JSON.stringify({ name: books.name, bank: "unknown", periods, months: periods.map((m) => byMonth.get(m)) }, null, 2);
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="paisa-accuracy-lines.json"');
+      return res.end(body);
+    }
+
     /**
      * Confirm many lines at once: the review screen's "Confirm selected".
      *

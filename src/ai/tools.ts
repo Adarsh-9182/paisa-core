@@ -255,7 +255,9 @@ export const TOOLS: Record<string, ToolFn> = {
                   ? ` reason=suggested suggested_account=${reason.accountId} keyword="${reason.keyword}" note="a rule Paisa ships proposes this account; it does not book by itself, so offer it for the user to confirm"`
                   : reason.kind === "unusual_amount"
                     ? ` reason=unusual_amount keyword="${reason.keyword}" usual_account=${reason.accountId} usual_range="${formatINR(reason.usualMin)} to ${formatINR(reason.usualMax)}" note="a learned rule knows this payee, but this amount is far outside what was confirmed before; ask whether it belongs in the usual account"`
-                    : " reason=no_rule";
+                    : reason.kind === "put_back"
+                      ? ` reason=put_back previous_account=${reason.previousAccountId} note="a person said this line was booked to the wrong account and sent it back; ask which account it belongs in, and do not suggest the previous one"`
+                      : " reason=no_rule";
         const proposed = modelSuggestion?.accountId
           ? ` model_suggestion=${modelSuggestion.accountId} note="a small model proposed this account after checks on direction; it is a guess to offer for confirmation, not a decision"`
           : "";
