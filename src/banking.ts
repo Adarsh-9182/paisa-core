@@ -49,19 +49,25 @@ export type ReviewReason =
   /** A rule matched, but money went the wrong way for its account. */
   | { readonly kind: "direction"; readonly accountId: string; readonly keyword: string }
   /** A rule matched, but a word in the line says money is moving between balances. */
-  | { readonly kind: "movement"; readonly accountId: string; readonly keyword: string; readonly word: string };
+  | { readonly kind: "movement"; readonly accountId: string; readonly keyword: string; readonly word: string }
+  /** Policy 3: a rule Paisa ships proposes this account; a person confirms it. */
+  | { readonly kind: "suggested"; readonly accountId: string; readonly keyword: string; readonly label: string };
 
 /**
  * Which categorizer rules an import ran under.
  *
  * 1 — keyword rules only; a match books wherever it points.
  * 2 — adds the direction guard, movement words and staple rules.
+ * 3 — suggest-only: the rules Paisa ships propose an account instead of
+ *     booking it. Only rules a company taught itself and format staples book.
+ *     Measured against 2 on the held-out set: precision 76.5% to 100%, wrong
+ *     bookings 4 to 0, with lines cleared in one tap or none 36.1% to 38.9%.
  *
  * Recorded on every import command, because what an import booked depends on
  * the rules in force when it ran. Replaying last year's import under today's
  * rules would quietly rewrite last year's books.
  */
-export type ImportPolicy = 1 | 2;
+export type ImportPolicy = 1 | 2 | 3;
 
 export interface ImportResult {
   readonly posted: readonly { line: BankStatementLine; entry: JournalEntry; label: string }[];
@@ -128,6 +134,20 @@ export class BankFeedEngine {
     policy: ImportPolicy = CURRENT_IMPORT_POLICY,
   ): ImportResult {
     this.chart.get(bankAccountId);
+
+    // Policy 3 books far fewer lines itself, so far more reach review — and a
+    // line cleared from review posts as close work, which a soft-closed period
+    // still admits. Checked only at posting, the period lock would let a
+    // statement imported after the freeze in through that door. So every new
+    // line is checked against the lock before anything is recorded, and the
+    // whole statement is refused if any line is. Older policies keep their
+    // original behaviour, so their imports replay as they ran.
+    if (policy >= 3)
+      for (const line of lines) {
+        if (line.amount === 0n || this.seen.has(dedupeKey(line))) continue;
+        this.journal.assertPostable({ date: line.date, sourceModule: "banking", narration: line.description });
+      }
+
     const posted: { line: BankStatementLine; entry: JournalEntry; label: string }[] = [];
     const duplicates: BankStatementLine[] = [];
     const needsReview: BankStatementLine[] = [];
@@ -154,7 +174,7 @@ export class BankFeedEngine {
               accounts: [...new Set(outcome.tie.map((r) => r.accountId))],
               keywords: outcome.tie.map((r) => r.keyword),
             }
-          : { kind: "no_rule" };
+          : (policy >= 3 ? this.suggest(line) : null) ?? { kind: "no_rule" };
         this.reviewQueue.push({ line, bankAccountId, reason });
         needsReview.push(line);
         this.emit("banking.needs_review", actor, {
@@ -162,6 +182,7 @@ export class BankFeedEngine {
           description: line.description,
           reason: reason.kind,
           ...(reason.kind === "ambiguous" ? { keywords: reason.keywords, accounts: reason.accounts } : {}),
+          ...(reason.kind === "suggested" ? { keyword: reason.keyword, account: reason.accountId } : {}),
         });
         continue;
       }
@@ -341,7 +362,10 @@ export class BankFeedEngine {
     description: string,
     policy: ImportPolicy = CURRENT_IMPORT_POLICY,
   ): { rule: CategorizationRule } | { tie: readonly CategorizationRule[] } | null {
-    let matched = this.rules.filter((r) => patternFor(r.keyword).test(description));
+    // Policy 3: only rules this company taught may book. The ones Paisa ships
+    // are consulted by suggest(), after nothing here could book the line.
+    const bookers = policy >= 3 ? this.rules.filter((r) => r.taught) : this.rules;
+    let matched = bookers.filter((r) => patternFor(r.keyword).test(description));
     // Staples name a format — a bank's own fee, a tax challan, an ATM — not a
     // payee. They are consulted only when no payee rule matched, so a vendor's
     // "delivery charges" stays with the vendor rather than becoming a bank fee.
@@ -383,6 +407,25 @@ export class BankFeedEngine {
       if (word) return { kind: "movement", accountId: rule.accountId, keyword: rule.keyword, word };
     }
     return null;
+  }
+
+  /**
+   * Where a shipped rule would have booked this line, offered for a person to
+   * confirm (policy 3).
+   *
+   * Never a suggestion policy 2 would have refused — money going the wrong way
+   * for the account, or a movement word — and never a guess between two
+   * equally specific shipped rules that disagree.
+   */
+  private suggest(line: BankStatementLine): ReviewReason | null {
+    const shipped = this.rules.filter((r) => !r.taught && patternFor(r.keyword).test(line.description));
+    if (shipped.length === 0) return null;
+    const longest = Math.max(...shipped.map((r) => r.keyword.length));
+    const finalists = shipped.filter((r) => r.keyword.length === longest);
+    if (new Set(finalists.map((r) => r.accountId)).size > 1) return null;
+    const rule = finalists[0]!;
+    if (!this.hasAccount(rule.accountId) || this.refuse(line, rule)) return null;
+    return { kind: "suggested", accountId: rule.accountId, keyword: rule.keyword, label: rule.label };
   }
 
   private hasAccount(id: string): boolean {
@@ -496,7 +539,7 @@ export const defaultCategorizationRules = (): CategorizationRule[] => [
 ];
 
 /** New imports run under this; see ImportPolicy. */
-export const CURRENT_IMPORT_POLICY: ImportPolicy = 2;
+export const CURRENT_IMPORT_POLICY: ImportPolicy = 3;
 
 /**
  * Rules for what nearly every Indian business statement contains, consulted

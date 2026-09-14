@@ -2575,13 +2575,20 @@ export const handle = async (req, res) => {
           .all()
           .filter((a) => a.active && (a.type === "EXPENSE" || a.type === "REVENUE"))
           .map((a) => ({ id: a.id, name: a.name, type: a.type })),
-        items: books.banking.pendingReview().map((l) => ({
+        items: books.banking.reviewQueueWithReasons().map(({ line: l, reason }) => ({
           reference: l.reference,
           date: l.date,
           description: l.description,
           amount: formatINR(l.amount),
           direction: l.amount < 0n ? "out" : "in",
-          suggestedKeyword: suggestKeyword(l.description),
+          reason: reason.kind,
+          // Under suggest-only a rule Paisa ships proposes the account rather
+          // than booking it, so the reviewer confirms instead of choosing.
+          suggestedAccount:
+            reason.kind === "suggested"
+              ? { id: reason.accountId, name: books.chart.get(reason.accountId).name }
+              : null,
+          suggestedKeyword: reason.kind === "suggested" ? reason.keyword : suggestKeyword(l.description),
         })),
       });
     }
