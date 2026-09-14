@@ -21,6 +21,7 @@ import { describeRun } from "../dist/src/erp/cfo-agent.js";
 import { indiaBusinessDate, runScheduledCfo, CfoScheduleUnavailableError } from "../dist/src/erp/cfo-schedule.js";
 import { parseStatementCsv } from "../dist/src/bank-import.js";
 import { suggestReviewQueue } from "../dist/src/ai/suggest-accounts.js";
+import { tallyLedgersXml, tallyVouchersXml } from "../dist/src/tally-export.js";
 import { FAVICON_PNG, APPLE_TOUCH_PNG } from "./mark.js";
 import { erpPage } from "./erp-page.js";
 import { sitePage } from "./site.js";
@@ -712,6 +713,52 @@ const page = (asOf = AS_OF) => `<!doctype html>
   .scroll { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
   .col { max-width: 760px; margin-inline: auto; padding: 0 24px; }
 
+  /* ---------------- bank review ----------------
+     A worklist, not a conversation: scanned row by row and cleared in bulk,
+     so it gets a wider column and an aligned grid. */
+  .scroll.reviewing .col { max-width: 1080px; }
+  .review { padding: 28px 0 64px; display: grid; gap: 14px; }
+  .rv-head { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-end; justify-content: space-between; }
+  .rv-head h2 { font-size: 24px; line-height: 1.2; letter-spacing: -.3px; text-wrap: balance; }
+  .rv-summary { color: var(--ink-2); margin-top: 4px; }
+  .rv-summary b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .rv-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .review .btn { display: inline-flex; align-items: center; text-decoration: none; }
+  .review .btn:disabled, .review .btn[aria-disabled="true"] { opacity: .45; cursor: default; }
+  .review select, .review input[type="text"] {
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    border-radius: 8px; padding: 7px 9px; font-size: 13.5px; min-width: 0; width: 100%;
+  }
+  .rv-actions select { width: auto; }
+  .rv-note { border-radius: 10px; padding: 10px 14px; background: var(--green-soft); font-size: 14px; }
+  .rv-note.warn { background: var(--amber-soft); }
+  .rv-bar {
+    position: sticky; top: 8px; z-index: 2; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    justify-content: space-between; padding: 10px 14px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+  }
+  .rv-bar label { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--ink-2); }
+  .rv-list { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .rv-row {
+    display: grid; grid-template-columns: 18px minmax(0, 1fr) 118px 220px 168px; gap: 6px 14px;
+    align-items: center; padding: 12px 14px; border-top: 1px solid var(--line-2);
+  }
+  .rv-row:first-child { border-top: 0; }
+  .rv-desc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+  .rv-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: 12.5px; color: var(--ink-3); margin-top: 3px; }
+  .rv-tag { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--line-2); color: var(--ink-2); }
+  .rv-tag.rule, .rv-tag.model { background: var(--accent-soft); color: var(--accent); }
+  .rv-tag.warn { background: var(--amber-soft); color: var(--amber); }
+  .rv-amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  .rv-amt.in { color: var(--green); }
+  .rv-kw-wrap { display: grid; gap: 2px; font-size: 11px; color: var(--ink-3); }
+  .rv-empty { padding: 36px 20px; text-align: center; color: var(--ink-2); }
+  .turn .rv-open { margin-top: 10px; }
+  @media (max-width: 860px) {
+    .rv-row { grid-template-columns: 18px minmax(0, 1fr) auto; }
+    .rv-row select, .rv-kw-wrap { grid-column: 2 / -1; }
+  }
+
   /* ---------------- empty state ---------------- */
   .empty { min-height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 48px 0 32px; }
   .hello { text-align: center; margin-bottom: 28px; }
@@ -902,6 +949,26 @@ const page = (asOf = AS_OF) => `<!doctype html>
           <div class="chips" id="suggest"></div>
         </div>
         <div class="thread" id="thread" hidden></div>
+        <section class="review" id="review" hidden aria-labelledby="rvtitle">
+          <div class="rv-head">
+            <div>
+              <h2 id="rvtitle">Bank review</h2>
+              <p class="rv-summary" id="rvsummary">Loading…</p>
+            </div>
+            <div class="rv-actions">
+              <label class="btn btn-ghost" id="rvupload" tabindex="0"><input type="file" id="rvfile" accept=".csv,text/csv" hidden>Upload statement</label>
+              <select id="rvmonth" aria-label="Month to export"></select>
+              <a class="btn btn-ghost" id="rvvouchers">Tally vouchers</a>
+              <a class="btn btn-ghost" id="rvledgers">Tally ledgers</a>
+            </div>
+          </div>
+          <div class="rv-note" id="rvnote" role="status" hidden></div>
+          <div class="rv-bar" id="rvbar" hidden>
+            <label><input type="checkbox" id="rvall"> <span id="rvalllabel">Select all</span></label>
+            <button class="btn btn-primary" id="rvconfirm" type="button" disabled>Confirm selected</button>
+          </div>
+          <div class="rv-list" id="rvlist"></div>
+        </section>
       </div>
     </div>
 
@@ -1244,6 +1311,7 @@ $("convos").addEventListener("click", (e) => {
 });
 
 function startNew() {
+  hideReview();
   currentId = null;
   $("thread").innerHTML = "";
   $("thread").hidden = true;
@@ -1259,6 +1327,7 @@ $("newchat").addEventListener("click", startNew);
 function openChat(id) {
   const c = chats.find((x) => x.id === id);
   if (!c) return;
+  hideReview();
   currentId = id;
   $("empty").hidden = true;
   $("thread").hidden = false;
@@ -1286,6 +1355,7 @@ $("scrim").addEventListener("click", closeMobile);
 /* Every section is the same chat asked a different question - there is no
    separate Money/Invoices page, so a click sends its prompt. */
 const NAV = [
+  ["Bank review", "M4 6h16M4 12h9M4 18h6M15 17l2 2 4-4", null],
   ["Money", "M3 7h18v10H3zM7 12h.01M17 12h.01M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", "Show my cash position, burn rate, and recent transactions"],
   ["Invoices", "M7 3h10a1 1 0 0 1 1 1v16l-3-2-3 2-3-2-3 2V4a1 1 0 0 1 1-1zM9 8h6M9 12h6", "Show unpaid invoices and receivables aging"],
   ["Taxes &amp; GST", "M4 5h16v14H4zM8 3v4m8-4v4M4 11h16", "What's my GST position and upcoming filings?"],
@@ -1296,8 +1366,198 @@ $("navmenu").innerHTML = NAV.map(([name, d]) =>
   '<a href="#"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="' + d + '"/></svg>' + name + "</a>"
 ).join("");
 [...$("navmenu").querySelectorAll("a")].forEach((a, i) => {
-  a.addEventListener("click", (e) => { e.preventDefault(); closeMobile(); sendChat(NAV[i][2]); });
+  a.addEventListener("click", (e) => { e.preventDefault(); closeMobile(); if (NAV[i][2]) sendChat(NAV[i][2]); else showReview(); });
 });
+
+/* ---------------- bank review ----------------
+   The statement's worklist. A line a rule or the model already has an
+   account for arrives ticked, so most of a month is one press of "Confirm
+   selected". A line held back for an unusual amount arrives unticked,
+   because that one is a question. Each confirmation still goes through the
+   log line by line, and a keyword is learned only when two agree. */
+const REASONS = {
+  suggested: ["Suggested by a rule", "rule"],
+  model: ["Suggested by AI", "model"],
+  unusual_amount: ["Unusual amount", "warn"],
+  ambiguous: ["Rules disagree", "warn"],
+  direction: ["Rule points the other way", "warn"],
+  movement: ["Looks like a transfer", "warn"],
+  no_rule: ["New payee", ""],
+};
+const ACCOUNT_GROUPS = [["EXPENSE", "Expenses"], ["REVENUE", "Income"], ["ASSET", "Assets"], ["LIABILITY", "Liabilities"], ["EQUITY", "Equity"]];
+let rvData = null;
+
+function showReview() {
+  $("empty").hidden = true;
+  $("thread").hidden = true;
+  $("review").hidden = false;
+  $("rvnote").hidden = true;
+  document.querySelector(".composer-wrap").hidden = true;
+  $("scroll").classList.add("reviewing");
+  $("threadtitle").textContent = "Bank review";
+  currentId = null;
+  renderConvos();
+  closeMobile();
+  dimSky(true);
+  loadReview();
+}
+
+function hideReview() {
+  if ($("review").hidden) return;
+  $("review").hidden = true;
+  document.querySelector(".composer-wrap").hidden = false;
+  $("scroll").classList.remove("reviewing");
+}
+
+const monthName = (m) => new Date(m + "-01T00:00:00").toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+const plural = (n, word) => n + " " + word + (n === 1 ? "" : "s");
+
+async function loadReview() {
+  let data;
+  try { data = await j("/api/banking/review"); } catch { data = null; }
+  if (!data || !Array.isArray(data.items)) { $("rvsummary").textContent = "The review queue could not be loaded. Try again in a moment."; return; }
+  rvData = data;
+  const waiting = data.items.length;
+  const posted = (data.stats && data.stats.posted) || 0;
+  $("rvsummary").innerHTML = (waiting ? "<b>" + plural(waiting, "line") + "</b> need you" : "Nothing waiting") +
+    " · <b>" + posted + "</b> booked by themselves so far";
+
+  const sel = $("rvmonth");
+  const previous = sel.value;
+  const months = data.months || [];
+  sel.innerHTML = months.length
+    ? months.map((m) => '<option value="' + esc(m) + '">' + esc(monthName(m)) + "</option>").join("")
+    : '<option value="">No booked months yet</option>';
+  if (months.includes(previous)) sel.value = previous;
+  exportLinks();
+
+  $("rvbar").hidden = waiting === 0;
+  $("rvlist").innerHTML = waiting
+    ? data.items.map(rowHtml).join("")
+    : '<div class="rv-empty">Every line is booked. Upload next month&#39;s statement when it arrives.</div>';
+  syncBar();
+}
+
+function exportLinks() {
+  const m = $("rvmonth").value;
+  for (const [id, kind] of [["rvvouchers", "vouchers"], ["rvledgers", "ledgers"]]) {
+    const a = $(id);
+    if (m) { a.href = "/api/banking/export/tally?month=" + encodeURIComponent(m) + "&kind=" + kind; a.removeAttribute("aria-disabled"); }
+    else { a.removeAttribute("href"); a.setAttribute("aria-disabled", "true"); }
+  }
+}
+$("rvmonth").addEventListener("change", exportLinks);
+
+function rowHtml(it) {
+  const r = REASONS[it.suggestedBy === "model" ? "model" : it.reason] || REASONS.no_rule;
+  const tag = r[0] + (it.usualAmount ? " (usually " + it.usualAmount.min + " to " + it.usualAmount.max + ")" : "");
+  const out = it.direction === "out";
+  const chosen = it.suggestedAccount ? it.suggestedAccount.id : "";
+  const usable = rvData.accounts.filter((a) => (out ? a.type !== "REVENUE" : a.type !== "EXPENSE"));
+  const options = '<option value="">Choose account…</option>' + ACCOUNT_GROUPS.map(([type, label]) => {
+    const list = usable.filter((a) => a.type === type);
+    return list.length
+      ? '<optgroup label="' + label + '">' + list.map((a) =>
+          '<option value="' + esc(a.id) + '"' + (a.id === chosen ? " selected" : "") + ">" + esc(a.name) + "</option>").join("") + "</optgroup>"
+      : "";
+  }).join("");
+  const ticked = chosen && it.reason !== "unusual_amount";
+  return '<div class="rv-row" data-ref="' + esc(it.reference) + '">' +
+    '<input type="checkbox" class="rv-pick" aria-label="Select this line"' + (ticked ? " checked" : "") + (chosen ? "" : " disabled") + ">" +
+    '<div><div class="rv-desc">' + esc(it.description) + "</div>" +
+      '<div class="rv-meta"><span>' + esc(it.date) + '</span><span class="rv-tag ' + r[1] + '">' + esc(tag) + "</span></div></div>" +
+    '<div class="rv-amt ' + (out ? "out" : "in") + '">' + esc(it.amount) + "</div>" +
+    '<select class="rv-acct" aria-label="Account">' + options + "</select>" +
+    '<label class="rv-kw-wrap">Learn keyword<input type="text" class="rv-kw" value="' + esc(it.suggestedKeyword || "") + '" placeholder="Leave empty to not learn"></label>' +
+    "</div>";
+}
+
+function syncBar() {
+  const picks = [...document.querySelectorAll("#rvlist .rv-pick")];
+  const on = picks.filter((p) => p.checked).length;
+  const able = picks.filter((p) => !p.disabled);
+  $("rvconfirm").disabled = on === 0;
+  $("rvconfirm").textContent = on ? "Confirm " + on + " selected" : "Confirm selected";
+  $("rvall").checked = able.length > 0 && able.every((p) => p.checked);
+  $("rvall").disabled = able.length === 0;
+  $("rvalllabel").textContent = "Select all " + able.length + " with an account";
+}
+
+function showNote(text, warn) {
+  const n = $("rvnote");
+  n.textContent = text;
+  n.classList.toggle("warn", !!warn);
+  n.hidden = false;
+}
+
+$("rvlist").addEventListener("change", (e) => {
+  const row = e.target.closest(".rv-row");
+  if (!row) return;
+  if (e.target.classList.contains("rv-acct")) {
+    const pick = row.querySelector(".rv-pick");
+    pick.disabled = !e.target.value;
+    pick.checked = !!e.target.value;
+  }
+  syncBar();
+});
+
+$("rvall").addEventListener("change", (e) => {
+  document.querySelectorAll("#rvlist .rv-pick").forEach((p) => { if (!p.disabled) p.checked = e.target.checked; });
+  syncBar();
+});
+
+$("rvconfirm").addEventListener("click", async () => {
+  const rows = [...document.querySelectorAll("#rvlist .rv-row")].filter((row) => row.querySelector(".rv-pick").checked);
+  if (!rows.length) return;
+  const items = rows.map((row) => ({
+    reference: row.dataset.ref,
+    accountId: row.querySelector(".rv-acct").value,
+    keyword: row.querySelector(".rv-kw").value.trim(),
+  }));
+  $("rvconfirm").disabled = true;
+  $("rvconfirm").textContent = "Booking…";
+  let res;
+  try {
+    res = await j("/api/banking/confirm-many", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
+  } catch {
+    res = { error: "The request did not reach the server. Nothing was booked." };
+  }
+  await loadReview();
+  if (res.error) return showNote(res.error, true);
+  const failed = res.failed || [];
+  let note = "Booked " + plural(res.booked || 0, "line") + ".";
+  if (res.learned) note += " Learned " + plural(res.learned, "keyword") + ", so those payees book themselves next time.";
+  if (failed.length) note += " " + plural(failed.length, "line") + " could not be booked: " + failed.map((f) => f.error).join("; ");
+  showNote(note, failed.length > 0);
+});
+
+$("rvupload").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("rvfile").click(); }
+});
+$("rvfile").addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  e.target.value = "";
+  showNote("Reading " + file.name + "…", false);
+  let res;
+  try {
+    res = await j("/api/banking/import", { method: "POST", headers: { "Content-Type": "text/csv" }, body: await file.text() });
+  } catch {
+    return showNote("The upload did not reach the server. Nothing was imported.", true);
+  }
+  if (!res.ok) return showNote("Could not read " + file.name + ": " + res.error, true);
+  await loadReview();
+  const parts = [plural(res.read, "line") + " read", res.posted + " booked by themselves", res.needsReview + " need you"];
+  if (res.duplicates) parts.push(res.duplicates + " already imported");
+  if (res.modelSuggested) parts.push(res.modelSuggested + " with an AI suggestion");
+  let msg = file.name + ": " + parts.join(" · ") + ".";
+  const rejected = (res.rejected || []).length;
+  if (!res.dateConventionProven) msg += " No date in this file settles day-first or month-first, so it was read day-first. Check one date.";
+  if (rejected) msg += " " + plural(rejected, "row") + " could not be read and " + (rejected === 1 ? "was" : "were") + " not imported.";
+  showNote(msg, !res.dateConventionProven || rejected > 0);
+});
+
+$("thread").addEventListener("click", (e) => { if (e.target.closest(".rv-open")) showReview(); });
 
 $("dateline").textContent = new Date("${asOf}T00:00:00")
   .toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
@@ -1440,6 +1700,10 @@ $("stmtfile").addEventListener("change", async (e) => {
     const msg = { role: "assistant", text };
     $("pending").remove();
     addAI(msg);
+    // The lines waiting are a worklist, not more chat, so the way to them is a button.
+    if (res.ok && res.needsReview > 0)
+      $("thread").lastElementChild.querySelector(".body").insertAdjacentHTML("beforeend",
+        '<button type="button" class="btn btn-primary rv-open">Review ' + plural(res.needsReview, "line") + "</button>");
     c.messages.push(msg);
     saveChats();
   } catch {
@@ -1592,6 +1856,7 @@ function setBusy(on) {
 
 async function sendChat(text) {
   if (busy) return;
+  hideReview();
 
   let c = current();
   if (!c) {
@@ -2599,10 +2864,23 @@ export const handle = async (req, res) => {
       const { org: books } = await resolveBooks(req, res);
       return send(200, {
         stats: books.banking.stats(),
+        // Every account a bank line can land in, not only income and expense:
+        // a GST challan settles a liability, an ATM withdrawal moves money to
+        // cash, a customer's payment clears a receivable. The review screen
+        // narrows the list by each line's direction.
         accounts: books.chart
           .all()
-          .filter((a) => a.active && (a.type === "EXPENSE" || a.type === "REVENUE"))
-          .map((a) => ({ id: a.id, name: a.name, type: a.type })),
+          .filter((a) => a.active && !(a.isCashEquivalent && a.id !== "acc_cash") && a.id !== "acc_retained")
+          .map((a) => ({ id: a.id, code: a.code, name: a.name, type: a.type })),
+        // Months with booked bank lines, newest first, for the Tally export.
+        months: [
+          ...new Set(
+            books.journal
+              .all()
+              .filter((e) => e.sourceModule === "banking" || e.sourceModule === "banking_review")
+              .map((e) => e.date.slice(0, 7)),
+          ),
+        ].sort().reverse(),
         items: books.banking.reviewQueueWithReasons().map(({ line: l, reason, modelSuggestion }) => ({
           reference: l.reference,
           date: l.date,
@@ -2711,6 +2989,64 @@ export const handle = async (req, res) => {
      * agrees, so one tap on a payee whose purpose changes teaches nothing
      * wrong. /api/banking/categorize stays for "always book this" on purpose.
      */
+    /**
+     * Confirm many lines at once: the review screen's "Confirm selected".
+     *
+     * Each line is still its own command in the log, so replay, learning and
+     * the audit trail match what one tap per line would have produced. A line
+     * that fails (someone else cleared it, a keyword not in its text) is
+     * reported, and the rest still go through.
+     */
+    if (path === "/api/banking/confirm-many" && req.method === "POST") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const { books, refusal } = await booksForWrite(req, res, "categorize_transactions");
+      if (refusal) return send(refusal.code, refusal.body);
+      const items = Array.isArray(body.items) ? body.items.slice(0, 500) : [];
+      let booked = 0;
+      let learned = 0;
+      const failed = [];
+      for (const item of items) {
+        const reference = String(item?.reference ?? "");
+        try {
+          const result = await books.exec("banking.confirm", {
+            reference,
+            accountId: String(item?.accountId ?? ""),
+            ...(item?.keyword ? { keyword: String(item.keyword) } : {}),
+          });
+          booked++;
+          if (result.learned) learned++;
+        } catch (err) {
+          failed.push({ reference, error: err.message });
+        }
+      }
+      return send(200, { ok: failed.length === 0, booked, learned, failed, stats: books.org.banking.stats() });
+    }
+
+    /**
+     * A booked month for the CA's Tally: ?month=YYYY-MM&kind=vouchers|ledgers.
+     *
+     * Sent as a file, because what happens next is an import in Tally. The
+     * bank side of each voucher is any cash-equivalent account other than
+     * cash itself, which is what statements are imported against.
+     */
+    if (path === "/api/banking/export/tally") {
+      const q = new URLSearchParams((req.url ?? "").split("?")[1] ?? "");
+      const month = q.get("month") ?? "";
+      const kind = q.get("kind") === "ledgers" ? "ledgers" : "vouchers";
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return send(400, { ok: false, error: "Choose a month as YYYY-MM." });
+      const { org: books } = await resolveBooks(req, res);
+      const input = {
+        chart: books.chart,
+        entries: books.journal.between(`${month}-01`, `${month}-31`),
+        bankAccountIds: new Set(books.chart.all().filter((a) => a.isCashEquivalent && a.id !== "acc_cash").map((a) => a.id)),
+      };
+      const out = kind === "ledgers" ? tallyLedgersXml(input) : tallyVouchersXml(input);
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/xml; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="paisa-tally-${kind}-${month}.xml"`);
+      return res.end(out.xml);
+    }
+
     if (path === "/api/banking/confirm" && req.method === "POST") {
       const { reference, accountId, keyword } = JSON.parse((await readBody(req)) || "{}");
       const { books, refusal } = await booksForWrite(req, res, "categorize_transactions");

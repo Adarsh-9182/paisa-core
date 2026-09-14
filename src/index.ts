@@ -40,3 +40,4 @@ export * from "./auth/password.js";
 export * from "./auth/session.js";
 export * from "./auth/supabase.js";
 export * from "./auth/throttle.js";
+export * from "./tally-export.js";
