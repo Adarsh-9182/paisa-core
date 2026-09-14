@@ -2615,13 +2615,20 @@ export const handle = async (req, res) => {
           // A rule's proposal first, then a model's — a rule someone can read
           // beats a guess. Either way the reviewer confirms; nothing booked it.
           suggestedAccount:
-            reason.kind === "suggested"
+            reason.kind === "suggested" || reason.kind === "unusual_amount"
               ? { id: reason.accountId, name: books.chart.get(reason.accountId).name }
               : modelSuggestion?.accountId
                 ? { id: modelSuggestion.accountId, name: books.chart.get(modelSuggestion.accountId).name }
                 : null,
-          suggestedBy: reason.kind === "suggested" ? "rule" : modelSuggestion?.accountId ? "model" : null,
-          suggestedKeyword: reason.kind === "suggested" ? reason.keyword : suggestKeyword(l.description),
+          suggestedBy:
+            reason.kind === "suggested" || reason.kind === "unusual_amount" ? "rule" : modelSuggestion?.accountId ? "model" : null,
+          suggestedKeyword:
+            reason.kind === "suggested" || reason.kind === "unusual_amount" ? reason.keyword : suggestKeyword(l.description),
+          // A learned rule held this line back because the amount is unlike
+          // the ones it was confirmed on; the reviewer should see why.
+          ...(reason.kind === "unusual_amount"
+            ? { usualAmount: { min: formatINR(reason.usualMin), max: formatINR(reason.usualMax) } }
+            : {}),
         })),
       });
     }
@@ -2694,6 +2701,30 @@ export const handle = async (req, res) => {
       if (refusal) return send(refusal.code, refusal.body);
       const r = await suggestForQueue(books);
       return send(200, { ok: !r.error && r.available, ...r });
+    }
+
+    /**
+     * Confirm a line in one tap.
+     *
+     * Books it to the chosen account and counts the choice towards a rule for
+     * the keyword. The keyword becomes a rule only once a second confirmation
+     * agrees, so one tap on a payee whose purpose changes teaches nothing
+     * wrong. /api/banking/categorize stays for "always book this" on purpose.
+     */
+    if (path === "/api/banking/confirm" && req.method === "POST") {
+      const { reference, accountId, keyword } = JSON.parse((await readBody(req)) || "{}");
+      const { books, refusal } = await booksForWrite(req, res, "categorize_transactions");
+      if (refusal) return send(refusal.code, refusal.body);
+      try {
+        const result = await books.exec("banking.confirm", {
+          reference: String(reference ?? ""),
+          accountId: String(accountId ?? ""),
+          ...(keyword ? { keyword: String(keyword) } : {}),
+        });
+        return send(200, { ok: true, learned: result.learned, withdrawn: result.withdrawn, stats: books.org.banking.stats() });
+      } catch (err) {
+        return send(200, { ok: false, error: err.message });
+      }
     }
 
     if (path === "/api/banking/categorize" && req.method === "POST") {

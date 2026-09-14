@@ -3,7 +3,7 @@
  * next month's statement books itself, without booking anything wrong?
  *
  * A company's statements run for three months through the real engine
- * (policy 3). Each month a simulated person clears every line in review,
+ * (current import policy). Each month a simulated person clears every line in review,
  * always choosing the right account and always accepting the keyword the
  * screen proposes. That person is the worst case for precision: they never
  * notice a keyword that is too broad, and they never go back to fix a line
@@ -15,10 +15,11 @@
  *   never       — confirming books the line and teaches nothing.
  *   on_confirm  — the first confirmation turns the proposed keyword into a
  *                 rule that books from then on.
- *   twice       — a keyword becomes a rule only when a second confirmation
- *                 agrees with the first on the account, and never once two
- *                 confirmations have disagreed. A payee whose purpose changes
- *                 from month to month never earns a rule.
+ *   twice       — the engine's one-tap `confirm`: a keyword becomes a rule
+ *                 only when a second confirmation agrees with the first on
+ *                 the account, and never once two have disagreed. The rule
+ *                 remembers the amounts it was confirmed on, and under policy
+ *                 4 a line far outside them goes back to review.
  *
  * Measured per month: coverage (lines that booked themselves, of all lines),
  * precision (of those, how many to the right account), and questions (lines
@@ -33,7 +34,7 @@
 
 import { Organization } from "../organization.js";
 import { parseINR } from "../money.js";
-import { suggestKeyword } from "../banking.js";
+import { CURRENT_IMPORT_POLICY, suggestKeyword } from "../banking.js";
 
 export interface MonthLine {
   /** Stable id for the counterparty across months, so repeats can be counted. */
@@ -76,6 +77,8 @@ export interface MonthScore {
   readonly repeatLines: number;
   readonly repeatBooked: number;
   readonly repeatCoveragePct: number | null;
+  /** The most coverage any learning could reach: repeat lines, plus lines that booked without being repeats. */
+  readonly ceilingPct: number;
 }
 
 export interface TeachReport {
@@ -99,7 +102,6 @@ export const simulateTeaching = (
 ): TeachReport => {
   const org = makeOrg();
   const seen = new Map<string, Set<string>>();
-  const evidence = new Map<string, { accountId: string; count: number; conflicted: boolean }>();
   const wrong: WrongBooking[] = [];
   let rulesLearned = 0;
   let totalBooked = 0;
@@ -119,38 +121,44 @@ export const simulateTeaching = (
       return before !== undefined && before.size === 1 && before.has(l.account);
     };
 
-    const result = org.banking.importStatement(statement, "person", "acc_bank", 3);
+    const result = org.banking.importStatement(statement, "person", "acc_bank", CURRENT_IMPORT_POLICY);
     let bookedCorrect = 0;
     let repeatBooked = 0;
+    let bookedNonRepeat = 0;
     for (const p of result.posted) {
       const t = truth.get(p.line.reference)!;
       const bookedTo = p.entry.lines.find((x) => x.accountId !== "acc_bank")!.accountId;
       if (bookedTo === t.account) bookedCorrect++;
       else wrong.push({ month, payee: t.payee, description: t.description, bookedTo, expected: t.account });
       if (isRepeat(t)) repeatBooked++;
+      else bookedNonRepeat++;
     }
 
     const queue = [...org.banking.reviewQueueWithReasons()];
     for (const { line, reason } of queue) {
       const t = truth.get(line.reference);
       if (!t) continue;
-      const keyword = reason.kind === "suggested" ? reason.keyword : suggestKeyword(line.description);
-      let learn: string | undefined;
-      if (keyword && strategy === "on_confirm") learn = keyword;
-      if (keyword && strategy === "twice") {
-        const key = keyword.toLowerCase();
-        const e = evidence.get(key);
-        if (!e) evidence.set(key, { accountId: t.account, count: 1, conflicted: false });
-        else if (e.accountId !== t.account) e.conflicted = true;
-        else if (!e.conflicted && ++e.count === 2) learn = keyword;
-      }
-      try {
-        org.banking.categorize(line.reference, t.account, "person", learn);
-        if (learn) rulesLearned++;
-      } catch {
-        // A keyword the engine refuses (too short, not in the text) is
-        // validated before anything posts, so the line is simply cleared.
+      // What the screen proposes: the rule's own keyword when a rule is
+      // involved, otherwise the payee words from the narration.
+      const keyword =
+        reason.kind === "suggested" || reason.kind === "unusual_amount" ? reason.keyword : suggestKeyword(line.description);
+      // A keyword the engine refuses (too short, not in the text) is checked
+      // before anything posts, so the line is then simply cleared without it.
+      if (strategy === "never") {
         org.banking.categorize(line.reference, t.account, "person");
+      } else if (strategy === "on_confirm") {
+        try {
+          org.banking.categorize(line.reference, t.account, "person", keyword ?? undefined);
+          if (keyword) rulesLearned++;
+        } catch {
+          org.banking.categorize(line.reference, t.account, "person");
+        }
+      } else {
+        try {
+          if (org.banking.confirm(line.reference, t.account, "person", keyword ?? undefined).learned) rulesLearned++;
+        } catch {
+          org.banking.confirm(line.reference, t.account, "person");
+        }
       }
     }
 
@@ -173,6 +181,7 @@ export const simulateTeaching = (
       repeatLines,
       repeatBooked,
       repeatCoveragePct: repeatLines === 0 ? null : pct(repeatBooked, repeatLines),
+      ceilingPct: pct(repeatLines + bookedNonRepeat, lines.length),
     };
   });
 
@@ -193,6 +202,7 @@ export const formatTeachReports = (reports: readonly TeachReport[]): string => {
   const rows = [
     "strategy     coverage m1 / m2 / m3     repeat cov m3   questions m1/m2/m3   precision   rules   gate",
   ];
+  const ceiling = reports[0]?.months.at(-1)?.ceilingPct;
   for (const r of reports) {
     const cov = r.months.map((m) => `${m.coveragePct}%`.padStart(6)).join(" /");
     const q = r.months.map((m) => String(m.questions)).join("/");
@@ -201,6 +211,10 @@ export const formatTeachReports = (reports: readonly TeachReport[]): string => {
       `${r.strategy.padEnd(12)} ${cov.padEnd(25)} ${(rep === null ? "n/a" : `${rep}%`).padEnd(15)} ${q.padEnd(20)} ${(r.precisionPct === null ? "n/a" : `${r.precisionPct}%`).padEnd(11)} ${String(r.rulesLearned).padEnd(7)} ${r.gatePassed ? "PASS" : "fail"}`,
     );
   }
+  if (ceiling !== undefined)
+    rows.push(
+      `month-3 ceiling for the never strategy's run: ${ceiling}% — new payees and payees whose account changed cannot be learned in advance`,
+    );
   for (const r of reports) {
     if (!r.wrong.length) continue;
     rows.push("", `Booked wrong under ${r.strategy}:`);
