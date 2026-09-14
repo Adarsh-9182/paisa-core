@@ -88,3 +88,25 @@ describe("the dataset", () => {
     }
   });
 });
+
+describe("the held-out set", () => {
+  it("shares no case id with the development set", async () => {
+    const { CATEGORIZE_HOLDOUT } = await import("../src/ai/categorize-holdout.js");
+    const dev = new Set(CATEGORIZE_CASES.map((c) => c.id));
+    const ids = CATEGORIZE_HOLDOUT.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ids) expect(dev.has(id), `${id} is also a development case`).toBe(false);
+  });
+
+  it("only expects accounts that exist, are proposed, or 'review', and explains its judgement calls", async () => {
+    const { CATEGORIZE_HOLDOUT } = await import("../src/ai/categorize-holdout.js");
+    const chart = books().chart;
+    for (const c of CATEGORIZE_HOLDOUT) {
+      const known = c.expect === "review" || c.expect in PROPOSED_ACCOUNTS || (() => {
+        try { chart.get(c.expect); return true; } catch { return false; }
+      })();
+      expect(known, `${c.id} expects unknown account ${c.expect}`).toBe(true);
+      if (c.expect === "review" || c.id.startsWith("h-trap-")) expect(c.why, `${c.id} needs a reason`).toBeTruthy();
+    }
+  });
+});
