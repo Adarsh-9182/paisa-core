@@ -395,3 +395,36 @@ describe("the mark a browser actually shows", () => {
     }
   });
 });
+
+describe("the front door is the assistant", () => {
+  it("opens the chat on / for a stranger, with a sandbox cookie and no landing page", async () => {
+    const reply = await call("GET", "/");
+    expect(reply.status).toBe(200);
+    const html = String(reply.body);
+    expect(html).toContain("/api/chat");
+    expect(html).toContain('name="robots" content="noindex');
+    expect(reply.cookies.some((c) => c.startsWith("paisa_demo="))).toBe(true);
+  });
+
+  it("keeps a returning visitor's sandbox instead of minting another", async () => {
+    const first = await call("GET", "/");
+    const cookie = first.cookies.find((c) => c.startsWith("paisa_demo="))!.split(";")[0]!;
+    const again = await call("GET", "/", { cookie });
+    expect(again.status).toBe(200);
+    expect(again.cookies.some((c) => c.startsWith("paisa_demo="))).toBe(false);
+  });
+
+  it("does not build a sandbox for a visit that runs no script, like a crawler's", async () => {
+    // @ts-expect-error — demo/ is plain JS
+    const { demoStats } = await import("../demo/demo-sessions.js");
+    const before = demoStats().active;
+    for (let i = 0; i < 5; i++) await call("GET", "/");
+    expect(demoStats().active).toBe(before);
+  });
+
+  it("still serves the marketing page, now at /site", async () => {
+    const reply = await call("GET", "/site");
+    expect(reply.status).toBe(200);
+    expect(String(reply.body)).toContain('rel="canonical" href="https://www.askpaisaai.com/site"');
+  });
+});

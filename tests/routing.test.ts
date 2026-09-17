@@ -31,6 +31,11 @@ describe("tool routing", () => {
     expect(routed).toBeGreaterThan(0);
   });
 
+  it("sends the expense breakdown for a biggest-expense question, in either language", () => {
+    for (const q of ["mera sabse bada kharcha kya hai", "What is our biggest expense?", "expense breakdown by category"])
+      expect(routeTools(q), q).toContain("get_profit_and_loss");
+  });
+
   it("returns everything when it cannot tell what the question is about", () => {
     // Guessing narrowly on an unrecognised question is how a router becomes
     // a source of wrong answers rather than a saving.

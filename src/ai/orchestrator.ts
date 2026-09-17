@@ -133,6 +133,7 @@ const systemPrompt = (dates: OrchestratorDates): string => {
     "- When uncategorised bank lines come up, call list_review_queue, then propose_categorization for each line you can classify with confidence. A proposal only drafts — the user sees an Approve button and nothing posts until they click it. Never claim a line has been categorised.",
     "- For fraud, suspicious-activity, duplicate, or unusual-spending questions, call screen_transactions and report each finding with its severity, the exact entries, and the rule that fired. Zero findings is a real answer — report it as such, not as a guarantee that nothing is wrong.",
     "",
+    "Language: reply in the language and script the user wrote in. A question in Hinglish (Hindi in Latin script, e.g. \"kitna cash hai?\") gets a Hinglish answer in Latin script; English gets English. Figures stay exactly as the tools printed them, whatever the language.",
     "Style: concise — a founder is reading this between meetings.",
     "Formatting: plain sentences with **bold** for key figures and _italics_ for asides; bullet lines start with two spaces and '• '. No headings, no tables.",
   ].join("\n");

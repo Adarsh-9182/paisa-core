@@ -2574,7 +2574,24 @@ export const handle = async (req, res) => {
       }
     }
 
-    if (path === "/") return send(200, sitePage(), "text/html");
+    /* The front door is the assistant.
+     *
+     * Opening the domain drops a visitor straight into the chat, not onto a
+     * page describing it. A signed-in user gets their books; anyone else is
+     * handed a sandbox the way /try does, so "/" never shows the real books to
+     * a stranger. The marketing page lives on at /site.
+     *
+     * Only the cookie is minted here, not the sandbox: a crawler fetching "/"
+     * runs no script, so it never builds one and cannot evict a real
+     * visitor's books from the capped pool. */
+    if (path === "/") {
+      if (authorizeRequest(req)) {
+        const { dates } = await resolveBooks(req, res);
+        return send(200, page(dates.asOf), "text/html");
+      }
+      if (!isDemoId(parseCookies(req.headers.cookie)[DEMO_COOKIE])) setDemoCookie(req, res, newDemoId());
+      return send(200, page(DEMO_DATES.asOf), "text/html");
+    }
 
     /* The demo's front door.
      *
@@ -2782,14 +2799,8 @@ export const handle = async (req, res) => {
       });
     }
 
-    // "/" and "/site" served the same page under two URLs. The site's own
-    // links point at /site, so it stays reachable — as a redirect, not a
-    // second copy for a crawler to split authority between.
-    if (path === "/site") {
-      res.statusCode = 301;
-      res.setHeader("Location", "/");
-      return res.end();
-    }
+    // "/" is the assistant now, so the marketing page has one home: /site.
+    if (path === "/site") return send(200, sitePage(), "text/html");
 
     const siteRoute = /^\/site\/(product|solution|compare)\/([a-z0-9-]+)$/.exec(path);
     if (siteRoute) {

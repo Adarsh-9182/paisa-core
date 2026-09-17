@@ -1,7 +1,7 @@
 /**
  * Paisa — the public site.
  *
- * Served at /site so the app (/) and the ERP console (/erp) are untouched.
+ * Served at /site; "/" is the assistant itself, /erp the ERP console.
  * Every capability named here maps to a module that exists in src/erp/;
  * there are no customer logos, testimonials or certifications, because we
  * do not have them yet and inventing them would be the one thing a finance
@@ -15,7 +15,7 @@ export const sitePage = () => head({
   title: "Paisa — The AI-native ERP for finance teams",
   description:
     "Perpetual general ledger, ASC 606 revenue recognition, multi-entity consolidation and a close that runs itself. With an AI CFO that cannot invent a number.",
-  path: "/",
+  path: "/site",
   jsonLd: homeJsonLd(),
   extraCss: `
   :root {
