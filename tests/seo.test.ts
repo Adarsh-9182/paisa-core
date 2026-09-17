@@ -109,7 +109,9 @@ describe("robots and sitemap agree with each other", () => {
   });
 
   it("has a home page entry, and it is the highest priority", () => {
-    expect(locs).toContain(`${SITE_URL}/`);
+    // "/" is the assistant, which is noindex; the marketing home is /site.
+    expect(locs).toContain(`${SITE_URL}/site`);
+    expect(locs).not.toContain(`${SITE_URL}/`);
     const priorities = [...sitemap.matchAll(/<priority>([^<]+)<\/priority>/g)].map((m) => Number(m[1]));
     expect(Math.max(...priorities)).toBe(1);
   });

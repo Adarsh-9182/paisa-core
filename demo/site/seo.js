@@ -16,7 +16,7 @@ export const SITE_URL = "https://www.askpaisaai.com";
 
 /** Marketing pages, in the order a crawler should meet them. */
 const STATIC_PATHS = [
-  { path: "/", priority: "1.0", changefreq: "weekly" },
+  { path: "/site", priority: "1.0", changefreq: "weekly" },
   { path: "/site/continuous-close", priority: "0.8", changefreq: "monthly" },
   { path: "/site/about", priority: "0.7", changefreq: "monthly" },
   { path: "/site/customers", priority: "0.6", changefreq: "monthly" },

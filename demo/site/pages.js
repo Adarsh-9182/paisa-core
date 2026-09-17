@@ -122,13 +122,13 @@ export const productPage = (slug) => {
     `
 <header class="phero" id="main">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · What it does</div>
+    <div class="crumb"><a href="/site">Paisa</a> · What it does</div>
     <div class="eyebrow on-dark">${p.eyebrow}</div>
     <h1>${p.headline}</h1>
     <p class="lede on-dark">${p.sub}</p>
     <div class="phero-cta">
       <a class="btn btn-primary" href="/erp">See it running</a>
-      <a class="btn btn-dark" href="/">Back to overview</a>
+      <a class="btn btn-dark" href="/site">Back to overview</a>
     </div>
     <div class="module">Implemented in <b>${p.module}</b></div>
   </div>
@@ -189,7 +189,7 @@ export const solutionPage = (slug) => {
     `
 <header class="phero" id="main">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Who runs it</div>
+    <div class="crumb"><a href="/site">Paisa</a> · Who runs it</div>
     <div class="eyebrow on-dark">${s.eyebrow}</div>
     <h1>${s.headline}</h1>
     <p class="lede on-dark">${s.sub}</p>
@@ -255,7 +255,7 @@ export const comparePage = (slug) => {
     `
 <header class="phero" id="main">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Instead of</div>
+    <div class="crumb"><a href="/site">Paisa</a> · Instead of</div>
     <div class="eyebrow on-dark">${c.eyebrow}</div>
     <h1>${c.headline}</h1>
     <p class="lede on-dark">${c.sub}</p>
@@ -312,7 +312,7 @@ export const partnersPage = () =>
     `
 <header class="phero" id="main">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Partners</div>
+    <div class="crumb"><a href="/site">Paisa</a> · Partners</div>
     <div class="eyebrow on-dark">Partners</div>
     <h1>Build the practice around it.</h1>
     <p class="lede on-dark">Paisa is early. That is the honest pitch: partners who come in now shape
@@ -379,7 +379,7 @@ export const resourcesPage = () =>
     `
 <header class="phero" id="main">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Resources</div>
+    <div class="crumb"><a href="/site">Paisa</a> · Resources</div>
     <div class="eyebrow on-dark">Resources</div>
     <h1>How it works, written down.</h1>
     <p class="lede on-dark">Not a blog. The actual specifications the system was built from, including
@@ -444,7 +444,7 @@ export const aboutPage = () =>
     `
 <header class="phero" id="main">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Company</div>
+    <div class="crumb"><a href="/site">Paisa</a> · Company</div>
     <div class="eyebrow on-dark">About</div>
     <h1>Finance software should be checkable.</h1>
     <p class="lede on-dark">Most of it asks to be trusted. Paisa is built so that trust is not the
@@ -511,7 +511,7 @@ export const customersPage = () =>
     `
 <header class="phero" id="main">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Company</div>
+    <div class="crumb"><a href="/site">Paisa</a> · Company</div>
     <div class="eyebrow on-dark">Customers</div>
     <h1>No customers yet.</h1>
     <p class="lede on-dark">This page would normally be a wall of logos. Paisa does not have one, and
@@ -566,7 +566,7 @@ export const contactPage = () =>
     `
 <header class="phero" id="main">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Company</div>
+    <div class="crumb"><a href="/site">Paisa</a> · Company</div>
     <div class="eyebrow on-dark">Contact</div>
     <h1>Small team. Direct line.</h1>
     <p class="lede on-dark">There is no sales org, no SDR queue and no demo booking funnel. The demo
@@ -603,7 +603,7 @@ export const continuousClosePage = () =>
     `
 <header class="phero" id="main">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Concept</div>
+    <div class="crumb"><a href="/site">Paisa</a> · Concept</div>
     <div class="eyebrow on-dark">Continuous close</div>
     <h1>The month closes as it happens.</h1>
     <p class="lede on-dark">A two-week close is not a staffing problem. It is what happens when every
@@ -666,7 +666,7 @@ export const docsPage = () =>
     `
 <header class="phero" id="main">
   <div class="wrap">
-    <div class="crumb"><a href="/">Paisa</a> · Developers</div>
+    <div class="crumb"><a href="/site">Paisa</a> · Developers</div>
     <div class="eyebrow on-dark">Documentation</div>
     <h1>It is a library before it is an app.</h1>
     <p class="lede on-dark">The engines are pure TypeScript with no runtime dependencies. You can

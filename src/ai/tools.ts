@@ -8,7 +8,7 @@
  * LLM providers (Anthropic etc.) can expose them via native tool use.
  */
 
-import { formatINR, parseINR, sub, sum } from "../money.js";
+import { ZERO, formatINR, parseINR, sub, sum } from "../money.js";
 import { formatQty } from "../portfolio.js";
 import { searchKnowledge } from "../knowledge.js";
 import { screenTransactions } from "../anomalies.js";
@@ -70,8 +70,13 @@ export const TOOLS: Record<string, ToolFn> = {
   get_burn_and_runway: (org, args) => {
     const asOf = str(args.asOf, "asOf");
     const m = org.cashflow.metrics(asOf);
-    const burn = m.monthlyNetBurn === null ? "unavailable" : formatINR(m.monthlyNetBurn);
     const runway = m.runwayDays === null ? "unavailable" : `${m.runwayDays} days`;
+    // A negative burn is cash coming in. Printed as "burn=-₹25,200.00" the
+    // model read it back as "net burn was -₹25,200", which says nothing a
+    // founder can use; named for what it is, it says the business is growing.
+    if (m.monthlyNetBurn !== null && m.monthlyNetBurn < 0n)
+      return `monthly_net_inflow=${formatINR(sub(ZERO, m.monthlyNetBurn))} cash_is_growing=true runway=${runway} basis_months=${m.basisMonths} note="${m.note}"`;
+    const burn = m.monthlyNetBurn === null ? "unavailable" : formatINR(m.monthlyNetBurn);
     return `monthly_net_burn=${burn} runway=${runway} basis_months=${m.basisMonths} note="${m.note}"`;
   },
 

@@ -68,7 +68,13 @@ const TOPICS: readonly Topic[] = [
   },
   {
     triggers: ["profit", "loss", "revenue", "income", "earn", "margin", "p&l", "pnl", "expense", "spend", "spending", "cost", "costs",
-               "munafa", "nuksan", "kamai", "aamdani", "kharche"],
+               "munafa", "nuksan", "kamai", "aamdani", "kharche",
+               // "Where does the money go" questions need the expense
+               // breakdown, which only the P&L carries. "kharcha" reached the
+               // burn topic alone, so "sabse bada kharcha kya hai" was told
+               // no breakdown existed.
+               "kharch", "kharcha", "kharchon", "kharchey", "sabse bada", "sabse zyada",
+               "biggest", "largest", "top", "breakdown", "category", "categories", "where does"],
     tools: ["get_profit_and_loss", "get_recurring_payments", "get_account_balance"],
   },
   {

@@ -222,7 +222,7 @@ const compareMega = () =>
 export const nav = () => `
 <nav class="top" id="nav">
   <div class="wrap inner">
-    <a class="logo" href="/"><img class="logo-mark" src="/logo.png" alt="" width="27" height="27">paisa</a>
+    <a class="logo" href="/site"><img class="logo-mark" src="/logo.png" alt="" width="27" height="27">paisa</a>
     <div class="navlinks">
       <div class="navitem" data-menu>
         <button type="button" aria-expanded="false">What it does <i class="chev"></i></button>
